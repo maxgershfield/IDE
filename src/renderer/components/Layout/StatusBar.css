@@ -1,0 +1,28 @@
+.ide-status-bar {
+  flex-shrink: 0;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: linear-gradient(180deg, #2d2d30 0%, #252526 100%);
+  border-top: 1px solid var(--border);
+  user-select: none;
+}
+
+.ide-status-bar-left,
+.ide-status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ide-status-item {
+  line-height: 22px;
+}
+
+.ide-status-quiet {
+  opacity: 0.85;
+}
