@@ -26,6 +26,11 @@ import '@xyflow/react/dist/style.css';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import './GameBuilder.css';
 
+// ── Seed type (exported so GameBuilderPane can pass it) ──────────
+export interface MissionSeed {
+  stages?: Array<{ title: string; description?: string; game?: string }>;
+}
+
 // ── Node data types ──────────────────────────────────────────────
 type ArcNodeKind = 'stage' | 'decision' | 'reward';
 
@@ -111,10 +116,35 @@ const PALETTE_ITEMS = [
   { id: 'reward',   label: 'Reward Node',      sub: 'Karma / XP / item grant',  color: '#4ade80' },
 ];
 
-// ── Default graph ────────────────────────────────────────────────
+// ── Default graph + seed builder ─────────────────────────────────
 let idCounter = 0;
 
-function makeDefaults(): { nodes: Node<ArcNodeData>[]; edges: Edge[] } {
+function makeDefaults(seed?: MissionSeed): { nodes: Node<ArcNodeData>[]; edges: Edge[] } {
+  const seededStages = seed?.stages?.filter((s) => s.title) ?? [];
+
+  if (seededStages.length > 0) {
+    // Build a linear chain of stage nodes from the seed
+    const nodes: Node<ArcNodeData>[] = seededStages.map((s, i) => ({
+      id: `arc_s${i + 1}`,
+      type: 'arcNode',
+      position: { x: 160, y: 40 + i * 160 },
+      data: { kind: 'stage' as const, title: s.title, description: s.description || '', objectives: '', game: s.game || 'OurWorld' },
+    }));
+    nodes.push({
+      id: 'arc_r1', type: 'arcNode', position: { x: 160, y: 40 + seededStages.length * 160 },
+      data: { kind: 'reward' as const, karma: 10, xp: 50, item: '' },
+    });
+    const edges: Edge[] = seededStages.map((_, i) => ({
+      id: `ae${i + 1}`,
+      source: `arc_s${i + 1}`,
+      target: i + 1 < seededStages.length ? `arc_s${i + 2}` : 'arc_r1',
+      animated: true,
+      style: { stroke: '#38bdf8', strokeWidth: 2 },
+    }));
+    return { nodes, edges };
+  }
+
+  // Fallback demo graph
   return {
     nodes: [
       { id: 'arc_s1', type: 'arcNode', position: { x: 160, y: 40 },
@@ -257,8 +287,8 @@ function ArcPropertiesPanel({
 }
 
 // ── Inner canvas ─────────────────────────────────────────────────
-function MissionArcCanvas({ onClose }: { onClose: () => void }) {
-  const defaults = makeDefaults();
+function MissionArcCanvas({ onClose, seed }: { onClose: () => void; seed?: MissionSeed }) {
+  const defaults = makeDefaults(seed);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<ArcNodeData>>(defaults.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(defaults.edges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -306,7 +336,7 @@ function MissionArcCanvas({ onClose }: { onClose: () => void }) {
   }, [nodes, edges, submitBuilderMessage]);
 
   const handleReset = useCallback(() => {
-    const d = makeDefaults();
+    const d = makeDefaults(seed);
     setNodes(d.nodes);
     setEdges(d.edges);
     setSelectedNodeId(null);
@@ -368,8 +398,8 @@ function MissionArcCanvas({ onClose }: { onClose: () => void }) {
 }
 
 // ── Public export ────────────────────────────────────────────────
-export const MissionArcPane: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+export const MissionArcPane: React.FC<{ onClose: () => void; seed?: MissionSeed }> = ({ onClose, seed }) => (
   <ReactFlowProvider>
-    <MissionArcCanvas onClose={onClose} />
+    <MissionArcCanvas onClose={onClose} seed={seed} />
   </ReactFlowProvider>
 );

@@ -36,6 +36,17 @@ const nodeTypes: NodeTypes = { questDesigner: QuestCanvasNode };
 
 let nodeIdCounter = 0;
 
+// ── Seed type (exported so GameBuilderPane can pass it) ──────────
+export interface QuestSeed {
+  name?: string;
+  description?: string;
+  gameSource?: string;
+  rewardKarma?: number;
+  rewardXP?: number;
+  /** Objectives from the form — each becomes an Objective node */
+  objectives?: Array<{ title: string; game?: string }>;
+}
+
 // ── Palette tiles ──────────────────────────────────────────────
 const PALETTE_ITEMS: { id: PaletteDragId; label: string; sub: string; color: string }[] = [
   { id: 'quest_root',          label: 'Quest Root',    sub: 'Required: 1 per graph',   color: '#a78bfa' },
@@ -47,9 +58,10 @@ const PALETTE_ITEMS: { id: PaletteDragId; label: string; sub: string; color: str
   { id: 'narrative_attachment',label: 'Narrative',     sub: 'Video / audio / text',    color: '#f472b6' },
 ];
 
-// ── Default demo graph ─────────────────────────────────────────
-function makeDefaultNodes(): Node<RFQuestData>[] {
-  return [
+// ── Graph builder — produces initial nodes + edges from optional seed ─
+function makeGraphFromSeed(seed?: QuestSeed): { nodes: Node<RFQuestData>[]; edges: Edge[] } {
+  const game = seed?.gameSource || 'OurWorld';
+  const nodes: Node<RFQuestData>[] = [
     {
       id: 'n_root',
       type: 'questDesigner',
@@ -57,36 +69,49 @@ function makeDefaultNodes(): Node<RFQuestData>[] {
       data: {
         designer: {
           kind: 'quest_root',
-          quest: { name: 'New Quest', description: 'Describe your quest.', rewardKarma: 10, rewardXP: 50 },
+          quest: {
+            name:        seed?.name        || 'New Quest',
+            description: seed?.description || 'Describe your quest.',
+            rewardKarma: seed?.rewardKarma ?? 10,
+            rewardXP:    seed?.rewardXP    ?? 50,
+          },
         },
         paletteLabel: 'Quest',
       },
     },
-    {
-      id: 'n_obj1',
+  ];
+
+  const edges: Edge[] = [];
+  const seededObjectives = seed?.objectives?.filter((o) => o.title) ?? [];
+  const objectiveList = seededObjectives.length > 0
+    ? seededObjectives
+    : [{ title: 'First Objective', game }];
+
+  objectiveList.forEach((obj, i) => {
+    const id = `n_obj${i + 1}`;
+    nodes.push({
+      id,
       type: 'questDesigner',
-      position: { x: 180, y: 200 },
+      position: { x: 180, y: 200 + i * 160 },
       data: {
         designer: {
           kind: 'ogame_objective',
           objective: {
-            title: 'First Objective',
-            description: 'Describe what the player must do.',
-            primaryGame: 'OurWorld',
+            title:       obj.title,
+            description: '',
+            primaryGame: obj.game || game,
             requirements: {},
             gameLogic: { eventKind: 'pickup_item', primaryTargetId: '' },
           },
         },
-        paletteLabel: 'Our World',
+        paletteLabel: obj.game || game,
       },
-    },
-  ];
-}
+    });
+    const src = i === 0 ? 'n_root' : `n_obj${i}`;
+    edges.push({ id: `e_${src}_${id}`, source: src, target: id, animated: true, style: { stroke: '#4ade80' } });
+  });
 
-function makeDefaultEdges(): Edge[] {
-  return [
-    { id: 'e_root_obj1', source: 'n_root', target: 'n_obj1', animated: true, style: { stroke: '#4ade80' } },
-  ];
+  return { nodes, edges };
 }
 
 // ── Build agent message from compiled draft ─────────────────────
@@ -124,9 +149,10 @@ Please:
 }
 
 // ── Inner canvas (must be inside ReactFlowProvider) ─────────────
-function QuestGraphCanvas({ onClose }: { onClose: () => void }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<RFQuestData>>(makeDefaultNodes());
-  const [edges, setEdges, onEdgesChange] = useEdgesState(makeDefaultEdges());
+function QuestGraphCanvas({ onClose, seed }: { onClose: () => void; seed?: QuestSeed }) {
+  const { nodes: initialNodes, edges: initialEdges } = makeGraphFromSeed(seed);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<RFQuestData>>(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>('n_root');
   const [compileErrors, setCompileErrors] = useState<string[]>([]);
   const [compiled, setCompiled] = useState(false);
@@ -202,8 +228,9 @@ function QuestGraphCanvas({ onClose }: { onClose: () => void }) {
   }, [nodes, edges, submitBuilderMessage]);
 
   const handleLoadDemo = useCallback(() => {
-    setNodes(makeDefaultNodes());
-    setEdges(makeDefaultEdges());
+    const { nodes: n, edges: e } = makeGraphFromSeed();
+    setNodes(n);
+    setEdges(e);
     setSelectedNodeId('n_root');
     setCompileErrors([]);
     setCompiled(false);
@@ -298,8 +325,8 @@ function QuestGraphCanvas({ onClose }: { onClose: () => void }) {
 }
 
 // ── Public export (wraps with ReactFlowProvider) ─────────────────
-export const QuestGraphPane: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+export const QuestGraphPane: React.FC<{ onClose: () => void; seed?: QuestSeed }> = ({ onClose, seed }) => (
   <ReactFlowProvider>
-    <QuestGraphCanvas onClose={onClose} />
+    <QuestGraphCanvas onClose={onClose} seed={seed} />
   </ReactFlowProvider>
 );

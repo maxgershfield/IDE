@@ -1,14 +1,20 @@
 /**
  * GameBuilderPane — renders a builder inline in the editor tab area.
- * For builders that have a visual canvas (quest, missionArc), a "Visual / Form"
- * toggle pill lets developers switch between the drag-and-drop canvas and the
- * simpler form view. All other builders show the form only.
+ *
+ * Default view is "Form" (simple, quick). For builders that have a visual
+ * canvas (quest, missionArc), a "Form / Visual" toggle is shown.
+ *
+ * When the user switches to Visual, the current form values are used to
+ * pre-seed the canvas — objective rows become Objective nodes, the quest
+ * name/description pre-fill the Quest Root node, etc. This means filling
+ * the form first and then clicking "Open Visual" gives a ready-to-refine
+ * graph rather than a blank canvas.
  */
 import React, { useState, useCallback } from 'react';
 import { BUILDERS } from './GameBuilderModal';
 import { useEditorTab } from '../../contexts/EditorTabContext';
-import { QuestGraphPane } from '../GameBuilder/QuestGraphPane';
-import { MissionArcPane } from '../GameBuilder/MissionArcPane';
+import { QuestGraphPane, type QuestSeed } from '../GameBuilder/QuestGraphPane';
+import { MissionArcPane, type MissionSeed } from '../GameBuilder/MissionArcPane';
 
 const VISUAL_BUILDERS = ['quest', 'missionArc'];
 
@@ -17,11 +23,12 @@ export interface GameBuilderPaneProps {
   onClose: () => void;
 }
 
-interface RepeatableRow {
+export interface RepeatableRow {
   id: string;
   values: Record<string, string>;
 }
 
+// ── Repeatable field subcomponent ─────────────────────────────────
 function RepeatableField({
   field,
   rows,
@@ -41,7 +48,6 @@ function RepeatableField({
     ]);
 
   const removeRow = (id: string) => onChange(rows.filter((r) => r.id !== id));
-
   const updateRow = (id: string, key: string, value: string) =>
     onChange(rows.map((r) => (r.id === id ? { ...r, values: { ...r.values, [key]: value } } : r)));
 
@@ -93,60 +99,26 @@ function RepeatableField({
   );
 }
 
-/** Route to visual canvas builders or the generic form builder, with a toggle */
-export const GameBuilderPane: React.FC<GameBuilderPaneProps> = ({ builderId, onClose }) => {
-  const hasVisual = builderId ? VISUAL_BUILDERS.includes(builderId) : false;
-  const [viewMode, setViewMode] = useState<'visual' | 'form'>(hasVisual ? 'visual' : 'form');
+// ── Form pane — receives values as controlled props ───────────────
+interface FormPaneProps {
+  builderId: string | null;
+  onClose: () => void;
+  values: Record<string, unknown>;
+  onValuesChange: (key: string, value: unknown) => void;
+  repeatableRows: Record<string, RepeatableRow[]>;
+  onRepeatableRowsChange: (key: string, rows: RepeatableRow[]) => void;
+}
 
-  return (
-    <div className="gbp-outer">
-      {hasVisual && (
-        <div className="gbp-view-switcher">
-          <span className="gbp-view-label">View:</span>
-          <div className="gbp-view-pills">
-            <button
-              type="button"
-              className={`gbp-view-btn${viewMode === 'visual' ? ' is-active' : ''}`}
-              onClick={() => setViewMode('visual')}
-            >
-              Visual
-            </button>
-            <button
-              type="button"
-              className={`gbp-view-btn${viewMode === 'form' ? ' is-active' : ''}`}
-              onClick={() => setViewMode('form')}
-            >
-              Form
-            </button>
-          </div>
-        </div>
-      )}
-      <div className="gbp-view-content">
-        {hasVisual && viewMode === 'visual' ? (
-          builderId === 'quest'
-            ? <QuestGraphPane onClose={onClose} />
-            : <MissionArcPane onClose={onClose} />
-        ) : (
-          <GameBuilderFormPane builderId={builderId} onClose={onClose} />
-        )}
-      </div>
-    </div>
-  );
-};
-
-/** Form-based builder for all non-canvas builder IDs */
-const GameBuilderFormPane: React.FC<GameBuilderPaneProps> = ({
+const GameBuilderFormPane: React.FC<FormPaneProps> = ({
   builderId,
-  onClose
+  onClose,
+  values,
+  onValuesChange,
+  repeatableRows,
+  onRepeatableRowsChange,
 }) => {
   const { submitBuilderMessage } = useEditorTab();
   const builder = builderId ? BUILDERS.find((b) => b.id === builderId) ?? null : null;
-  const [values, setValues] = useState<Record<string, unknown>>({});
-  const [repeatableRows, setRepeatableRows] = useState<Record<string, RepeatableRow[]>>({});
-
-  const setValue = useCallback((key: string, value: unknown) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
-  }, []);
 
   const handleSubmit = () => {
     if (!builder) return;
@@ -168,13 +140,11 @@ const GameBuilderFormPane: React.FC<GameBuilderPaneProps> = ({
 
   return (
     <div className="gbp-container">
-      {/* Header */}
       <div className="gbp-header">
         <span className="gb-layer-badge">{builder.oasisLayer}</span>
         <p className="gbp-description">{builder.description}</p>
       </div>
 
-      {/* Fields */}
       <div className="gbp-fields">
         {builder.fields.map((field) => (
           <div key={field.key} className="gb-field">
@@ -187,7 +157,7 @@ const GameBuilderFormPane: React.FC<GameBuilderPaneProps> = ({
               <RepeatableField
                 field={field}
                 rows={repeatableRows[field.key] || []}
-                onChange={(rows) => setRepeatableRows((prev) => ({ ...prev, [field.key]: rows }))}
+                onChange={(rows) => onRepeatableRowsChange(field.key, rows)}
               />
             ) : field.type === 'textarea' ? (
               <textarea
@@ -196,14 +166,14 @@ const GameBuilderFormPane: React.FC<GameBuilderPaneProps> = ({
                 placeholder={field.placeholder}
                 rows={3}
                 value={String(values[field.key] ?? '')}
-                onChange={(e) => setValue(field.key, e.target.value)}
+                onChange={(e) => onValuesChange(field.key, e.target.value)}
               />
             ) : field.type === 'select' ? (
               <select
                 id={`gbp-${field.key}`}
                 className="gb-select"
                 value={String(values[field.key] ?? field.default ?? '')}
-                onChange={(e) => setValue(field.key, e.target.value)}
+                onChange={(e) => onValuesChange(field.key, e.target.value)}
               >
                 {field.options?.map((o: any) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -216,7 +186,7 @@ const GameBuilderFormPane: React.FC<GameBuilderPaneProps> = ({
                     type="checkbox"
                     className="gb-toggle-input"
                     checked={Boolean(values[field.key] ?? field.default ?? false)}
-                    onChange={(e) => setValue(field.key, e.target.checked)}
+                    onChange={(e) => onValuesChange(field.key, e.target.checked)}
                   />
                   <div className={`gb-toggle-thumb${Boolean(values[field.key] ?? field.default) ? ' is-on' : ''}`} />
                 </div>
@@ -229,7 +199,7 @@ const GameBuilderFormPane: React.FC<GameBuilderPaneProps> = ({
                 className="gb-input"
                 placeholder={field.placeholder}
                 value={String(values[field.key] ?? '')}
-                onChange={(e) => setValue(field.key, e.target.value)}
+                onChange={(e) => onValuesChange(field.key, e.target.value)}
               />
             )}
 
@@ -240,7 +210,6 @@ const GameBuilderFormPane: React.FC<GameBuilderPaneProps> = ({
         ))}
       </div>
 
-      {/* Footer */}
       <div className="gbp-footer">
         <button type="button" className="gb-btn gb-btn--cancel" onClick={onClose}>
           Cancel
@@ -248,6 +217,122 @@ const GameBuilderFormPane: React.FC<GameBuilderPaneProps> = ({
         <button type="button" className="gb-btn gb-btn--submit" onClick={handleSubmit}>
           Create with Agent
         </button>
+      </div>
+    </div>
+  );
+};
+
+// ── Seed builders — convert form values into canvas seed data ─────
+function buildQuestSeed(
+  values: Record<string, unknown>,
+  repeatableRows: Record<string, RepeatableRow[]>
+): QuestSeed {
+  const gameSource = typeof values.gameSource === 'string' ? values.gameSource : 'OurWorld';
+  return {
+    name:        typeof values.name        === 'string' ? values.name        : undefined,
+    description: typeof values.description === 'string' ? values.description : undefined,
+    gameSource,
+    rewardKarma: typeof values.rewardKarma === 'number' ? values.rewardKarma : undefined,
+    rewardXP:    typeof values.rewardXP    === 'number' ? values.rewardXP    : undefined,
+    objectives: (repeatableRows.objectives || []).map((r) => ({
+      title: r.values.name || 'Objective',
+      game:  gameSource,
+    })),
+  };
+}
+
+function buildMissionSeed(
+  _values: Record<string, unknown>,
+  repeatableRows: Record<string, RepeatableRow[]>
+): MissionSeed {
+  return {
+    stages: (repeatableRows.stages || []).map((r) => ({
+      title:       r.values.stageName    || r.values.name || 'Stage',
+      description: r.values.description || '',
+      game:        r.values.game         || 'OurWorld',
+    })),
+  };
+}
+
+// ── Main pane — toggle + state lifting ───────────────────────────
+export const GameBuilderPane: React.FC<GameBuilderPaneProps> = ({ builderId, onClose }) => {
+  const hasVisual = builderId ? VISUAL_BUILDERS.includes(builderId) : false;
+
+  // Default to 'form' — less overwhelming, visual is opt-in
+  const [viewMode, setViewMode] = useState<'visual' | 'form'>('form');
+  // Increment each time the user opens Visual so canvas re-seeds from latest form values
+  const [visualKey, setVisualKey] = useState(0);
+
+  // Lifted form state so we can seed the canvas from it
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [repeatableRows, setRepeatableRows] = useState<Record<string, RepeatableRow[]>>({});
+
+  const handleValueChange = useCallback((key: string, value: unknown) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleRepeatableChange = useCallback((key: string, rows: RepeatableRow[]) => {
+    setRepeatableRows((prev) => ({ ...prev, [key]: rows }));
+  }, []);
+
+  const openVisual = useCallback(() => {
+    setVisualKey((k) => k + 1); // fresh seed from latest form values
+    setViewMode('visual');
+  }, []);
+
+  // Build seed for whichever visual canvas is active
+  const questSeed   = buildQuestSeed(values, repeatableRows);
+  const missionSeed = buildMissionSeed(values, repeatableRows);
+
+  // Label for the Visual button — more descriptive when form has data
+  const hasFormData =
+    Object.values(values).some((v) => v !== '' && v !== undefined) ||
+    Object.values(repeatableRows).some((rows) => rows.length > 0);
+  const visualBtnLabel = hasFormData ? 'Open Visual' : 'Visual';
+
+  return (
+    <div className="gbp-outer">
+      {hasVisual && (
+        <div className="gbp-view-switcher">
+          <span className="gbp-view-label">View:</span>
+          <div className="gbp-view-pills">
+            <button
+              type="button"
+              className={`gbp-view-btn${viewMode === 'form' ? ' is-active' : ''}`}
+              onClick={() => setViewMode('form')}
+            >
+              Form
+            </button>
+            <button
+              type="button"
+              className={`gbp-view-btn${viewMode === 'visual' ? ' is-active' : ''}`}
+              onClick={openVisual}
+              title={hasFormData ? 'Generate a visual graph from your form data' : 'Open drag-and-drop canvas'}
+            >
+              {visualBtnLabel}
+            </button>
+          </div>
+          {hasFormData && viewMode === 'form' && (
+            <span className="gbp-seed-hint">Your form data will pre-populate the canvas</span>
+          )}
+        </div>
+      )}
+
+      <div className="gbp-view-content">
+        {hasVisual && viewMode === 'visual' ? (
+          builderId === 'quest'
+            ? <QuestGraphPane key={`quest-${visualKey}`} onClose={onClose} seed={questSeed} />
+            : <MissionArcPane key={`mission-${visualKey}`} onClose={onClose} seed={missionSeed} />
+        ) : (
+          <GameBuilderFormPane
+            builderId={builderId}
+            onClose={onClose}
+            values={values}
+            onValuesChange={handleValueChange}
+            repeatableRows={repeatableRows}
+            onRepeatableRowsChange={handleRepeatableChange}
+          />
+        )}
       </div>
     </div>
   );
