@@ -15,7 +15,9 @@ import { BUILDERS } from './GameBuilderModal';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import { QuestGraphPane, type QuestSeed } from '../GameBuilder/QuestGraphPane';
 import { MissionArcPane, type MissionSeed } from '../GameBuilder/MissionArcPane';
+import { NPCBuilderPane } from '../GameBuilder/NPCBuilderPane';
 
+// Builders with a dedicated visual canvas (Form / Visual toggle)
 const VISUAL_BUILDERS = ['quest', 'missionArc'];
 
 export interface GameBuilderPaneProps {
@@ -254,8 +256,11 @@ function buildMissionSeed(
   };
 }
 
-// ── Main pane — toggle + state lifting ───────────────────────────
+// ── Main pane — route to the right builder ───────────────────────
 export const GameBuilderPane: React.FC<GameBuilderPaneProps> = ({ builderId, onClose }) => {
+  // NPC has its own rich visual builder — skip the Form/Visual toggle
+  if (builderId === 'npc') return <NPCBuilderPane onClose={onClose} />;
+
   const hasVisual = builderId ? VISUAL_BUILDERS.includes(builderId) : false;
 
   // Default to 'form' — less overwhelming, visual is opt-in
