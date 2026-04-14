@@ -227,7 +227,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const { isGameDevMode } = useGameDev();
   const { tools, executeTool, loading: mcpLoading } = useMCP();
   const { avatarId, loggedIn } = useAuth();
-  const { workspacePath, tree, refreshTree } = useWorkspace();
+  const { workspacePath, tree, refreshTree, starWorkspaceConfig } = useWorkspace();
   const { removeReference, setSessionTitle, getReferencedPathsForSession } = useIdeChat();
   const referencedPaths = getReferencedPathsForSession(sessionId);
   const threadKey = useMemo(
@@ -700,7 +700,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         const priorForAgent = buildAgentPriorMessagesFromThread(
           messages.slice(-(MAX_HISTORY - 1))
         );
-        const contextPack = isGameMode ? getGameDevContextPack() : getAgentContextPack();
+        const contextPack = isGameMode
+          ? getGameDevContextPack(starWorkspaceConfig?.gameEngine)
+          : getAgentContextPack();
         const out = await runIdeAgentLoop(
           {
             agentTurn: (b, runId) => api.agentTurn(b, runId),

@@ -8,6 +8,7 @@ interface PaletteAction {
 }
 
 const ACTIONS: PaletteAction[] = [
+  { label: 'New World',      sublabel: 'Scaffold',   builderId: 'newWorld' },
   { label: 'New Quest',      sublabel: 'STARNET',    builderId: 'quest' },
   { label: 'New NPC',        sublabel: 'Holon',      builderId: 'npc' },
   { label: 'Mission Arc',    sublabel: 'STARNET',    builderId: 'missionArc' },

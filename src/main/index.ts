@@ -11,6 +11,7 @@ import { loadStoredAuth, saveAuth, clearStoredAuth } from './services/AuthStore.
 import { ChatService } from './services/ChatService.js';
 import { StaticPreviewService } from './services/StaticPreviewService.js';
 import { AgentToolExecutor } from './services/AgentToolExecutor.js';
+import { TEMPLATE_REGISTRY } from './templates/metaverseTemplates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -251,6 +252,49 @@ ipcMain.handle('fs:reveal-in-finder', async (_, targetPath: string) => {
     return { ok: true };
   } catch (error: any) {
     console.error('[IPC] Reveal in Finder error:', error);
+    return { ok: false, error: error?.message ?? String(error) };
+  }
+});
+
+/**
+ * Read .star-workspace.json from the current workspace root (or a supplied dir).
+ * Returns the parsed config or null if the file doesn't exist / can't be parsed.
+ */
+ipcMain.handle('fs:read-star-workspace', async (_, workspacePath?: string) => {
+  try {
+    const base = workspacePath ?? fileSystemService.getWorkspacePath();
+    if (!base) return null;
+    const cfgPath = path.join(base, '.star-workspace.json');
+    const raw = await fs.promises.readFile(cfgPath, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+});
+
+/**
+ * Scaffold a metaverse world template into the given destination directory.
+ * Creates the destination folder if needed, then writes all template files.
+ * Returns { ok, files } on success or { ok: false, error } on failure.
+ */
+ipcMain.handle('scaffold:template', async (_, engine: string, destDir: string, projectName: string) => {
+  try {
+    const builder = TEMPLATE_REGISTRY[engine];
+    if (!builder) return { ok: false, error: `Unknown engine: ${engine}` };
+
+    const files = builder(projectName);
+    const created: string[] = [];
+
+    for (const { path: relPath, content } of files) {
+      const abs = path.join(destDir, relPath);
+      await fs.promises.mkdir(path.dirname(abs), { recursive: true });
+      await fs.promises.writeFile(abs, content, 'utf-8');
+      created.push(relPath);
+    }
+
+    return { ok: true, files: created };
+  } catch (error: any) {
+    console.error('[IPC] scaffold:template error:', error);
     return { ok: false, error: error?.message ?? String(error) };
   }
 });

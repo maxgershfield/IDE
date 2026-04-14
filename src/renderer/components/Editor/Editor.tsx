@@ -108,6 +108,7 @@ export const Editor: React.FC = () => {
 
   // Builder tab label from builderId
   const BUILDER_LABELS: Record<string, string> = {
+    newWorld: 'New World',
     quest: 'New Quest',
     npc: 'New NPC',
     missionArc: 'Mission Arc',

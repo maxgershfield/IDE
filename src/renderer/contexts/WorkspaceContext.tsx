@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
+import type { StarWorkspaceConfig } from '../../shared/starWorkspaceTypes';
 
 export interface TreeNode {
   name: string;
@@ -13,12 +14,16 @@ interface WorkspaceContextValue {
   openFilePath: string | null;
   fileContent: string;
   dirty: boolean;
+  /** Parsed .star-workspace.json for the current workspace, or null if absent. */
+  starWorkspaceConfig: StarWorkspaceConfig | null;
   pickWorkspace: () => Promise<void>;
   refreshTree: () => Promise<void>;
   openFile: (path: string) => Promise<void>;
   setFileContent: (content: string) => void;
   setDirty: (dirty: boolean) => void;
   save: () => Promise<void>;
+  /** Re-reads .star-workspace.json from the current workspace root. */
+  reloadStarWorkspace: () => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -29,6 +34,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [openFilePath, setOpenFilePath] = useState<string | null>(null);
   const [fileContent, setFileContentState] = useState<string>('');
   const [dirty, setDirty] = useState(false);
+  const [starWorkspaceConfig, setStarWorkspaceConfig] = useState<StarWorkspaceConfig | null>(null);
+
+  const reloadStarWorkspace = useCallback(async () => {
+    const raw = await window.electronAPI?.readStarWorkspace?.();
+    setStarWorkspaceConfig((raw as StarWorkspaceConfig | null) ?? null);
+  }, []);
 
   const pickWorkspace = useCallback(async () => {
     if (!window.electronAPI?.pickWorkspace) return;
@@ -40,6 +51,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setOpenFilePath(null);
       setFileContentState('');
       setDirty(false);
+      // Auto-load .star-workspace.json
+      const raw = await window.electronAPI?.readStarWorkspace?.();
+      setStarWorkspaceConfig((raw as StarWorkspaceConfig | null) ?? null);
     }
   }, []);
 
@@ -82,12 +96,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     openFilePath,
     fileContent,
     dirty,
+    starWorkspaceConfig,
     pickWorkspace,
     refreshTree,
     openFile,
     setFileContent,
     setDirty,
     save,
+    reloadStarWorkspace,
   };
 
   return (

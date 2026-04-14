@@ -16,6 +16,7 @@ import { useEditorTab } from '../../contexts/EditorTabContext';
 import { QuestGraphPane, type QuestSeed } from '../GameBuilder/QuestGraphPane';
 import { MissionArcPane, type MissionSeed } from '../GameBuilder/MissionArcPane';
 import { NPCBuilderPane } from '../GameBuilder/NPCBuilderPane';
+import { WorldStarterPane } from '../GameBuilder/WorldStarterPane';
 
 // Builders with a dedicated visual canvas (Form / Visual toggle)
 const VISUAL_BUILDERS = ['quest', 'missionArc'];
@@ -258,8 +259,9 @@ function buildMissionSeed(
 
 // ── Main pane — route to the right builder ───────────────────────
 export const GameBuilderPane: React.FC<GameBuilderPaneProps> = ({ builderId, onClose }) => {
-  // NPC has its own rich visual builder — skip the Form/Visual toggle
+  // Dedicated builders that bypass the Form/Visual toggle
   if (builderId === 'npc') return <NPCBuilderPane onClose={onClose} />;
+  if (builderId === 'newWorld') return <WorldStarterPane onClose={onClose} />;
 
   const hasVisual = builderId ? VISUAL_BUILDERS.includes(builderId) : false;
 

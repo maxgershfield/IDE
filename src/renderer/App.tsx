@@ -117,6 +117,12 @@ declare global {
         messagesJson?: string;
         error?: string;
       }>;
+      readStarWorkspace: (workspacePath?: string) => Promise<Record<string, unknown> | null>;
+      scaffoldTemplate: (
+        engine: string,
+        destDir: string,
+        projectName: string
+      ) => Promise<{ ok: boolean; files?: string[]; error?: string }>;
     };
   }
 }

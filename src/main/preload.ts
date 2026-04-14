@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeFile: (path: string, content: string) =>
     ipcRenderer.invoke('fs:write-file', path, content),
   revealInFinder: (targetPath: string) => ipcRenderer.invoke('fs:reveal-in-finder', targetPath),
+  readStarWorkspace: (workspacePath?: string) => ipcRenderer.invoke('fs:read-star-workspace', workspacePath),
+  scaffoldTemplate: (engine: string, destDir: string, projectName: string) =>
+    ipcRenderer.invoke('scaffold:template', engine, destDir, projectName),
 
   /** Serve folder via python3 http.server and open browser (IDE assistant). */
   previewStaticFolder: (targetPath: string, openBrowser?: boolean) =>
