@@ -122,7 +122,8 @@ declare global {
         engine: string,
         destDir: string,
         projectName: string
-      ) => Promise<{ ok: boolean; files?: string[]; error?: string }>;
+      ) => Promise<{ ok: boolean; files?: string[]; projectPath?: string; error?: string }>;
+      openUrl: (url: string) => Promise<{ ok: boolean; error?: string }>;
     };
   }
 }

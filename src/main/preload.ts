@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readStarWorkspace: (workspacePath?: string) => ipcRenderer.invoke('fs:read-star-workspace', workspacePath),
   scaffoldTemplate: (engine: string, destDir: string, projectName: string) =>
     ipcRenderer.invoke('scaffold:template', engine, destDir, projectName),
+  openUrl: (url: string) => ipcRenderer.invoke('shell:open-url', url),
 
   /** Serve folder via python3 http.server and open browser (IDE assistant). */
   previewStaticFolder: (targetPath: string, openBrowser?: boolean) =>

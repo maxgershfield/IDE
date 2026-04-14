@@ -292,9 +292,19 @@ ipcMain.handle('scaffold:template', async (_, engine: string, destDir: string, p
       created.push(relPath);
     }
 
-    return { ok: true, files: created };
+    return { ok: true, files: created, projectPath: destDir };
   } catch (error: any) {
     console.error('[IPC] scaffold:template error:', error);
+    return { ok: false, error: error?.message ?? String(error) };
+  }
+});
+
+/** Open a URL in the user's default system browser. */
+ipcMain.handle('shell:open-url', async (_, url: string) => {
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (error: any) {
     return { ok: false, error: error?.message ?? String(error) };
   }
 });
