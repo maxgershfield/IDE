@@ -62,7 +62,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      webviewTag: true,          // enables <webview> for the live world preview pane
     },
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#1e1e1e'
@@ -299,6 +300,74 @@ ipcMain.handle('scaffold:template', async (_, engine: string, destDir: string, p
   }
 });
 
+// ─── ElevenLabs NPC Voice Studio ─────────────────────────────────────────────
+
+ipcMain.handle('elevenlabs:list-voices', async () => {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey) return { ok: false, error: 'ELEVENLABS_API_KEY not set' };
+  try {
+    const res = await fetch('https://api.elevenlabs.io/v1/voices', {
+      headers: { 'xi-api-key': apiKey },
+    });
+    if (!res.ok) return { ok: false, error: `ElevenLabs API error: ${res.status}` };
+    const data = await res.json() as { voices: unknown[] };
+    return { ok: true, voices: data.voices };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+});
+
+ipcMain.handle('elevenlabs:tts', async (_, voiceId: string, text: string) => {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey) return { ok: false, error: 'ELEVENLABS_API_KEY not set' };
+  try {
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, model_id: 'eleven_flash_v2_5' }),
+    });
+    if (!res.ok) return { ok: false, error: `ElevenLabs TTS error: ${res.status}` };
+    const buf = await res.arrayBuffer();
+    return { ok: true, audioBase64: Buffer.from(buf).toString('base64') };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+});
+
+ipcMain.handle('elevenlabs:create-agent', async (_, params: {
+  name: string; systemPrompt: string; firstMessage: string; voiceId: string;
+}) => {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey) return { ok: false, error: 'ELEVENLABS_API_KEY not set' };
+  try {
+    const res = await fetch('https://api.elevenlabs.io/v1/convai/agents/create', {
+      method: 'POST',
+      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: params.name,
+        conversation_config: {
+          agent: {
+            prompt: { prompt: params.systemPrompt },
+            first_message: params.firstMessage,
+            language: 'en',
+          },
+        },
+        tts: { voice_id: params.voiceId },
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      return { ok: false, error: `ElevenLabs agent error: ${res.status} ${txt}` };
+    }
+    const data = await res.json() as { agent_id: string };
+    return { ok: true, agentId: data.agent_id };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /** Open a URL in the user's default system browser. */
 ipcMain.handle('shell:open-url', async (_, url: string) => {
   try {
@@ -307,6 +376,22 @@ ipcMain.handle('shell:open-url', async (_, url: string) => {
   } catch (error: any) {
     return { ok: false, error: error?.message ?? String(error) };
   }
+});
+
+/**
+ * Check whether a TCP port is currently accepting connections on localhost.
+ * Used by the live preview pane to detect when the Vite / Hyperfy dev server is ready.
+ */
+ipcMain.handle('check-port', async (_, port: number): Promise<boolean> => {
+  const net = await import('net');
+  return new Promise<boolean>((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(600);
+    socket.on('connect', () => { socket.destroy(); resolve(true); });
+    socket.on('error', () => resolve(false));
+    socket.on('timeout', () => { socket.destroy(); resolve(false); });
+    socket.connect(port, '127.0.0.1');
+  });
 });
 
 /** Serve a folder with python3 -m http.server and optionally open the browser (IDE assistant). */

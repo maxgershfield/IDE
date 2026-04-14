@@ -17,6 +17,7 @@ import { QuestGraphPane, type QuestSeed } from '../GameBuilder/QuestGraphPane';
 import { MissionArcPane, type MissionSeed } from '../GameBuilder/MissionArcPane';
 import { NPCBuilderPane } from '../GameBuilder/NPCBuilderPane';
 import { WorldStarterPane } from '../GameBuilder/WorldStarterPane';
+import { WorldPreviewPane } from '../GameBuilder/WorldPreviewPane';
 
 // Builders with a dedicated visual canvas (Form / Visual toggle)
 const VISUAL_BUILDERS = ['quest', 'missionArc'];
@@ -262,6 +263,7 @@ export const GameBuilderPane: React.FC<GameBuilderPaneProps> = ({ builderId, onC
   // Dedicated builders that bypass the Form/Visual toggle
   if (builderId === 'npc') return <NPCBuilderPane onClose={onClose} />;
   if (builderId === 'newWorld') return <WorldStarterPane onClose={onClose} />;
+  if (builderId === 'worldPreview') return <WorldPreviewPane onClose={onClose} />;
 
   const hasVisual = builderId ? VISUAL_BUILDERS.includes(builderId) : false;
 

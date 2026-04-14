@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useEditorTab } from '../../contexts/EditorTabContext';
+import { useGameDev } from '../../contexts/GameDevContext';
 import { GameBuilderPane } from '../Chat/GameBuilderPane';
 import './Editor.css';
 
@@ -25,8 +26,9 @@ function languageFromPath(filePath: string): string {
 export const Editor: React.FC = () => {
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoEditorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const { fileContent, openFilePath, setFileContent, save, dirty } = useWorkspace();
-  const { activeBuilderTab, closeBuilderTab } = useEditorTab();
+  const { fileContent, openFilePath, setFileContent, save, dirty, starWorkspaceConfig } = useWorkspace();
+  const { activeBuilderTab, closeBuilderTab, openBuilderTab } = useEditorTab();
+  const { isGameDevMode } = useGameDev();
   const ignoreNextChange = useRef(false);
 
   // Create Monaco once
@@ -109,6 +111,7 @@ export const Editor: React.FC = () => {
   // Builder tab label from builderId
   const BUILDER_LABELS: Record<string, string> = {
     newWorld: 'New World',
+    worldPreview: 'Live Preview',
     quest: 'New Quest',
     npc: 'New NPC',
     missionArc: 'Mission Arc',
@@ -119,6 +122,9 @@ export const Editor: React.FC = () => {
     geoHotspot: 'GeoHotSpot'
   };
   const builderLabel = activeBuilderTab ? (BUILDER_LABELS[activeBuilderTab] ?? activeBuilderTab) : '';
+  // Show the Preview button when a game project is open (star-workspace.json with a gameEngine)
+  const showPreviewBtn = isGameDevMode || !!starWorkspaceConfig?.gameEngine;
+  const isPreviewActive = activeBuilderTab === 'worldPreview';
 
   return (
     <div className="editor-container">
@@ -147,6 +153,20 @@ export const Editor: React.FC = () => {
               ×
             </button>
           </div>
+        )}
+
+        {/* Live Preview button — shown when a game project is open */}
+        {showPreviewBtn && (
+          <button
+            type="button"
+            className={`editor-tab-btn editor-tab-btn--preview${isPreviewActive ? ' is-active' : ''}`}
+            onClick={() =>
+              isPreviewActive ? closeBuilderTab() : openBuilderTab('worldPreview')
+            }
+            title="Toggle live world preview"
+          >
+            ⬡ Preview
+          </button>
         )}
       </div>
 

@@ -19,6 +19,9 @@ import { LoginModal } from './components/Auth/LoginModal';
 import { NonElectronBanner } from './components/Layout/NonElectronBanner';
 import { GameDevProvider } from './contexts/GameDevContext';
 import { EditorTabProvider } from './contexts/EditorTabContext';
+import { ActivityBar, ActivityView } from './components/Layout/ActivityBar';
+import { SearchPanel } from './components/FileExplorer/SearchPanel';
+import type { ElevenLabsVoice, ElevenLabsAgentParams } from '../../shared/elevenLabsTypes';
 
 declare global {
   interface Window {
@@ -124,6 +127,17 @@ declare global {
         projectName: string
       ) => Promise<{ ok: boolean; files?: string[]; projectPath?: string; error?: string }>;
       openUrl: (url: string) => Promise<{ ok: boolean; error?: string }>;
+      checkPort: (port: number) => Promise<boolean>;
+      // ElevenLabs NPC Voice Studio
+      elevenlabsListVoices: () => Promise<
+        { ok: true; voices: ElevenLabsVoice[] } | { ok: false; error: string }
+      >;
+      elevenlabsTts: (voiceId: string, text: string) => Promise<
+        { ok: true; audioBase64: string } | { ok: false; error: string }
+      >;
+      elevenlabsCreateAgent: (params: ElevenLabsAgentParams) => Promise<
+        { ok: true; agentId: string } | { ok: false; error: string }
+      >;
     };
   }
 }
@@ -132,6 +146,7 @@ function App() {
   const [mcpReady, setMcpReady] = useState(false);
   const [oasisReady, setOasisReady] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [activeView, setActiveView] = useState<ActivityView>('files');
 
   useEffect(() => {
     const p = window.electronAPI?.platform;
@@ -173,8 +188,16 @@ function App() {
               <IdeChatProvider>
               <div className="app-shell-workspace">
                 <div className="workspace-main">
-                  <Layout>
-                    <FileExplorer onLoginClick={() => setShowLoginModal(true)} />
+                  <Layout
+                    activityBar={
+                      <ActivityBar active={activeView} onChange={setActiveView} />
+                    }
+                  >
+                    {activeView === 'search' ? (
+                      <SearchPanel />
+                    ) : (
+                      <FileExplorer onLoginClick={() => setShowLoginModal(true)} />
+                    )}
                     <Editor />
                     <RightPanelShell
                       composer={<ChatInterface />}

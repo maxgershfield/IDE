@@ -32,6 +32,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scaffoldTemplate: (engine: string, destDir: string, projectName: string) =>
     ipcRenderer.invoke('scaffold:template', engine, destDir, projectName),
   openUrl: (url: string) => ipcRenderer.invoke('shell:open-url', url),
+  checkPort: (port: number) => ipcRenderer.invoke('check-port', port) as Promise<boolean>,
+
+  // ElevenLabs NPC Voice Studio
+  elevenlabsListVoices: () =>
+    ipcRenderer.invoke('elevenlabs:list-voices') as Promise<
+      { ok: true; voices: import('../shared/elevenLabsTypes').ElevenLabsVoice[] } |
+      { ok: false; error: string }
+    >,
+  elevenlabsTts: (voiceId: string, text: string) =>
+    ipcRenderer.invoke('elevenlabs:tts', voiceId, text) as Promise<
+      { ok: true; audioBase64: string } | { ok: false; error: string }
+    >,
+  elevenlabsCreateAgent: (params: import('../shared/elevenLabsTypes').ElevenLabsAgentParams) =>
+    ipcRenderer.invoke('elevenlabs:create-agent', params) as Promise<
+      { ok: true; agentId: string } | { ok: false; error: string }
+    >,
 
   /** Serve folder via python3 http.server and open browser (IDE assistant). */
   previewStaticFolder: (targetPath: string, openBrowser?: boolean) =>

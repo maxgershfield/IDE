@@ -64,7 +64,7 @@ interface Props {
 
 export const WorldStarterPane: React.FC<Props> = ({ onClose }) => {
   const { workspacePath, refreshTree, reloadStarWorkspace } = useWorkspace();
-  const { setPendingComposerText } = useEditorTab();
+  const { setPendingComposerText, openBuilderTab } = useEditorTab();
 
   const [tabMode, setTabMode] = useState<TabMode>('ai');
   const [description, setDescription] = useState('');
@@ -161,15 +161,9 @@ Keep files small and composable. One concern per file.`;
       // Terminal launch failure is non-fatal — the files are already on disk
     }
 
-    // Brief wait then open browser (Vite needs a few seconds to start)
-    setTimeout(async () => {
-      try {
-        await window.electronAPI.openUrl(selectedEngineData.devUrl);
-      } catch {
-        // openUrl might not be available yet — non-fatal
-      }
-      setScaffoldStatus('done');
-    }, 4000);
+    // Auto-open the live preview pane — it polls until the dev server is up
+    openBuilderTab('worldPreview');
+    setScaffoldStatus('done');
   };
 
   const canGenerate = description.trim().length > 0;
