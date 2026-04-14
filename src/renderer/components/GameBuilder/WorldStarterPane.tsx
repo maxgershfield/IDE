@@ -64,7 +64,7 @@ interface Props {
 
 export const WorldStarterPane: React.FC<Props> = ({ onClose }) => {
   const { workspacePath, refreshTree, reloadStarWorkspace } = useWorkspace();
-  const { submitBuilderMessage } = useEditorTab();
+  const { setPendingComposerText } = useEditorTab();
 
   const [tabMode, setTabMode] = useState<TabMode>('ai');
   const [description, setDescription] = useState('');
@@ -113,8 +113,9 @@ Please:
 
 Keep files small and composable. One concern per file.`;
 
-    submitBuilderMessage(msg);
-    onClose();
+    // Populate the composer input so the user can review the prompt and send it.
+    // (setPendingComposerText also closes the builder tab automatically.)
+    setPendingComposerText(msg);
   };
 
   // ── Quick Scaffold ──────────────────────────────────────────────
@@ -276,13 +277,13 @@ Keep files small and composable. One concern per file.`;
               disabled={!canGenerate}
               onClick={handleAIGenerate}
             >
-              Generate World with AI
+              Build Prompt
             </button>
           </div>
 
           <p className="wsp-hint">
-            The AI agent will write all files into your workspace, run <code>npm install</code>, and start
-            the dev server — you just describe the world.
+            Builds a detailed agent prompt from your description and loads it into the chat composer.
+            Review it, add any extra details, then hit Send — the AI will write all the files, run <code>npm install</code>, and start the dev server.
           </p>
         </>
       )}

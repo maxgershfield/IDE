@@ -272,7 +272,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     }
     return 'agent';
   });
-  const { registerSubmitHandler } = useEditorTab();
+  const { registerSubmitHandler, pendingComposerText, clearPendingComposerText } = useEditorTab();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -537,6 +537,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   useEffect(() => {
     registerSubmitHandler((msg) => void handleSendMessage(msg));
   }, [registerSubmitHandler, loading, canSend]);
+
+  // Consume pendingComposerText (set by AI Generate builders) — populate input so user can review and send
+  useEffect(() => {
+    if (!pendingComposerText) return;
+    setInput(pendingComposerText);
+    clearPendingComposerText();
+  }, [pendingComposerText, clearPendingComposerText]);
 
   const handleSend = async () => {
     if (!input.trim() || loading || !canSend) return;
