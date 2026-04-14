@@ -538,12 +538,17 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     registerSubmitHandler((msg) => void handleSendMessage(msg));
   }, [registerSubmitHandler, loading, canSend]);
 
-  // Consume pendingComposerText (set by AI Generate builders) — populate input so user can review and send
+  // Consume pendingComposerText (set by AI Generate builders) — auto-send directly into the agent.
+  // handleSendCore is captured fresh from this render (after pendingComposerText state change),
+  // so no stale-closure issue. We bypass the loading/canSend guards in handleSendMessage
+  // intentionally — handleSendCore will surface any errors through the normal error flow.
   useEffect(() => {
     if (!pendingComposerText) return;
-    setInput(pendingComposerText);
+    const msg = pendingComposerText;
     clearPendingComposerText();
-  }, [pendingComposerText, clearPendingComposerText]);
+    setInput('');
+    void handleSendCore(msg);
+  }, [pendingComposerText, clearPendingComposerText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async () => {
     if (!input.trim() || loading || !canSend) return;

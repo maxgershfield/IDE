@@ -277,13 +277,13 @@ Keep files small and composable. One concern per file.`;
               disabled={!canGenerate}
               onClick={handleAIGenerate}
             >
-              Build Prompt
+              Generate World with AI
             </button>
           </div>
 
           <p className="wsp-hint">
-            Builds a detailed agent prompt from your description and loads it into the chat composer.
-            Review it, add any extra details, then hit Send — the AI will write all the files, run <code>npm install</code>, and start the dev server.
+            Describe your world, pick an engine, and hit Generate — the AI agent will write all the files,
+            run <code>npm install</code>, and start the dev server automatically.
           </p>
         </>
       )}
