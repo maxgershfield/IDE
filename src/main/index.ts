@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,7 +12,7 @@ import { loadStoredAuth, saveAuth, clearStoredAuth } from './services/AuthStore.
 import { ChatService } from './services/ChatService.js';
 import { StaticPreviewService } from './services/StaticPreviewService.js';
 import { AgentToolExecutor } from './services/AgentToolExecutor.js';
-import { TEMPLATE_REGISTRY } from './templates/metaverseTemplates.js';
+import { TEMPLATE_REGISTRY, TEMPLATE_META, getContentTemplateFiles } from './templates/metaverseTemplates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,6 +32,46 @@ let staticPreviewService: StaticPreviewService;
 let agentToolExecutor: AgentToolExecutor;
 
 let rendererDistWatchStarted = false;
+
+/** Cached result of the STAR CLI probe performed at startup. */
+let starCliStatus: { found: boolean; path: string | null; version: string | null } = {
+  found: false,
+  path: null,
+  version: null
+};
+
+/**
+ * Probe the STAR CLI binary. Resolves STAR_CLI_PATH env var first, then falls back
+ * to `star` on PATH. Runs `star version` with a 5s timeout to confirm the binary works.
+ */
+function probeStarCli(): Promise<void> {
+  return new Promise((resolve) => {
+    const binPath = process.env.STAR_CLI_PATH?.trim() || 'star';
+    const pathWithHomebrew = ['/usr/local/bin', '/opt/homebrew/bin', process.env.PATH ?? '']
+      .filter(Boolean)
+      .join(path.delimiter);
+
+    execFile(
+      binPath,
+      ['version'],
+      { env: { ...process.env, PATH: pathWithHomebrew }, timeout: 5000 },
+      (err, stdout) => {
+        if (err) {
+          starCliStatus = { found: false, path: null, version: null };
+          console.warn(
+            `[Main] STAR CLI not found at "${binPath}". Set STAR_CLI_PATH or add "star" to PATH.`,
+            `Error: ${err.message}`
+          );
+        } else {
+          const version = stdout.trim().split('\n')[0] || null;
+          starCliStatus = { found: true, path: binPath, version };
+          console.log(`[Main] STAR CLI found: ${binPath}${version ? ` (${version})` : ''}`);
+        }
+        resolve();
+      }
+    );
+  });
+}
 
 /** One watcher: reload focused (or any) IDE window when `vite build --watch` updates `dist/renderer`. */
 function ensureRendererDistWatch() {
@@ -139,6 +180,9 @@ app.whenReady().then(async () => {
     // The UI will show an error state
   }
 
+  // Probe STAR CLI (non-blocking: app starts regardless of result)
+  probeStarCli().catch((e) => console.warn('[Main] STAR CLI probe threw:', e));
+
   createWindow();
   ensureRendererDistWatch();
 
@@ -180,6 +224,15 @@ ipcMain.handle('oasis:health-check', async () => {
   } catch (error: any) {
     return { status: 'unhealthy', error: error.message };
   }
+});
+
+/** Return the result of the STAR CLI probe run at startup. Re-probes if not yet resolved. */
+ipcMain.handle('star-cli:status', async () => {
+  if (!starCliStatus.found) {
+    // Re-probe in case the user installed the CLI after app launch.
+    await probeStarCli().catch(() => {});
+  }
+  return starCliStatus;
 });
 
 ipcMain.handle('agents:discover', async (_, serviceName?: string) => {
@@ -297,6 +350,38 @@ ipcMain.handle('scaffold:template', async (_, engine: string, destDir: string, p
   } catch (error: any) {
     console.error('[IPC] scaffold:template error:', error);
     return { ok: false, error: error?.message ?? String(error) };
+  }
+});
+
+/** Return template metadata for the MetaverseTemplatePanel card grid. */
+ipcMain.handle('templates:list-meta', async () => {
+  return { ok: true, templates: TEMPLATE_META };
+});
+
+/**
+ * Apply a content template (Phase 5 variable-substitution templates) to destDir.
+ * For engine templates (hyperfy/threejs/babylonjs) the existing scaffold:template
+ * handler is used directly from the renderer.
+ */
+ipcMain.handle('templates:apply-content', async (
+  _,
+  templateId: string,
+  destDir: string,
+  variables: Record<string, string>
+) => {
+  try {
+    const files = getContentTemplateFiles(templateId, variables);
+    if (!files.length) return { ok: false, error: `Unknown content template: ${templateId}` };
+    const created: string[] = [];
+    for (const { path: relPath, content } of files) {
+      const abs = path.join(destDir, relPath);
+      await fs.promises.mkdir(path.dirname(abs), { recursive: true });
+      await fs.promises.writeFile(abs, content, 'utf-8');
+      created.push(relPath);
+    }
+    return { ok: true, filesCreated: created, projectPath: destDir };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
   }
 });
 
@@ -649,4 +734,33 @@ ipcMain.handle('chat:holon:load', async (_, threadKey: string) => {
     console.error('[IPC] chat:holon:load error:', error);
     return { error: error.message ?? String(error) };
   }
+});
+
+// Settings persistence — stored as JSON in userData
+const SETTINGS_FILE = path.join(app.getPath('userData'), 'oasis-ide-settings.json');
+
+function readSettingsFromDisk(): Record<string, unknown> {
+  try {
+    const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function writeSettingsToDisk(data: Record<string, unknown>): void {
+  try {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[Settings] Failed to write settings:', e);
+  }
+}
+
+ipcMain.handle('settings:get', () => readSettingsFromDisk());
+
+ipcMain.handle('settings:set', (_, patch: Record<string, unknown>) => {
+  const current = readSettingsFromDisk();
+  const merged = { ...current, ...patch };
+  writeSettingsToDisk(merged);
+  return merged;
 });

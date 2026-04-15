@@ -150,6 +150,8 @@ input:focus, textarea:focus {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
 }
 
 .workspace-main {
@@ -160,11 +162,3 @@ input:focus, textarea:focus {
   overflow: hidden;
 }
 
-/*
- * Electron `titleBarStyle: 'hiddenInset'` (see main process): the window is frameless and
- * macOS traffic lights are painted in the top-left of the web contents. Without extra inset,
- * the Explorer header (and similar chrome) sits under the controls.
- */
-html[data-platform='darwin'] .file-explorer > .panel-header.file-explorer-header {
-  padding-left: 78px;
-}

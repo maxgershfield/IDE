@@ -1,0 +1,72 @@
+.title-bar {
+  height: 38px;
+  min-height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  background: #141414;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+
+  /* The entire bar is a drag handle; interactive children must opt out. */
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/*
+ * On macOS (hiddenInset) the traffic lights sit in the first ~72 px.
+ * On other platforms there are no native controls, just a small margin.
+ */
+html[data-platform='darwin'] .title-bar-traffic-zone {
+  width: 76px;
+  min-width: 76px;
+  flex-shrink: 0;
+}
+html:not([data-platform='darwin']) .title-bar-traffic-zone {
+  width: 12px;
+  min-width: 12px;
+  flex-shrink: 0;
+}
+
+/* Fills remaining space so the label stays centred */
+.title-bar-spacer {
+  flex: 1;
+}
+
+/* Settings button — top-right, must opt out of window drag region */
+.title-bar-settings-btn {
+  -webkit-app-region: no-drag;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: rgba(204, 204, 204, 0.45);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.12s, background 0.12s;
+}
+
+.title-bar-settings-btn:hover {
+  color: rgba(204, 204, 204, 0.9);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Centred app name — purely decorative */
+.title-bar-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  color: rgba(204, 204, 204, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}

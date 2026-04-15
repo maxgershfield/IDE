@@ -22,7 +22,10 @@ import { NonElectronBanner } from './components/Layout/NonElectronBanner';
 import { GameDevProvider } from './contexts/GameDevContext';
 import { EditorTabProvider } from './contexts/EditorTabContext';
 import { ActivityBar, ActivityView } from './components/Layout/ActivityBar';
+import { TitleBar } from './components/Layout/TitleBar';
 import { SearchPanel } from './components/FileExplorer/SearchPanel';
+import { SettingsProvider } from './contexts/SettingsContext';
+import { SettingsModal } from './components/Settings/SettingsModal';
 import type { ElevenLabsVoice, ElevenLabsAgentParams } from '../shared/elevenLabsTypes';
 import type { ContentTemplateMeta } from '../shared/templateTypes';
 
@@ -71,6 +74,7 @@ declare global {
           referencedPaths?: string[];
           fromAvatarId?: string;
           contextPack?: string | null;
+          executionMode?: 'plan' | 'execute';
         },
         runId: string
       ) => Promise<
@@ -147,11 +151,14 @@ declare global {
       elevenlabsCreateAgent: (params: ElevenLabsAgentParams) => Promise<
         { ok: true; agentId: string } | { ok: false; error: string }
       >;
+      // Settings
+      getSettings?: () => Promise<Record<string, unknown>>;
+      setSettings?: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>;
     };
   }
 }
 
-function App() {
+function AppInner() {
   const [mcpReady, setMcpReady] = useState(false);
   const [oasisReady, setOasisReady] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -165,13 +172,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Check MCP and OASIS status
     const checkStatus = async () => {
       try {
         if (window.electronAPI) {
           const tools = await window.electronAPI.listTools();
           setMcpReady(tools.length > 0);
-          
+
           const health = await window.electronAPI.healthCheck();
           setOasisReady(health.status === 'healthy');
         }
@@ -184,55 +190,69 @@ function App() {
   }, []);
 
   return (
+    <div className="app-shell">
+      <NonElectronBanner />
+      <div className="app-shell-body">
+        <EditorTabProvider>
+          <MCPProvider>
+            <AgentProvider>
+              <AuthProvider>
+                <WorkspaceProvider>
+                  <IdeChatProvider>
+                    <div className="app-shell-workspace">
+                      <TitleBar />
+                      <div className="workspace-main">
+                        <Layout
+                          activityBar={
+                            <ActivityBar
+                              active={activeView}
+                              onChange={setActiveView}
+                            />
+                          }
+                        >
+                          {activeView === 'search' ? (
+                            <SearchPanel />
+                          ) : activeView === 'templates' ? (
+                            <MetaverseTemplatePanel inline />
+                          ) : (
+                            <FileExplorer onLoginClick={() => setShowLoginModal(true)} />
+                          )}
+                          <Editor />
+                          <RightPanelShell
+                            composer={<ChatInterface />}
+                            inbox={<InboxPanel embedded />}
+                            tools={<OASISToolsPanel embedded />}
+                            npcVoice={<NPCVoicePanel />}
+                            agents={<AgentPanel />}
+                          />
+                          <BottomPanel />
+                        </Layout>
+                      </div>
+                      <StatusBar />
+                      {/* Settings overlay sits inside app-shell-workspace so TitleBar stays visible */}
+                      <SettingsModal />
+                      {showLoginModal && (
+                        <LoginModal onClose={() => setShowLoginModal(false)} />
+                      )}
+                    </div>
+                  </IdeChatProvider>
+                </WorkspaceProvider>
+              </AuthProvider>
+            </AgentProvider>
+          </MCPProvider>
+        </EditorTabProvider>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
     <ThemeProvider>
       <GameDevProvider>
-      <div className="app-shell">
-        <NonElectronBanner />
-        <div className="app-shell-body">
-      <EditorTabProvider>
-      <MCPProvider>
-        <AgentProvider>
-          <AuthProvider>
-            <WorkspaceProvider>
-              <IdeChatProvider>
-              <div className="app-shell-workspace">
-                <div className="workspace-main">
-                  <Layout
-                    activityBar={
-                      <ActivityBar active={activeView} onChange={setActiveView} />
-                    }
-                  >
-                    {activeView === 'search' ? (
-                      <SearchPanel />
-                    ) : activeView === 'templates' ? (
-                      <MetaverseTemplatePanel inline />
-                    ) : (
-                      <FileExplorer onLoginClick={() => setShowLoginModal(true)} />
-                    )}
-                    <Editor />
-                    <RightPanelShell
-                      composer={<ChatInterface />}
-                      inbox={<InboxPanel embedded />}
-                      tools={<OASISToolsPanel embedded />}
-                      npcVoice={<NPCVoicePanel />}
-                      agents={<AgentPanel />}
-                    />
-                    <BottomPanel />
-                  </Layout>
-                </div>
-                <StatusBar />
-              </div>
-              {showLoginModal && (
-                <LoginModal onClose={() => setShowLoginModal(false)} />
-              )}
-              </IdeChatProvider>
-            </WorkspaceProvider>
-          </AuthProvider>
-        </AgentProvider>
-      </MCPProvider>
-      </EditorTabProvider>
-        </div>
-      </div>
+        <SettingsProvider>
+          <AppInner />
+        </SettingsProvider>
       </GameDevProvider>
     </ThemeProvider>
   );

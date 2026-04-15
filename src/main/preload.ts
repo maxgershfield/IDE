@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // OASIS API
   healthCheck: () => ipcRenderer.invoke('oasis:health-check'),
+  starCliStatus: () => ipcRenderer.invoke('star-cli:status') as Promise<{ found: boolean; path: string | null; version: string | null }>,
   
   // Agents
   discoverAgents: (serviceName?: string) => 
@@ -31,23 +32,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readStarWorkspace: (workspacePath?: string) => ipcRenderer.invoke('fs:read-star-workspace', workspacePath),
   scaffoldTemplate: (engine: string, destDir: string, projectName: string) =>
     ipcRenderer.invoke('scaffold:template', engine, destDir, projectName),
+  listTemplateMeta: () =>
+    ipcRenderer.invoke('templates:list-meta'),
+  applyContentTemplate: (templateId: string, destDir: string, variables: Record<string, string>) =>
+    ipcRenderer.invoke('templates:apply-content', templateId, destDir, variables),
   openUrl: (url: string) => ipcRenderer.invoke('shell:open-url', url),
-  checkPort: (port: number) => ipcRenderer.invoke('check-port', port) as Promise<boolean>,
+  checkPort: (port: number) => ipcRenderer.invoke('check-port', port),
 
   // ElevenLabs NPC Voice Studio
   elevenlabsListVoices: () =>
-    ipcRenderer.invoke('elevenlabs:list-voices') as Promise<
-      { ok: true; voices: import('../shared/elevenLabsTypes').ElevenLabsVoice[] } |
-      { ok: false; error: string }
-    >,
+    ipcRenderer.invoke('elevenlabs:list-voices'),
   elevenlabsTts: (voiceId: string, text: string) =>
-    ipcRenderer.invoke('elevenlabs:tts', voiceId, text) as Promise<
-      { ok: true; audioBase64: string } | { ok: false; error: string }
-    >,
-  elevenlabsCreateAgent: (params: import('../shared/elevenLabsTypes').ElevenLabsAgentParams) =>
-    ipcRenderer.invoke('elevenlabs:create-agent', params) as Promise<
-      { ok: true; agentId: string } | { ok: false; error: string }
-    >,
+    ipcRenderer.invoke('elevenlabs:tts', voiceId, text),
+  elevenlabsCreateAgent: (params: { name: string; systemPrompt: string; firstMessage: string; voiceId: string }) =>
+    ipcRenderer.invoke('elevenlabs:create-agent', params),
 
   /** Serve folder via python3 http.server and open browser (IDE assistant). */
   previewStaticFolder: (targetPath: string, openBrowser?: boolean) =>
@@ -71,6 +69,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       referencedPaths?: string[];
       fromAvatarId?: string;
       contextPack?: string | null;
+      executionMode?: 'plan' | 'execute';
     },
     runId: string
   ) => ipcRenderer.invoke('chat:agent-turn', { body, runId }),
@@ -148,4 +147,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimize: () => ipcRenderer.invoke('window:minimize'),
   maximize: () => ipcRenderer.invoke('window:maximize'),
   close: () => ipcRenderer.invoke('window:close'),
+
+  // Settings
+  getSettings: () => ipcRenderer.invoke('settings:get') as Promise<Record<string, unknown>>,
+  setSettings: (patch: Record<string, unknown>) =>
+    ipcRenderer.invoke('settings:set', patch) as Promise<Record<string, unknown>>,
 });
