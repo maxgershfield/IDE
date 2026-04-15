@@ -95,3 +95,9 @@
   flex-direction: column;
   overflow: hidden;
 }
+
+.right-panel-tab-icon-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

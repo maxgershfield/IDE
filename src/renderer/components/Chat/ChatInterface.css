@@ -204,7 +204,7 @@
   padding: 10px 10px 6px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 6px;
 }
 
 /* Folded prior turns (Cursor-style: current request stays in focus) */
@@ -285,27 +285,23 @@
   padding: 0;
 }
 
+/* Labels removed — Cursor-style: content speaks for itself */
 .composer-message-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-
-.composer-message.user .composer-message-label {
-  text-align: right;
-  color: #7eb6ff;
+  display: none;
 }
 
 .composer-message-body {
   font-size: 13px;
   line-height: 1.55;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 8px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Add breathing room above a user message that follows an assistant reply */
+.composer-message.assistant + .composer-message.user {
+  margin-top: 12px;
 }
 
 /* Markdown (GFM) in assistant/user bubbles — replaces pre-wrap for rendered HTML */
@@ -443,16 +439,20 @@
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* User message: subtle right-aligned pill — minimal, like Cursor */
 .composer-message.user .composer-message-body {
-  margin-left: 12%;
-  background: rgba(0, 122, 204, 0.22);
-  border: 1px solid rgba(0, 122, 204, 0.35);
+  margin-left: 16%;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
 }
 
+/* Assistant message: transparent flowing text, no card */
 .composer-message.assistant .composer-message-body {
-  margin-right: 8%;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  margin-right: 0;
+  background: transparent;
+  border: none;
+  padding: 4px 2px;
 }
 
 .composer-message-body--streaming {
@@ -480,8 +480,15 @@
   }
 }
 
+/* Error: subtle red left accent without a full card */
 .composer-message.error .composer-message-body {
-  border-left: 3px solid var(--error);
+  padding-left: 10px;
+  border-left: 2px solid rgba(244, 135, 113, 0.7);
+  background: rgba(244, 135, 113, 0.05);
+  border-radius: 0 6px 6px 0;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
 }
 
 .composer-tool-calls {
@@ -492,7 +499,7 @@
 }
 
 .composer-message--working .composer-message-body {
-  padding-top: 8px;
+  padding-top: 2px;
 }
 
 /* Live + completed agent step lists (Cursor-style) */

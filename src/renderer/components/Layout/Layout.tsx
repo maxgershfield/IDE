@@ -3,39 +3,77 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import './Layout.css';
 
 interface LayoutProps {
+  /** Narrow icon-strip rendered to the left of the horizontal panel group */
+  activityBar?: ReactNode;
   children: ReactNode;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children }) => {
+/**
+ * Cursor-style layout:
+ *
+ *  ┌──────────────────────────────┬──────────────┐
+ *  │  ActivityBar │ Explorer      │              │
+ *  │              ├───────────────┤  Chat panel  │
+ *  │              │    Editor     │  (full height)│
+ *  │              ├───────────────┤              │
+ *  │              │   Terminal    │              │
+ *  └──────────────┴───────────────┴──────────────┘
+ *
+ * children[0] = Explorer   children[1] = Editor
+ * children[2] = RightPanel  children[3] = BottomPanel/Terminal
+ */
+export const Layout: React.FC<LayoutProps> = ({ activityBar, children }) => {
   const childrenArray = React.Children.toArray(children);
-  // [0] Explorer, [1] Editor, [2] Right panel (stack or single), [3] BottomPanel, [4] AgentPanel
 
   return (
     <div className="layout">
-      <PanelGroup direction="vertical" autoSaveId="oasis-ide-vertical">
-        {/* Main area: Explorer | Editor | Right */}
-        <Panel defaultSize={70} minSize={25} order={1} className="layout-main-panel">
-          <PanelGroup direction="horizontal" autoSaveId="oasis-ide-horizontal">
-            <Panel defaultSize={15} minSize={10} maxSize={35} order={1}>
-              {childrenArray[0]}
-            </Panel>
-            <PanelResizeHandle className="layout-resize-handle layout-resize-handle-h" />
-            <Panel defaultSize={55} minSize={28} order={2}>
-              {childrenArray[1]}
-            </Panel>
-            <PanelResizeHandle className="layout-resize-handle layout-resize-handle-h" />
-            <Panel defaultSize={30} minSize={18} maxSize={48} order={3}>
-              {childrenArray[2]}
-            </Panel>
-          </PanelGroup>
-        </Panel>
-        <PanelResizeHandle className="layout-resize-handle layout-resize-handle-v" />
-        {/* Bottom: Terminal (tabs) + Agents - draggable to resize */}
-        <Panel defaultSize={30} minSize={10} maxSize={85} order={2} className="layout-bottom-panel">
-          <div className="bottom-panel">
-            {childrenArray.slice(3)}
+      {/* Outer: left editor column | right chat column */}
+      <PanelGroup direction="horizontal" autoSaveId="oasis-v2-outer">
+
+        {/* ── Left column ── */}
+        <Panel defaultSize={70} minSize={40} order={1}>
+          <div className="layout-left-col">
+            {activityBar}
+            <div className="layout-left-panels">
+              {/* Inner vertical: editor row on top, terminal on bottom */}
+              <PanelGroup direction="vertical" autoSaveId="oasis-v2-vert">
+
+                <Panel defaultSize={70} minSize={25} order={1}>
+                  <div className="layout-editor-area">
+                    <PanelGroup direction="horizontal" autoSaveId="oasis-v2-horiz">
+                      <Panel defaultSize={20} minSize={8} maxSize={40} order={1}>
+                        {childrenArray[0]}
+                      </Panel>
+                      <PanelResizeHandle className="layout-resize-handle layout-resize-handle-h" />
+                      <Panel defaultSize={80} minSize={30} order={2}>
+                        {childrenArray[1]}
+                      </Panel>
+                    </PanelGroup>
+                  </div>
+                </Panel>
+
+                <PanelResizeHandle className="layout-resize-handle layout-resize-handle-v" />
+
+                <Panel defaultSize={30} minSize={8} maxSize={75} order={2}>
+                  <div className="layout-terminal-area">
+                    {childrenArray[3]}
+                  </div>
+                </Panel>
+
+              </PanelGroup>
+            </div>
           </div>
         </Panel>
+
+        <PanelResizeHandle className="layout-resize-handle layout-resize-handle-h" />
+
+        {/* ── Right column: full-height chat panel ── */}
+        <Panel defaultSize={30} minSize={18} maxSize={50} order={2}>
+          <div className="layout-right-col">
+            {childrenArray[2]}
+          </div>
+        </Panel>
+
       </PanelGroup>
     </div>
   );

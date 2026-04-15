@@ -56,39 +56,69 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({
   useEffect(() => {
     if (!containerRef.current || !window.electronAPI) return;
 
-    const term = new XTerm(XTERM_OPTIONS as any);
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(containerRef.current);
-    termRef.current = term;
-    fitAddonRef.current = fitAddon;
+    const container = containerRef.current;
+    let cancelled = false;
+    let teardown: (() => void) | null = null;
 
-    const unsub =
-      window.electronAPI.onTerminalData?.((sid, data) => {
-        if (sid === sessionId) term.write(data);
-      }) ?? null;
-
-    term.onData((data) => {
-      window.electronAPI?.terminalWrite?.(sessionId, data);
-    });
-
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-      if (sessionId) {
-        window.electronAPI?.terminalResize?.(sessionId, term.cols, term.rows);
+    // Defer ALL xterm initialisation until the container has real pixel
+    // dimensions.  Calling term.open() on a zero-size element makes xterm's
+    // own internal ResizeObserver throw
+    // "Cannot read properties of undefined (reading 'dimensions')".
+    const tryInit = () => {
+      if (cancelled) return;
+      if (!container.clientWidth || !container.clientHeight) {
+        requestAnimationFrame(tryInit);
+        return;
       }
-    });
-    resizeObserver.observe(containerRef.current);
-    fitAddon.fit();
+
+      const term = new XTerm(XTERM_OPTIONS as any);
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(container);
+      termRef.current = term;
+      fitAddonRef.current = fitAddon;
+
+      // Wire PTY ↔ xterm
+      const unsub =
+        window.electronAPI.onTerminalData?.((sid, data) => {
+          if (sid === sessionId) term.write(data);
+        }) ?? null;
+      term.onData((data) => {
+        window.electronAPI?.terminalWrite?.(sessionId, data);
+      });
+
+      // Initial fit — container is guaranteed non-zero here
+      try {
+        fitAddon.fit();
+        window.electronAPI?.terminalResize?.(sessionId, term.cols, term.rows);
+      } catch { /* ignore */ }
+
+      // Keep PTY in sync whenever the panel is resized
+      const ro = new ResizeObserver(() => {
+        if (!container.clientWidth || !container.clientHeight) return;
+        try {
+          fitAddon.fit();
+          window.electronAPI?.terminalResize?.(sessionId, term.cols, term.rows);
+        } catch { /* ignore */ }
+      });
+      ro.observe(container);
+
+      teardown = () => {
+        ro.disconnect();
+        unsub?.();
+        window.electronAPI?.terminalDestroy?.(sessionId);
+        term.dispose();
+        termRef.current = null;
+        fitAddonRef.current = null;
+        registerClear(null);
+      };
+    };
+
+    requestAnimationFrame(tryInit);
 
     return () => {
-      resizeObserver.disconnect();
-      unsub?.();
-      window.electronAPI?.terminalDestroy?.(sessionId);
-      term.dispose();
-      termRef.current = null;
-      fitAddonRef.current = null;
-      registerClear(null);
+      cancelled = true;
+      teardown?.();
     };
   }, [sessionId]);
 

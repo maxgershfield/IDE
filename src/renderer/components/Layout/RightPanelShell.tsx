@@ -1,25 +1,30 @@
 import React, { useState } from 'react';
+import { Mic, Gamepad2 } from 'lucide-react';
 import { useGameDev } from '../../contexts/GameDevContext';
 import './RightPanelShell.css';
 
-export type RightPanelTabId = 'composer' | 'inbox' | 'tools';
+export type RightPanelTabId = 'composer' | 'inbox' | 'tools' | 'npc' | 'agents';
 
 interface RightPanelShellProps {
   composer: React.ReactNode;
   inbox: React.ReactNode;
   tools: React.ReactNode;
+  npcVoice: React.ReactNode;
+  agents: React.ReactNode;
 }
 
-const TABS: { id: RightPanelTabId; label: string }[] = [
+const TABS: { id: RightPanelTabId; label: React.ReactNode }[] = [
   { id: 'composer', label: 'Composer' },
-  { id: 'inbox', label: 'A2A Inbox' },
-  { id: 'tools', label: 'OASIS Tools' }
+  { id: 'inbox',    label: 'A2A Inbox' },
+  { id: 'tools',    label: 'OASIS Tools' },
+  { id: 'npc',      label: <span className="right-panel-tab-icon-label"><Mic size={12} strokeWidth={1.8} />NPC Voice</span> },
+  { id: 'agents',   label: 'Agents' },
 ];
 
 /**
  * Cursor-style right column: horizontal tabs so the AI surface gets full height like Composer.
  */
-export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbox, tools }) => {
+export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbox, tools, npcVoice, agents }) => {
   const [active, setActive] = useState<RightPanelTabId>('composer');
   const { isGameDevMode, toggleGameDevMode } = useGameDev();
 
@@ -50,7 +55,10 @@ export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbo
           }
           aria-pressed={isGameDevMode}
         >
-          {isGameDevMode ? '🎮 Game Dev' : '🎮'}
+          <span className="right-panel-tab-icon-label">
+            <Gamepad2 size={12} strokeWidth={1.8} />
+            {isGameDevMode ? 'Game Dev' : 'Game Dev'}
+          </span>
         </button>
       </div>
       <div
@@ -61,6 +69,8 @@ export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbo
         {active === 'composer' && <div className="right-panel-shell-pane">{composer}</div>}
         {active === 'inbox' && <div className="right-panel-shell-pane">{inbox}</div>}
         {active === 'tools' && <div className="right-panel-shell-pane">{tools}</div>}
+        {active === 'npc' && <div className="right-panel-shell-pane">{npcVoice}</div>}
+        {active === 'agents' && <div className="right-panel-shell-pane">{agents}</div>}
       </div>
     </div>
   );

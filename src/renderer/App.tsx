@@ -6,6 +6,8 @@ import { ChatInterface } from './components/Chat/ChatInterface';
 import { FileExplorer } from './components/FileExplorer/FileExplorer';
 import { Editor } from './components/Editor/Editor';
 import { OASISToolsPanel } from './components/OASISTools/OASISToolsPanel';
+import { NPCVoicePanel } from './components/NPC/NPCVoicePanel';
+import { MetaverseTemplatePanel } from './components/Templates/MetaverseTemplatePanel';
 import { AgentPanel } from './components/Agents/AgentPanel';
 import { BottomPanel } from './components/BottomPanel/BottomPanel';
 import { InboxPanel } from './components/Inbox/InboxPanel';
@@ -21,7 +23,8 @@ import { GameDevProvider } from './contexts/GameDevContext';
 import { EditorTabProvider } from './contexts/EditorTabContext';
 import { ActivityBar, ActivityView } from './components/Layout/ActivityBar';
 import { SearchPanel } from './components/FileExplorer/SearchPanel';
-import type { ElevenLabsVoice, ElevenLabsAgentParams } from '../../shared/elevenLabsTypes';
+import type { ElevenLabsVoice, ElevenLabsAgentParams } from '../shared/elevenLabsTypes';
+import type { ContentTemplateMeta } from '../shared/templateTypes';
 
 declare global {
   interface Window {
@@ -126,6 +129,12 @@ declare global {
         destDir: string,
         projectName: string
       ) => Promise<{ ok: boolean; files?: string[]; projectPath?: string; error?: string }>;
+      listTemplateMeta: () => Promise<{ ok: boolean; templates: ContentTemplateMeta[] }>;
+      applyContentTemplate: (
+        templateId: string,
+        destDir: string,
+        variables: Record<string, string>
+      ) => Promise<{ ok: boolean; filesCreated?: string[]; projectPath?: string; error?: string }>;
       openUrl: (url: string) => Promise<{ ok: boolean; error?: string }>;
       checkPort: (port: number) => Promise<boolean>;
       // ElevenLabs NPC Voice Studio
@@ -195,6 +204,8 @@ function App() {
                   >
                     {activeView === 'search' ? (
                       <SearchPanel />
+                    ) : activeView === 'templates' ? (
+                      <MetaverseTemplatePanel inline />
                     ) : (
                       <FileExplorer onLoginClick={() => setShowLoginModal(true)} />
                     )}
@@ -203,9 +214,10 @@ function App() {
                       composer={<ChatInterface />}
                       inbox={<InboxPanel embedded />}
                       tools={<OASISToolsPanel embedded />}
+                      npcVoice={<NPCVoicePanel />}
+                      agents={<AgentPanel />}
                     />
                     <BottomPanel />
-                    <AgentPanel />
                   </Layout>
                 </div>
                 <StatusBar />
