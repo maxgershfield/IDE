@@ -24,8 +24,10 @@ import { EditorTabProvider } from './contexts/EditorTabContext';
 import { ActivityBar, ActivityView } from './components/Layout/ActivityBar';
 import { TitleBar } from './components/Layout/TitleBar';
 import { SearchPanel } from './components/FileExplorer/SearchPanel';
+import { StarnetDashboard } from './components/Starnet/StarnetDashboard';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { SettingsModal } from './components/Settings/SettingsModal';
+import { A2AProvider } from './contexts/A2AContext';
 import type { ElevenLabsVoice, ElevenLabsAgentParams } from '../shared/elevenLabsTypes';
 import type { ContentTemplateMeta } from '../shared/templateTypes';
 
@@ -41,6 +43,7 @@ declare global {
       invokeAgent: (agentId: string, task: string, context: any) => Promise<any>;
       pickWorkspace: () => Promise<string | null>;
       getWorkspacePath: () => Promise<string | null>;
+      setWorkspacePath: (dir: string) => Promise<any[]>;
       listTree: (dir?: string) => Promise<any[]>;
       readFile: (path: string) => Promise<string>;
       writeFile: (path: string, content: string) => Promise<void>;
@@ -96,9 +99,10 @@ declare global {
       authLogin: (username: string, password: string) => Promise<{ success: boolean; username?: string; avatarId?: string; error?: string }>;
       authLogout: () => Promise<void>;
       authGetStatus: () => Promise<{ loggedIn: boolean; username?: string; avatarId?: string }>;
-      a2aGetPending: () => Promise<any[]>;
+      a2aGetPending: () => Promise<{ ok: boolean; messages: unknown[]; error?: string }>;
       a2aMarkProcessed: (messageId: string) => Promise<void>;
       a2aSendReply: (toAgentId: string, content: string, params?: Record<string, unknown>) => Promise<any>;
+      a2aSend: (toAgentId: string, method: string, content: string) => Promise<{ ok: boolean; error?: string }>;
       chatHasLLM: () => Promise<boolean>;
       chatComplete: (
         messages: Array<{ role: string; content: string }>,
@@ -209,6 +213,9 @@ function AppInner() {
                               onChange={setActiveView}
                             />
                           }
+                          centerSlot={
+                            activeView === 'starnet' ? <StarnetDashboard /> : undefined
+                          }
                         >
                           {activeView === 'search' ? (
                             <SearchPanel />
@@ -251,7 +258,9 @@ function App() {
     <ThemeProvider>
       <GameDevProvider>
         <SettingsProvider>
-          <AppInner />
+          <A2AProvider>
+            <AppInner />
+          </A2AProvider>
         </SettingsProvider>
       </GameDevProvider>
     </ThemeProvider>

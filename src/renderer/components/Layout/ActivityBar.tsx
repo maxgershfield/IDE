@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import './ActivityBar.css';
 
-export type ActivityView = 'files' | 'search' | 'git' | 'oasis' | 'templates';
+export type ActivityView = 'files' | 'search' | 'git' | 'starnet' | 'templates';
 
 interface ActivityBarProps {
   active: ActivityView;
@@ -19,7 +19,7 @@ const ITEMS: { id: ActivityView; label: string; Icon: React.FC }[] = [
   { id: 'files',     label: 'Explorer',          Icon: () => <FolderOpen     size={22} strokeWidth={1.5} /> },
   { id: 'search',    label: 'Search',             Icon: () => <Search         size={22} strokeWidth={1.5} /> },
   { id: 'git',       label: 'Source Control',     Icon: () => <GitBranch      size={22} strokeWidth={1.5} /> },
-  { id: 'oasis',     label: 'OASIS Tools',        Icon: () => <Star           size={22} strokeWidth={1.5} /> },
+  { id: 'starnet',   label: 'STARNET',            Icon: () => <Star           size={22} strokeWidth={1.5} /> },
   { id: 'templates', label: 'Templates',           Icon: () => <LayoutTemplate size={22} strokeWidth={1.5} /> },
 ];
 
