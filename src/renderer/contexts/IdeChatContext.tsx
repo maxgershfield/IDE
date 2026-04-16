@@ -127,6 +127,12 @@ export function IdeChatProvider({ children }: { children: React.ReactNode }) {
         loaded = loadRegistry(noWsKey);
       }
     }
+    if (!loaded && avatarId) {
+      const preLoginKey = makeIdeThreadKey(undefined, workspacePath, 'main');
+      if (preLoginKey !== baseKey) {
+        loaded = loadRegistry(preLoginKey);
+      }
+    }
     if (loaded) {
       setSessions(loaded.sessions);
       setActiveSessionId(loaded.activeId);

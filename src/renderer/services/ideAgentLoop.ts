@@ -55,10 +55,56 @@ function truncate(s: string, max: number): string {
 }
 
 /**
+ * Sparse "create OAPP / game" prompts: plan and gather context first (Cursor-style plan mode),
+ * instead of immediately running STAR, npm, or write_*.
+ */
+export function shouldUsePlanModeFirst(userText: string): boolean {
+  const t = userText.trim();
+  if (t.length > 1200) return false;
+  const createIntent = /\b(create|new|make|build|start|scaffold)\b/i.test(t);
+  const oappOrGame =
+    /\boapp\b/i.test(t) ||
+    /\bstarnet\b.*\b(app|oapp)\b/i.test(t) ||
+    /\bnew\s+(world|game)\b/i.test(t) ||
+    /\bgame\s+called\b/i.test(t);
+  if (!createIntent || !oappOrGame) return false;
+  const detailed =
+    /\b(engine|unity|three\.?js|babylon|hyperfy|roblox|genre|quest|npc|multiplayer|template|vite|tailwind|monorepo|screenshot|prototype|chapter|level\s+design|assets?|GDD|design\s+doc)\b/i.test(
+      t
+    );
+  return !detailed;
+}
+
+function planningModeUserAppendix(gameDevMode: boolean): string {
+  const quick = gameDevMode
+    ? 'If Game Dev mode is on, mention the **Quick actions** strip (New World, New Quest, NPCs, Lore, etc.) where it saves time.'
+    : '';
+  return (
+    `[IDE: Plan-first for this user message]\n` +
+    `This looks like a **high-level** create-OAPP / new-game request with little product context.\n` +
+    `**Do not** call \`write_file\`, \`write_files\`, \`run_workspace_command\`, or \`run_star_cli\` in **this** turn. Avoid \`mcp_invoke\` for creating OAPPs, quests, NPCs, mints, or publish flows until the user confirms the plan (read-only checks such as \`oasis_health_check\` are fine).\n` +
+    `**Do** reply in a few short paragraphs: a brief **Plan** (goals, assumptions), then **exactly one** clear question. Do **not** dump a long questionnaire or many topics in one message.\n` +
+    `End with **clickable reply chips**: append **only** this block at the **very end** (no text after it), with 3–5 short self-contained labels the user might pick next (e.g. genre, engine, or "Not sure yet").\n` +
+    `<oasis_plan_replies>\n` +
+    `["First choice","Second choice","Third choice"]\n` +
+    `</oasis_plan_replies>\n` +
+    `${quick}\n` +
+    `You may use **read-only** tools (\`read_file\`, \`list_directory\`, \`workspace_grep\`) only if they clearly help (e.g. \`OASIS-IDE/docs/recipes/\`, STAR CLI docs under \`Docs/Devs/\`).\n` +
+    `If the user message is actually a long detailed spec (many requirements, paths, tech choices), **ignore** this block and proceed with execution as usual.`
+  );
+}
+
+/**
  * When the Explorer workspace root does not match paths in the question, the model often
  * mis-reads tools and claims files are "missing". Nudge with explicit workspace metadata.
  */
-function augmentIdeAgentUserMessage(userText: string, workspacePath: string): string {
+function augmentIdeAgentUserMessage(
+  userText: string,
+  workspacePath: string,
+  gameDevMode?: boolean,
+  /** When true (Plan execution mode), skip the sparse-request inject; server already restricts tools. */
+  skipSparsePlanInject?: boolean
+): string {
   const ws = workspacePath.replace(/[/\\]+$/, '');
   const t = userText.trim();
   const asksCreUnderOasisClean =
@@ -86,6 +132,10 @@ function augmentIdeAgentUserMessage(userText: string, workspacePath: string): st
     );
   }
 
+  if (shouldUsePlanModeFirst(userText) && !skipSparsePlanInject) {
+    parts.push(planningModeUserAppendix(Boolean(gameDevMode)));
+  }
+
   return parts.join('\n\n');
 }
 
@@ -93,27 +143,37 @@ function augmentIdeAgentUserMessage(userText: string, workspacePath: string): st
 export function formatToolProgressLine(name: string, argumentsJson: string): string {
   try {
     const args = JSON.parse(argumentsJson || '{}') as Record<string, unknown>;
-    if (name === 'read_file' && typeof args.path === 'string') return `Read ${args.path}`;
-    if (name === 'list_directory' && typeof args.path === 'string') return `Listed ${args.path}`;
+    if (name === 'read_file' && typeof args.path === 'string') return `Reading ${args.path}`;
+    if (name === 'list_directory' && typeof args.path === 'string') return `Exploring ${args.path}`;
     if (name === 'workspace_grep') {
       const pat =
         typeof args.pattern === 'string' ? truncate(args.pattern.replace(/\s+/g, ' ').trim(), 72) : '';
-      const p = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.';
-      const g = typeof args.glob === 'string' && args.glob.trim() ? ` glob=${truncate(args.glob.trim(), 40)}` : '';
-      return pat ? `Grep "${pat}" in ${p}${g}` : 'Grep (workspace)';
+      const p = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : 'workspace';
+      return pat ? `Searching for "${pat}" in ${p}` : 'Searching workspace';
+    }
+    if (name === 'write_file' && typeof args.path === 'string') return `Writing ${args.path}`;
+    if (name === 'write_files') {
+      const files = Array.isArray(args.files) ? args.files : [];
+      return files.length > 0
+        ? `Writing ${files.length} file${files.length === 1 ? '' : 's'}`
+        : 'Writing files';
     }
     if (name === 'run_workspace_command' && Array.isArray(args.argv)) {
-      return `Run: ${(args.argv as unknown[]).map(String).join(' ')}`;
+      return `Running ${(args.argv as unknown[]).map(String).join(' ')}`;
+    }
+    if (name === 'run_star_cli' && Array.isArray(args.argv)) {
+      const starArgs = (args.argv as unknown[]).map(String).slice(1);
+      return starArgs.length > 0 ? `STAR ${starArgs.join(' ')}` : 'Running STAR CLI';
     }
     if (name === 'mcp_invoke' && typeof args.tool === 'string') {
       const inner =
-        args.arguments != null ? truncate(JSON.stringify(args.arguments), 100) : '';
-      return inner ? `MCP ${args.tool} (${inner})` : `MCP ${args.tool}`;
+        args.arguments != null ? truncate(JSON.stringify(args.arguments), 80) : '';
+      return inner ? `${args.tool} (${inner})` : args.tool;
     }
   } catch {
     /* ignore */
   }
-  const raw = truncate(argumentsJson || '', 120);
+  const raw = truncate(argumentsJson || '', 80);
   return raw ? `${name} (${raw})` : name;
 }
 
@@ -142,6 +202,7 @@ export interface IdeAgentLoopDeps {
       referencedPaths?: string[];
       fromAvatarId?: string;
       contextPack?: string | null;
+      executionMode?: 'plan' | 'execute';
     },
     runId: string
   ) => Promise<AgentTurnApiResponse>;
@@ -177,6 +238,10 @@ export async function runIdeAgentLoop(
     onActivityLine?: (line: string) => void;
     /** Same id for every turn in this loop; passed to IPC for scoped cancel. */
     runId: string;
+    /** Game Dev context pack active; enables plan-first hint to reference Quick actions. */
+    gameDevMode?: boolean;
+    /** plan = read-only tools + one-question UX; execute = full tool set. */
+    executionMode?: 'plan' | 'execute';
   }
 ): Promise<{
   finalText: string;
@@ -188,13 +253,21 @@ export async function runIdeAgentLoop(
   error?: string;
   cancelled?: boolean;
 }> {
-  const maxRounds = options.maxRounds ?? 10;
+  const maxRounds = options.maxRounds ?? 25;
   const prior = (options.priorMessages ?? []).filter(
     (m) => m.role === 'user' || m.role === 'assistant'
   );
   const chain: AgentChatMessage[] = [
     ...prior,
-    { role: 'user', content: augmentIdeAgentUserMessage(options.userText, options.workspacePath) }
+    {
+      role: 'user',
+      content: augmentIdeAgentUserMessage(
+        options.userText,
+        options.workspacePath,
+        options.gameDevMode,
+        options.executionMode === 'plan'
+      )
+    }
   ];
   const toolCallsLog: Array<{ tool: string; ok: boolean }> = [];
   const recordedToolOutputsForUi: Array<{ tool: string; content: string }> = [];
@@ -223,8 +296,6 @@ export async function runIdeAgentLoop(
       return emptyOutcome({ error: 'Stopped.', cancelled: true });
     }
 
-    emit(`Turn ${round + 1}`);
-
     const res = await deps.agentTurn(
       {
         model: options.model,
@@ -232,7 +303,8 @@ export async function runIdeAgentLoop(
         workspaceRoot: options.workspacePath,
         referencedPaths: options.referencedPaths,
         fromAvatarId: options.fromAvatarId,
-        contextPack: options.contextPack ?? undefined
+        contextPack: options.contextPack ?? undefined,
+        executionMode: options.executionMode ?? 'execute'
       },
       options.runId
     );

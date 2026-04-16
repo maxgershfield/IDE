@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron';
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -13,8 +13,34 @@ import { ChatService } from './services/ChatService.js';
 import { StaticPreviewService } from './services/StaticPreviewService.js';
 import { AgentToolExecutor } from './services/AgentToolExecutor.js';
 import { TEMPLATE_REGISTRY, TEMPLATE_META, getContentTemplateFiles } from './templates/metaverseTemplates.js';
+import { LocalBridgeServer } from './services/LocalBridgeServer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Load OASIS-IDE/.env into process.env before any other reads (Electron main does not load Vite env). */
+function loadIdeRootEnv(): void {
+  const envPath = path.join(__dirname, '../../.env');
+  if (!fs.existsSync(envPath)) return;
+  const text = fs.readFileSync(envPath, 'utf8');
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val = trimmed.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    if (process.env[key] === undefined || process.env[key] === '') {
+      process.env[key] = val;
+    }
+  }
+}
+loadIdeRootEnv();
 
 /** Default OASIS IDE Assistant agent ID. Override with env OASIS_IDE_ASSISTANT_AGENT_ID when backend registers the agent. */
 const DEFAULT_IDE_ASSISTANT_AGENT_ID = process.env.OASIS_IDE_ASSISTANT_AGENT_ID || 'oasis-ide-assistant';
@@ -32,6 +58,7 @@ let staticPreviewService: StaticPreviewService;
 let agentToolExecutor: AgentToolExecutor;
 
 let rendererDistWatchStarted = false;
+let localBridgeServer: LocalBridgeServer | null = null;
 
 /** Cached result of the STAR CLI probe performed at startup. */
 let starCliStatus: { found: boolean; path: string | null; version: string | null } = {
@@ -96,6 +123,55 @@ function ensureRendererDistWatch() {
   }
 }
 
+/**
+ * Block full-document navigations that would unload the IDE shell (e.g. clicking a
+ * relative markdown link in the composer). Optionally open http(s) externally from setWindowOpenHandler.
+ */
+function attachRendererNavigationGuards(contents: WebContents): void {
+  const useVite = process.env.OASIS_IDE_VITE_DEV === '1';
+  const devUrl = process.env.OASIS_IDE_VITE_URL || 'http://127.0.0.1:3000';
+
+  contents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      if (useVite) {
+        const next = new URL(navigationUrl);
+        const base = new URL(devUrl);
+        if (next.origin !== base.origin) {
+          event.preventDefault();
+          return;
+        }
+        const pathname = next.pathname.endsWith('/') && next.pathname.length > 1
+          ? next.pathname.slice(0, -1)
+          : next.pathname;
+        if (pathname === '' || pathname === '/') {
+          return;
+        }
+        event.preventDefault();
+        return;
+      }
+      const next = new URL(navigationUrl);
+      if (next.protocol !== 'file:') {
+        event.preventDefault();
+        return;
+      }
+      const normalized = next.pathname.replace(/\\/g, '/');
+      if (!/index\.html$/i.test(normalized)) {
+        event.preventDefault();
+      }
+    } catch {
+      event.preventDefault();
+    }
+  });
+
+  contents.setWindowOpenHandler((details) => {
+    const { url } = details;
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -109,6 +185,8 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#1e1e1e'
   });
+
+  attachRendererNavigationGuards(mainWindow.webContents);
 
   // Load app: default is packaged files (desktop). Set OASIS_IDE_VITE_DEV=1 for Vite dev server + HMR.
   const useViteDevServer = process.env.OASIS_IDE_VITE_DEV === '1';
@@ -148,10 +226,10 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  // Initialize services
+  // Initialize services — AgentRuntime shares the authenticated oasisClient
   mcpManager = new MCPServerManager();
   oasisClient = new OASISAPIClient();
-  agentRuntime = new AgentRuntime();
+  agentRuntime = new AgentRuntime(oasisClient, mcpManager);
   fileSystemService = new FileSystemService();
   terminalService = new TerminalService();
   chatService = new ChatService();
@@ -182,6 +260,24 @@ app.whenReady().then(async () => {
 
   // Probe STAR CLI (non-blocking: app starts regardless of result)
   probeStarCli().catch((e) => console.warn('[Main] STAR CLI probe threw:', e));
+
+  // Start local bridge server for Telegram-to-IDE integration
+  const bridgeSecret = process.env.OASIS_IDE_BRIDGE_SECRET?.trim();
+  if (bridgeSecret) {
+    const bridgePort = parseInt(process.env.OASIS_IDE_BRIDGE_PORT ?? '7391', 10);
+    localBridgeServer = new LocalBridgeServer(bridgePort, bridgeSecret);
+    localBridgeServer.on('task', (task) => {
+      const win = mainWindow ?? BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('telegram:task', task);
+      }
+    });
+    localBridgeServer.start().catch((e) => {
+      console.error('[Main] LocalBridgeServer failed to start:', e);
+    });
+  } else {
+    console.log('[Main] OASIS_IDE_BRIDGE_SECRET not set — Telegram bridge disabled.');
+  }
 
   createWindow();
   ensureRendererDistWatch();
@@ -264,6 +360,15 @@ ipcMain.handle('fs:pick-workspace', async () => {
 
 ipcMain.handle('fs:get-workspace-path', async () => {
   return fileSystemService.getWorkspacePath();
+});
+
+ipcMain.handle('fs:set-workspace', async (_, dir: string) => {
+  try {
+    fileSystemService.setWorkspacePath(dir);
+    return await fileSystemService.listTree(dir);
+  } catch {
+    return [];
+  }
 });
 
 ipcMain.handle('fs:list-tree', async (_, dir?: string) => {
@@ -559,6 +664,12 @@ ipcMain.handle('auth:login', async (_, username: string, password: string) => {
     } catch (mcpErr: unknown) {
       console.error('[Main] MCP restart after login failed:', mcpErr);
     }
+    // Register this IDE session as a discoverable A2A agent (fire-and-forget)
+    oasisClient.registerAgentCapabilities(authAvatarId, [
+      'code-generation', 'data-analysis', 'general', 'ide-session'
+    ]).catch((err: unknown) => {
+      console.warn('[Main] A2A agent registration failed (non-fatal):', err);
+    });
     return { success: true, username: authUsername, avatarId: authAvatarId };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -587,13 +698,16 @@ ipcMain.handle('auth:getStatus', async () => {
   };
 });
 
+ipcMain.handle('auth:getToken', () => oasisClient.getAuthToken());
+
 // A2A Inbox (uses auth token from oasisClient)
 ipcMain.handle('a2a:getPending', async () => {
   try {
-    return await oasisClient.getPendingA2AMessages();
+    const messages = await oasisClient.getPendingA2AMessages();
+    return { ok: true, messages: Array.isArray(messages) ? messages : [] };
   } catch (error: any) {
     console.error('[IPC] Get pending A2A error:', error);
-    return [];
+    return { ok: false, messages: [], error: error.message ?? 'Failed to fetch messages' };
   }
 });
 
@@ -616,6 +730,25 @@ ipcMain.handle('a2a:sendReply', async (_, toAgentId: string, content: string, pa
     console.error('[IPC] Send reply error:', error);
     throw error;
   }
+});
+
+ipcMain.handle('a2a:send', async (_, toAgentId: string, method: string, content: string) => {
+  try {
+    await oasisClient.sendA2ANewMessage(toAgentId, method, content);
+    return { ok: true };
+  } catch (error: any) {
+    console.error('[IPC] A2A send error:', error);
+    return { ok: false, error: error.message ?? 'Failed to send message' };
+  }
+});
+
+// Telegram bridge
+ipcMain.handle('telegram:getTasks', () => {
+  return localBridgeServer?.getQueuedTasks() ?? [];
+});
+
+ipcMain.handle('telegram:taskDone', (_, taskId: string) => {
+  localBridgeServer?.removeTask(taskId);
 });
 
 // Chat / LLM

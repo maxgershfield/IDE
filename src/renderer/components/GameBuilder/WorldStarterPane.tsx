@@ -64,7 +64,7 @@ interface Props {
 
 export const WorldStarterPane: React.FC<Props> = ({ onClose }) => {
   const { workspacePath, refreshTree, reloadStarWorkspace } = useWorkspace();
-  const { setPendingComposerText, openBuilderTab } = useEditorTab();
+  const { submitBuilderMessage, openBuilderTab } = useEditorTab();
 
   const [tabMode, setTabMode] = useState<TabMode>('ai');
   const [description, setDescription] = useState('');
@@ -90,32 +90,47 @@ export const WorldStarterPane: React.FC<Props> = ({ onClose }) => {
   const selectedEngineData = ENGINES.find((e) => e.id === selectedEngine)!;
 
   // ── AI Generate ────────────────────────────────────────────────
-  const handleAIGenerate = () => {
+  const handleAIGenerate = async () => {
     if (!description.trim()) return;
     const name = projectName.trim() || 'my-world';
     const dest = destDir.trim() || workspacePath || '/your/projects';
     const eng = selectedEngineData;
 
+    const projectPath = `${dest}/${name}`;
     const msg = `Generate a ${eng.label} metaverse world called "${name}".
 
-**World description:**
-${description.trim()}
+World description: ${description.trim()}
 
-**Engine:** ${eng.label} (${eng.tagline})
-**Project path:** ${dest}/${name}
+Engine: ${eng.label} (${eng.tagline})
+Project path: ${projectPath}
 
-Please:
-1. Use \`write_file\` to create all necessary files at \`${dest}/${name}/\` — include \`package.json\`, \`index.html\`, \`vite.config.js\` (or \`vite.config.ts\`), \`.star-workspace.json\` (with \`gameEngine: "${eng.id}"\`), source files, and a \`README.md\`.
-2. Base the scene on the description above — terrain, atmosphere, lighting, any named locations.
-3. Include at least one NPC that fits the world's theme.
-4. Wire OASIS holons for player state persistence (\`lib/oasis.js\`).
-5. After writing files, run \`npm install\` then \`npm run dev\` with \`run_workspace_command\` from \`${dest}/${name}\`.
+Write ALL of these files now (use write_file for each):
 
-Keep files small and composable. One concern per file.`;
+${projectPath}/package.json
+  name: "${name}", type: "module"
+  scripts: { "dev": "vite", "build": "vite build" }
+  devDependencies: { "vite": "latest" }
+  dependencies: appropriate for ${eng.id} (e.g. "hyperfy": "latest" for hyperfy, "three": "latest" + "@react-three/fiber": "latest" for threejs, "@babylonjs/core": "latest" for babylonjs)
 
-    // Populate the composer input so the user can review the prompt and send it.
-    // (setPendingComposerText also closes the builder tab automatically.)
-    setPendingComposerText(msg);
+${projectPath}/index.html — minimal HTML loading /src/main.js as type="module"
+${projectPath}/vite.config.js — MUST include server: { port: 5174 } so it doesn't conflict with the IDE: export default { server: { port: 5174 } }
+${projectPath}/.star-workspace.json — { "name": "${name}", "gameEngine": "${eng.id}" }
+${projectPath}/src/main.js — scene entry point
+${projectPath}/src/scene.js — world geometry, lighting, atmosphere from the description. Include at least one named NPC with simple dialogue that fits the theme.
+${projectPath}/lib/oasis.js — minimal OASIS holon helpers stub
+${projectPath}/README.md — setup instructions: "cd ${projectPath} && npm install && npm run dev"
+
+Once all files are written, respond with a brief summary listing the files created. Do NOT run any shell commands — the terminal will handle npm install and npm run dev automatically.`;
+
+    // Store the project path so WorldPreviewPane can launch the terminal.
+    localStorage.setItem('oasis:pending-world-path', projectPath);
+
+    // Submit directly into the agent — do not show the raw prompt in the composer.
+    submitBuilderMessage(msg);
+
+    // Open the Live Preview pane immediately so the user has context while the
+    // agent writes files. The pane shows a "Launch dev server" button.
+    openBuilderTab('worldPreview');
   };
 
   // ── Quick Scaffold ──────────────────────────────────────────────
@@ -276,8 +291,8 @@ Keep files small and composable. One concern per file.`;
           </div>
 
           <p className="wsp-hint">
-            Describe your world, pick an engine, and hit Generate — the AI agent will write all the files,
-            run <code>npm install</code>, and start the dev server automatically.
+            Describe your world, pick an engine, and hit Generate. The agent writes all project files,
+            then the Terminal tab opens and runs <code>npm install &amp;&amp; npm run dev</code> automatically.
           </p>
         </>
       )}

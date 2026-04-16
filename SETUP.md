@@ -121,6 +121,58 @@ export OASIS_API_URL=http://your-oasis-api-url
 export OASIS_IDE_ASSISTANT_AGENT_ID=<your-agent-guid>
 ```
 
+### STAR CLI (`run_star_cli` agent tool)
+
+The IDE Agent can call STAR CLI commands directly via the `run_star_cli` tool. This requires a built `star` binary accessible at startup.
+
+#### 1. Build the STAR CLI from the monorepo
+
+```bash
+# From the repo root
+dotnet publish "STAR ODK/NextGenSoftware.OASIS.STAR.CLI" \
+  -c Release \
+  -r osx-arm64 \
+  --self-contained true \
+  -o ./dist/star-cli
+```
+
+Platform targets: `osx-arm64`, `osx-x64`, `linux-x64`, `win-x64`.
+
+The output folder `dist/star-cli/` contains the `star` binary alongside the required `DNA/` and `DNATemplates/` directories.
+
+#### 2. Make the binary available
+
+**Option A — Add to PATH:**
+```bash
+export PATH="$PATH:/path/to/OASIS_CLEAN/dist/star-cli"
+```
+
+**Option B — Set `STAR_CLI_PATH` (recommended for monorepo dev):**
+```bash
+export STAR_CLI_PATH=/path/to/OASIS_CLEAN/dist/star-cli/star
+```
+
+Add to your shell profile or a `.env` file in `OASIS-IDE/`. The IDE reads `STAR_CLI_PATH` before falling back to `star` on PATH.
+
+#### 3. Verify
+
+Start the IDE — the console will log:
+```
+[Main] STAR CLI found: /path/to/star (0.0.1)
+```
+
+Or call the IPC status handler from the renderer:
+```ts
+const status = await window.electronAPI.starCliStatus();
+// { found: true, path: '/path/to/star', version: '0.0.1' }
+```
+
+If `found: false`, the IDE Agent will still start but `run_star_cli` tool calls will return an error.
+
+#### 4. Agent recipes
+
+Documented non-interactive command recipes live in `docs/recipes/`. The IDE Agent uses these to scaffold OAPPs, create holons, run Light generation, and manage quests without hallucinating flags.
+
 ### Local LLM (OpenAI-compatible)
 
 Full steps, **what it enables**, and Chat vs Agent notes: **[docs/LOCAL_LLM_AND_GOOSE_STYLE_SETUP.md](./docs/LOCAL_LLM_AND_GOOSE_STYLE_SETUP.md)**.

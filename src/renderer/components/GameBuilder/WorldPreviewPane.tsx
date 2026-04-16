@@ -1,62 +1,61 @@
 /**
- * WorldPreviewPane — live in-IDE preview of the running Vite / Hyperfy dev server.
+ * WorldPreviewPane — monitors the generated world's dev server and opens it
+ * in the user's default browser automatically once it's ready.
  *
- * Uses Electron's <webview> tag (sandboxed WebContents) to embed the world
- * directly alongside the chat. Polls for the dev server to come up, then
- * loads it automatically. Vite's HMR means every file the agent writes
- * hot-reloads in the preview without a manual refresh.
- *
- * Also provides an "Open in browser" button for a full-window view.
+ * The generated world (Hyperfy, Three.js, Babylon.js, etc.) is a standard
+ * web project that runs best in a real browser — WebXR, full DevTools,
+ * no sandbox restrictions. This pane polls the port and launches the browser
+ * the moment the server answers, then shows a "live in browser" status card.
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { ExternalLink, RefreshCw, Server, Terminal, Play } from 'lucide-react';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import './WorldPreviewPane.css';
 
-// Default ports per engine (Vite default is 5173; Hyperfy uses 3000)
+// All generated worlds use port 5174 to avoid conflicting with the OASIS IDE
+// renderer dev server (port 3000) and Vite's own default (port 5173).
 const ENGINE_PORTS: Record<string, number> = {
-  hyperfy: 3000,
-  threejs: 5173,
-  babylonjs: 5173,
-  unity: 8080,
-  roblox: 8080,
+  hyperfy:   5174,
+  threejs:   5174,
+  babylonjs: 5174,
+  unity:     8080,
+  roblox:    8080,
 };
 
 const POLL_INTERVAL_MS = 1500;
-const MAX_POLL_ATTEMPTS = 40; // ~60 seconds
+const MAX_POLL_ATTEMPTS = 60; // ~90 seconds
 
-type PreviewStatus = 'waiting' | 'loading' | 'ready' | 'error';
+// Three stages: 'ready-to-launch' (agent still writing), 'polling' (server starting), 'launched', 'error'
+type PreviewStatus = 'ready-to-launch' | 'polling' | 'launched' | 'error';
 
 interface Props {
   onClose?: () => void;
 }
 
-// Electron's <webview> tag — augment the existing WebViewHTMLAttributes
-// to add Electron-specific string attributes the base type doesn't include.
-declare module 'react' {
-  interface WebViewHTMLAttributes<T> extends HTMLAttributes<T> {
-    partition?: string;
-    webpreferences?: string;
-  }
-}
-
 export const WorldPreviewPane: React.FC<Props> = ({ onClose }) => {
   const { starWorkspaceConfig, workspacePath } = useWorkspace();
 
-  const defaultPort = ENGINE_PORTS[starWorkspaceConfig?.gameEngine ?? ''] ?? 5173;
+  // Read the project path that WorldStarterPane stored when Generate was clicked
+  const pendingPath = localStorage.getItem('oasis:pending-world-path') ?? '';
+  const resolvedProjectPath = pendingPath || workspacePath || '';
+
+  const defaultPort = ENGINE_PORTS[starWorkspaceConfig?.gameEngine ?? ''] ?? 5174;
   const [port, setPort] = useState(defaultPort);
   const [customUrl, setCustomUrl] = useState('');
-  const [status, setStatus] = useState<PreviewStatus>('waiting');
+  const [status, setStatus] = useState<PreviewStatus>('ready-to-launch');
   const [pollCount, setPollCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  const [launching, setLaunching] = useState(false);
 
-  const webviewRef = useRef<HTMLElement>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const previewUrl = customUrl.trim() || `http://localhost:${port}`;
   const engineLabel = starWorkspaceConfig?.gameEngine ?? 'world';
-  const projectLabel = starWorkspaceConfig?.name ?? workspacePath?.split('/').pop() ?? 'project';
+  const projectName = pendingPath.split('/').pop()
+    || starWorkspaceConfig?.name
+    || workspacePath?.split('/').pop()
+    || 'project';
 
-  // Stop polling helper
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
@@ -64,14 +63,19 @@ export const WorldPreviewPane: React.FC<Props> = ({ onClose }) => {
     }
   }, []);
 
-  // Start polling the port until the dev server is up
+  const openInBrowser = useCallback((url: string) => {
+    window.electronAPI?.openUrl?.(url);
+  }, []);
+
   const startPolling = useCallback(() => {
     stopPolling();
-    setStatus('waiting');
+    setStatus('polling');
     setPollCount(0);
     setErrorMsg('');
 
     let attempts = 0;
+    let wasOpenAtStart: boolean | null = null;
+
     pollTimerRef.current = setInterval(async () => {
       attempts++;
       setPollCount(attempts);
@@ -79,63 +83,51 @@ export const WorldPreviewPane: React.FC<Props> = ({ onClose }) => {
       if (attempts > MAX_POLL_ATTEMPTS) {
         stopPolling();
         setStatus('error');
-        setErrorMsg(`Dev server not detected on port ${port} after ${MAX_POLL_ATTEMPTS} attempts. Start it with npm run dev, then click Retry.`);
+        setErrorMsg(
+          `Dev server not detected on port ${port} after ${Math.round((MAX_POLL_ATTEMPTS * POLL_INTERVAL_MS) / 1000)}s. ` +
+          `Make sure "npm run dev" is running in the Terminal tab.`
+        );
         return;
       }
 
       const open = await window.electronAPI?.checkPort?.(port);
-      if (open) {
+
+      if (wasOpenAtStart === null) {
+        wasOpenAtStart = !!open;
+        if (open) return; // skip a pre-existing server on this port
+      }
+
+      if (open && !wasOpenAtStart) {
         stopPolling();
-        setStatus('loading');
+        openInBrowser(previewUrl);
+        setStatus('launched');
+      } else if (!open && wasOpenAtStart) {
+        wasOpenAtStart = false; // pre-existing server went away — now wait for world
       }
     }, POLL_INTERVAL_MS);
-  }, [port, stopPolling]);
+  }, [port, previewUrl, stopPolling, openInBrowser]);
 
-  // Start polling when the pane mounts or the port changes
-  useEffect(() => {
-    startPolling();
-    return stopPolling;
-  }, [startPolling, stopPolling]);
+  useEffect(() => () => stopPolling(), [stopPolling]);
 
-  // Update default port when engine changes
   useEffect(() => {
-    const p = ENGINE_PORTS[starWorkspaceConfig?.gameEngine ?? ''] ?? 5173;
+    const p = ENGINE_PORTS[starWorkspaceConfig?.gameEngine ?? ''] ?? 5174;
     setPort(p);
   }, [starWorkspaceConfig?.gameEngine]);
 
-  // Wire webview load events
-  useEffect(() => {
-    const wv = webviewRef.current as any;
-    if (!wv || status !== 'loading') return;
-
-    const onReady = () => setStatus('ready');
-    const onFail = (_e: any) => {
+  const handleLaunch = async () => {
+    if (!resolvedProjectPath) {
       setStatus('error');
-      setErrorMsg('Failed to load the preview. Is the dev server running?');
-    };
-
-    wv.addEventListener('did-finish-load', onReady);
-    wv.addEventListener('did-fail-load', onFail);
-    return () => {
-      wv.removeEventListener('did-finish-load', onReady);
-      wv.removeEventListener('did-fail-load', onFail);
-    };
-  }, [status]);
-
-  const handleRefresh = () => {
-    const wv = webviewRef.current as any;
-    if (wv?.reload) {
-      wv.reload();
-    } else {
-      startPolling();
+      setErrorMsg('No project path found. Open the project folder and try again.');
+      return;
     }
-  };
-
-  const handleOpenInBrowser = () => {
-    window.electronAPI?.openUrl?.(previewUrl);
-  };
-
-  const handleRetry = () => {
+    setLaunching(true);
+    try {
+      const sessionId = await window.electronAPI.terminalCreate(resolvedProjectPath);
+      await window.electronAPI.terminalWrite(sessionId, `npm install && npm run dev\n`);
+    } catch {
+      // Directory may not exist yet — still start polling so user can retry
+    }
+    setLaunching(false);
     startPolling();
   };
 
@@ -145,7 +137,7 @@ export const WorldPreviewPane: React.FC<Props> = ({ onClose }) => {
       <div className="wpp-toolbar">
         <div className="wpp-toolbar-left">
           <span className="wpp-engine-badge">{engineLabel}</span>
-          <span className="wpp-project-label">{projectLabel}</span>
+          <span className="wpp-project-label">{projectName}</span>
           <div className="wpp-url-wrap">
             <input
               className="wpp-url-input"
@@ -153,21 +145,19 @@ export const WorldPreviewPane: React.FC<Props> = ({ onClose }) => {
               value={customUrl}
               placeholder={`localhost:${port}`}
               onChange={(e) => setCustomUrl(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') startPolling();
-              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') startPolling(); }}
             />
           </div>
         </div>
-
         <div className="wpp-toolbar-right">
-          {status === 'ready' && (
-            <button type="button" className="wpp-btn wpp-btn--icon" title="Refresh" onClick={handleRefresh}>
-              ↺
-            </button>
-          )}
-          <button type="button" className="wpp-btn wpp-btn--open" onClick={handleOpenInBrowser} title="Open in browser">
-            ↗ Browser
+          <button
+            type="button"
+            className="wpp-btn wpp-btn--open"
+            onClick={() => openInBrowser(previewUrl)}
+            title="Open in browser"
+          >
+            <ExternalLink size={13} strokeWidth={1.8} />
+            Open in browser
           </button>
           {onClose && (
             <button type="button" className="wpp-btn wpp-btn--close" onClick={onClose} title="Close preview">
@@ -177,57 +167,101 @@ export const WorldPreviewPane: React.FC<Props> = ({ onClose }) => {
         </div>
       </div>
 
-      {/* States */}
-      {status === 'waiting' && (
+      {/* Ready-to-launch — agent is still writing files */}
+      {status === 'ready-to-launch' && (
+        <div className="wpp-overlay">
+          <div className="wpp-launched-icon">
+            <Terminal size={36} strokeWidth={1.2} />
+          </div>
+          <p className="wpp-overlay-title">Agent is writing your world files</p>
+          <p className="wpp-overlay-sub">
+            Watch the AI panel on the right. Once the agent says it has finished writing files,
+            click the button below to install packages and start the dev server.
+          </p>
+          {resolvedProjectPath && (
+            <p className="wpp-overlay-hint">
+              Project: <code>{resolvedProjectPath}</code>
+            </p>
+          )}
+          <div className="wpp-overlay-actions">
+            <button
+              type="button"
+              className="wpp-btn wpp-btn--primary"
+              onClick={handleLaunch}
+              disabled={launching}
+            >
+              <Play size={13} strokeWidth={1.8} />
+              {launching ? 'Opening terminal…' : 'Launch dev server'}
+            </button>
+          </div>
+          <p className="wpp-overlay-hint" style={{ marginTop: 8 }}>
+            Or open the Terminal tab and run:
+            <code style={{ display: 'block', marginTop: 4 }}>
+              cd {resolvedProjectPath || '<project-path>'} &amp;&amp; npm install &amp;&amp; npm run dev
+            </code>
+          </p>
+        </div>
+      )}
+
+      {/* Polling — npm install + dev server starting */}
+      {status === 'polling' && (
         <div className="wpp-overlay">
           <div className="wpp-spinner" />
-          <p className="wpp-overlay-title">Waiting for dev server…</p>
+          <p className="wpp-overlay-title">Waiting for dev server on port {port}…</p>
           <p className="wpp-overlay-sub">
-            Checking <code>localhost:{port}</code> — attempt {pollCount}
+            {pollCount > 0 ? `${pollCount * POLL_INTERVAL_MS / 1000}s elapsed — npm install may still be running.` : 'Starting…'}
           </p>
           <p className="wpp-overlay-hint">
-            Run <code>npm run dev</code> in the terminal tab if it isn't running yet.
+            The browser will open automatically. Check the Terminal tab for npm output.
           </p>
-          <button type="button" className="wpp-btn wpp-btn--open" onClick={handleOpenInBrowser}>
-            ↗ Open in browser when ready
-          </button>
         </div>
       )}
 
-      {status === 'loading' && (
-        <div className="wpp-overlay">
-          <div className="wpp-spinner" />
-          <p className="wpp-overlay-title">Loading world…</p>
-        </div>
-      )}
-
-      {status === 'error' && (
-        <div className="wpp-overlay">
-          <p className="wpp-overlay-title wpp-overlay-title--error">Preview unavailable</p>
-          <p className="wpp-overlay-sub">{errorMsg}</p>
+      {/* Launched */}
+      {status === 'launched' && (
+        <div className="wpp-overlay wpp-overlay--launched">
+          <div className="wpp-launched-icon">
+            <Server size={36} strokeWidth={1.2} />
+          </div>
+          <p className="wpp-overlay-title">World launched in your browser</p>
+          <p className="wpp-overlay-sub">Running at <code>{previewUrl}</code></p>
+          <p className="wpp-overlay-hint">
+            Vite HMR is active — edits to your world files reload instantly.
+          </p>
           <div className="wpp-overlay-actions">
-            <button type="button" className="wpp-btn wpp-btn--open" onClick={handleRetry}>
-              Retry
+            <button type="button" className="wpp-btn wpp-btn--primary" onClick={() => openInBrowser(previewUrl)}>
+              <ExternalLink size={13} strokeWidth={1.8} />
+              Re-open in browser
             </button>
-            <button type="button" className="wpp-btn wpp-btn--open" onClick={handleOpenInBrowser}>
-              ↗ Open in browser
+            <button type="button" className="wpp-btn" onClick={startPolling}>
+              <RefreshCw size={13} strokeWidth={1.8} />
+              Restart detection
             </button>
           </div>
         </div>
       )}
 
-      {/* Webview — rendered immediately when loading/ready so it starts loading.
-          React.createElement used instead of JSX to avoid @types/react attribute conflicts. */}
-      {(status === 'loading' || status === 'ready') &&
-        React.createElement('webview', {
-          ref: webviewRef,
-          src: previewUrl,
-          className: `wpp-webview${status === 'ready' ? ' is-visible' : ''}`,
-          partition: 'persist:worldpreview',
-          allowpopups: 'true',
-          webpreferences: 'allowRunningInsecureContent=yes',
-        } as any)
-      }
+      {/* Error */}
+      {status === 'error' && (
+        <div className="wpp-overlay">
+          <p className="wpp-overlay-title wpp-overlay-title--error">Server not detected</p>
+          <p className="wpp-overlay-sub">{errorMsg}</p>
+          <div className="wpp-overlay-actions">
+            <button type="button" className="wpp-btn wpp-btn--primary" onClick={handleLaunch}>
+              <Play size={13} strokeWidth={1.8} />
+              Try launching again
+            </button>
+            <button type="button" className="wpp-btn" onClick={startPolling}>
+              <RefreshCw size={13} strokeWidth={1.8} />
+              Poll for server
+            </button>
+            <button type="button" className="wpp-btn" onClick={() => openInBrowser(previewUrl)}>
+              <ExternalLink size={13} strokeWidth={1.8} />
+              Try opening anyway
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

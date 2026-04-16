@@ -4,6 +4,7 @@ import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useIdeChat } from '../../contexts/IdeChatContext';
 import { countWorkspaceFiles } from '../../utils/countWorkspaceFiles';
 import { ComposerSessionPanel } from './ComposerSessionPanel';
+import { TelegramTaskBanner } from './TelegramTaskBanner';
 import './ChatInterface.css';
 
 /**
@@ -24,6 +25,7 @@ export const ChatInterface: React.FC = () => {
 
   return (
     <div className="chat-interface chat-interface--composer">
+      <TelegramTaskBanner />
       <div className="composer-session-bar" role="tablist" aria-label="Chat sessions">
         <div className="composer-session-tabs">
           {sessions.map((s) => (

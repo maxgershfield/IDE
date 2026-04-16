@@ -63,19 +63,15 @@ export class AgentToolExecutor {
    */
   private resolveWorkspacePath(userPath: string): string {
     const root = this.fileSystem.getWorkspacePath();
+    // Absolute paths are allowed — the agent may write to a sibling project directory.
+    // Relative paths are resolved against the workspace root (requires a workspace to be open).
+    if (path.isAbsolute(userPath)) {
+      return path.normalize(userPath);
+    }
     if (!root) {
-      throw new Error('No workspace open');
+      throw new Error('No workspace open — provide an absolute path or open a workspace first');
     }
-    const abs = path.isAbsolute(userPath)
-      ? path.normalize(userPath)
-      : path.normalize(path.join(root, userPath));
-    const rootResolved = path.resolve(root);
-    const target = path.resolve(abs);
-    const rel = path.relative(rootResolved, target);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      throw new Error('Path escapes workspace');
-    }
-    return target;
+    return path.normalize(path.join(root, userPath));
   }
 
   async execute(toolCallId: string, name: string, argsJson: string): Promise<AgentToolExecutionResult> {
@@ -102,6 +98,8 @@ export class AgentToolExecutor {
           return await this.runWorkspaceCommand(toolCallId, args);
         case 'write_file':
           return await this.writeFile(toolCallId, args);
+        case 'write_files':
+          return await this.writeFiles(toolCallId, args);
         case 'mcp_invoke':
           return await this.mcpInvoke(toolCallId, args);
         case 'run_star_cli':
@@ -437,6 +435,9 @@ export class AgentToolExecutor {
       return { toolCallId, content: msg, isError: true };
     }
 
+    // Auto-create the cwd if it doesn't exist yet — the agent may specify a project dir
+    // before any files have been written there.
+    await fs.mkdir(cwdFull, { recursive: true });
     const st = await fs.stat(cwdFull).catch(() => null);
     if (!st?.isDirectory()) {
       return { toolCallId, content: `cwd is not a directory: ${cwdRel}`, isError: true };
@@ -527,6 +528,53 @@ export class AgentToolExecutor {
     return { toolCallId, content: `wrote ${content.length} chars to ${p}` };
   }
 
+  /**
+   * write_files — write an entire project in one tool round.
+   * args.files: Array<{ path: string; content: string }>
+   * Parent directories are created automatically for every file.
+   */
+  private async writeFiles(
+    toolCallId: string,
+    args: Record<string, unknown>
+  ): Promise<AgentToolExecutionResult> {
+    const filesRaw = args.files;
+    if (!Array.isArray(filesRaw) || filesRaw.length === 0) {
+      return {
+        toolCallId,
+        content: 'write_files requires files (non-empty array of {path, content} objects)',
+        isError: true
+      };
+    }
+    if (filesRaw.length > 50) {
+      return { toolCallId, content: 'write_files: max 50 files per call', isError: true };
+    }
+
+    const written: string[] = [];
+    const errors: string[] = [];
+
+    for (const entry of filesRaw) {
+      if (!entry || typeof entry !== 'object') { errors.push('skipped non-object entry'); continue; }
+      const p = typeof (entry as any).path === 'string' ? (entry as any).path : '';
+      const content = typeof (entry as any).content === 'string' ? (entry as any).content : '';
+      if (!p) { errors.push('skipped entry with missing path'); continue; }
+      if (content.length > 2 * 1024 * 1024) { errors.push(`${p}: too large`); continue; }
+      try {
+        const full = this.resolveWorkspacePath(p);
+        await fs.mkdir(path.dirname(full), { recursive: true });
+        await fs.writeFile(full, content, 'utf-8');
+        written.push(p);
+      } catch (e) {
+        errors.push(`${p}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    const summary = `wrote ${written.length} file(s): ${written.join(', ')}`;
+    if (errors.length > 0) {
+      return { toolCallId, content: `${summary}\nerrors: ${errors.join('; ')}`, isError: false };
+    }
+    return { toolCallId, content: summary };
+  }
+
   private async mcpInvoke(
     toolCallId: string,
     args: Record<string, unknown>
@@ -604,6 +652,7 @@ export class AgentToolExecutor {
       return { toolCallId, content: msg, isError: true };
     }
 
+    await fs.mkdir(cwdFull, { recursive: true });
     const st = await fs.stat(cwdFull).catch(() => null);
     if (!st?.isDirectory()) {
       return { toolCallId, content: `cwd is not a directory: ${cwdRel}`, isError: true };

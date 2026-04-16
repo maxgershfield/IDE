@@ -10,6 +10,7 @@ import {
   IDE_CHAT_MODEL_STORAGE_KEY,
   IDE_COMPOSER_MODE_STORAGE_KEY,
   getIdeChatModelById,
+  type AgentExecutionModeId,
   type ComposerModeId
 } from '../../constants/ideChatModels';
 import { getAgentContextPack } from '../../../shared/agentContextPack';
@@ -17,7 +18,8 @@ import { getGameDevContextPack } from '../../constants/gameDevPrompt';
 import { useGameDev } from '../../contexts/GameDevContext';
 import {
   buildAgentPriorMessagesFromThread,
-  runIdeAgentLoop
+  runIdeAgentLoop,
+  shouldUsePlanModeFirst
 } from '../../services/ideAgentLoop';
 import { countWorkspaceFiles } from '../../utils/countWorkspaceFiles';
 import { wantsBrowserPreviewAction, resolvePreviewFolderPath } from '../../utils/previewIntent';
@@ -27,6 +29,7 @@ import {
   nextRevealIncrement
 } from '../../utils/assistantStreamReveal';
 import { makeIdeThreadKey } from '../../utils/ideThreadKey';
+import { extractPlanReplyChoices } from '../../utils/planReplyParser';
 import { ComposerMarkdownBody } from './ComposerMarkdownBody';
 import { GameToolPalette } from './GameToolPalette';
 import { useEditorTab } from '../../contexts/EditorTabContext';
@@ -43,6 +46,8 @@ interface Message {
   timestamp: number;
   toolCalls?: Array<{ tool: string; result: any }>;
   error?: boolean;
+  /** Plan mode: quick-reply labels (stripped from raw model output). */
+  planChoices?: string[];
 }
 
 function mapRecordedToolOutputsToMessageToolCalls(
@@ -58,6 +63,16 @@ function mapRecordedToolOutputsToMessageToolCalls(
   });
 }
 
+/** Latest assistant turn in the thread offered plan chips (user may be answering). */
+function lastAssistantHasPlanChoices(thread: Message[]): boolean {
+  for (let i = thread.length - 1; i >= 0; i--) {
+    if (thread[i].role === 'assistant') {
+      return (thread[i].planChoices?.length ?? 0) > 0;
+    }
+  }
+  return false;
+}
+
 /** Long assistant reply: reveal text progressively (Cursor-like). Key = messageIndex:totalChars. */
 interface AssistantRevealState {
   messageIndex: number;
@@ -70,7 +85,7 @@ const INITIAL_MESSAGE: Message = {
   content:
     'Hi — I\'m the OASIS IDE assistant.\n\n' +
     '**Chat** / **Agent** / **Game Dev** (mode selector below):\n' +
-    '- **Agent**: OpenAI or Grok + a workspace folder open. The model can call **tools** (`read_file`, `list_directory`, `workspace_grep`, `write_file`, `run_workspace_command`, MCP). Step-by-step activity while it works.\n' +
+    '- **Agent**: OpenAI or Grok + a workspace folder open. **Plan** / **Execute** appears while you draft a short create-OAPP or new-game line, or right after a reply with clickable chips. Plan keeps tools read-only; Execute runs writes, STAR, npm, and MCP.\n' +
     '- **Game Dev**: Same tool loop as Agent, but with metaverse game developer context pre-loaded — OASIS quests, NPCs, GeoNFTs, ElevenLabs voice, Three.js/Hyperfy/Babylon/Unity/Roblox templates.\n' +
     '- **Chat**: One-shot text through ONODE or a local API key. No workspace tools.\n\n' +
     'Tip: switch to **Game Dev** when building metaverse worlds. **+** opens another tab with its own history.',
@@ -98,12 +113,16 @@ function parseStoredMessages(raw: unknown): Message[] | null {
     const role = o.role;
     if (role !== 'user' && role !== 'assistant') continue;
     const content = String(o.content ?? '');
+    const planChoices = Array.isArray(o.planChoices)
+      ? (o.planChoices as string[]).filter((s) => typeof s === 'string' && s.trim().length > 0)
+      : undefined;
     out.push({
       role,
       content,
       timestamp: typeof o.timestamp === 'number' ? o.timestamp : Number(o.timestamp) || Date.now(),
       toolCalls: Array.isArray(o.toolCalls) ? (o.toolCalls as Message['toolCalls']) : undefined,
-      error: Boolean(o.error)
+      error: Boolean(o.error),
+      planChoices: planChoices?.length ? planChoices : undefined
     });
   }
   return out.length > 0 ? out : null;
@@ -138,8 +157,13 @@ function threadHasUserMessages(messages: Message[] | null | undefined): boolean 
 }
 
 /**
- * When the user opens a folder after chatting with no workspace, `threadKey` switches from * `workspaceKey(null)` ("nows") to a path-specific key. Without this, the composer loads an empty
+ * When the user opens a folder after chatting with no workspace, `threadKey` switches from
+ * `workspaceKey(null)` ("nows") to a path-specific key. Without this, the composer loads an empty
  * thread even though history exists under the no-workspace key.
+ *
+ * When the user logs in after chatting while logged out, `threadKey` switches from
+ * `ide-default-{workspace}` to `ide-{avatarId}-{workspace}`. Without a fallback, chat and holon
+ * keys no longer match pre-login localStorage and the thread looks empty.
  */
 function loadPersistedMessagesWithNoWorkspaceHandoff(
   threadKey: string,
@@ -158,6 +182,15 @@ function loadPersistedMessagesWithNoWorkspaceHandoff(
       if (threadHasUserMessages(fromNoWs)) return fromNoWs;
     }
   }
+
+  if (avatarId) {
+    const preLoginKey = makeIdeThreadKey(undefined, workspacePath, sessionId);
+    if (preLoginKey !== threadKey) {
+      const fromPreLogin = loadPersistedMessages(preLoginKey, undefined, sessionId === 'main');
+      if (threadHasUserMessages(fromPreLogin)) return fromPreLogin;
+    }
+  }
+
   return cur;
 }
 
@@ -237,6 +270,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   /** One user send: all agent/turn rounds share this id for IPC cancel. */
   const ideRunIdRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
+  const messagesRef = useRef<Message[]>(messages);
   const [rootHolonId, setRootHolonId] = useState<string | null>(null);
   const rootHolonIdRef = useRef<string | null>(null);
   const [input, setInput] = useState('');
@@ -272,6 +306,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     }
     return 'agent';
   });
+  const [agentExecutionMode, setAgentExecutionMode] = useState<AgentExecutionModeId>('execute');
   const { registerSubmitHandler, pendingComposerText, clearPendingComposerText } = useEditorTab();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -306,6 +341,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       ideRunIdRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     try {
@@ -347,7 +386,18 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       applyNoWorkspaceHandoff
     );
     setMessages(saved ?? [INITIAL_MESSAGE]);
-    setRootHolonId(loadRootHolonId(threadKey));
+    let holonId = loadRootHolonId(threadKey);
+    if (!holonId && avatarId) {
+      const preLoginKey = makeIdeThreadKey(undefined, workspacePath, sessionId);
+      if (preLoginKey !== threadKey) {
+        const fromPreLogin = loadRootHolonId(preLoginKey);
+        if (fromPreLogin) {
+          holonId = fromPreLogin;
+          saveRootHolonId(threadKey, fromPreLogin);
+        }
+      }
+    }
+    setRootHolonId(holonId);
     setAssistantReveal(null);
     setEarlierFoldStartIndex(null);
 
@@ -527,6 +577,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const conversationId = threadKey;
   const MAX_HISTORY = 20;
 
+  const planFirstDraft = shouldUsePlanModeFirst(input);
+  const lastAsstOffersPlanChips = lastAssistantHasPlanChoices(messages);
+  const showPlanExecuteToggle =
+    composerMode === 'agent' &&
+    !!workspacePath &&
+    (planFirstDraft || lastAsstOffersPlanChips);
+
   const handleSendMessage = async (messageText: string) => {
     if (!messageText.trim() || loading || !canSend) return;
     setInput('');
@@ -536,7 +593,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   // Register this session's send handler so the editor-tab builder pane can submit into it
   useEffect(() => {
     registerSubmitHandler((msg) => void handleSendMessage(msg));
-  }, [registerSubmitHandler, loading, canSend]);
+  }, [registerSubmitHandler, loading, canSend, agentExecutionMode, messages.length]);
 
   // Consume pendingComposerText (set by AI Generate builders) — auto-send directly into the agent.
   // handleSendCore is captured fresh from this render (after pendingComposerText state change),
@@ -558,6 +615,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   };
 
   const handleSendCore = async (currentInput: string) => {
+    const threadBefore = messagesRef.current;
 
     cancelAgentRunRef.current = false;
     const sendRunId = (() => {
@@ -575,7 +633,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       timestamp: Date.now()
     };
 
-    const foldAt = messages.length;
+    const foldAt = threadBefore.length;
     scrollComposerToFoldTopRef.current = true;
     setEarlierFoldStartIndex(foldAt);
     setMessages(prev => [...prev, userMessage]);
@@ -624,7 +682,14 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     }
     const isGameMode = isGameDevMode;
 
-    const historyForApi = [...messages, userMessage].slice(-MAX_HISTORY).map((m) => ({
+    const planFirstThisSend = shouldUsePlanModeFirst(currentInput);
+    const continuingPlan = lastAssistantHasPlanChoices(threadBefore);
+    const planExecuteApplicable =
+      Boolean(workspacePath) && (planFirstThisSend || continuingPlan);
+    const effectiveExecutionMode: AgentExecutionModeId =
+      planExecuteApplicable && agentExecutionMode === 'plan' ? 'plan' : 'execute';
+
+    const historyForApi = [...threadBefore, userMessage].slice(-MAX_HISTORY).map((m) => ({
       role: m.role,
       content: m.content
     }));
@@ -633,7 +698,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       content: string,
       toolCalls?: Array<{ tool: string; result: any }>,
       error?: boolean,
-      stream: boolean = true
+      stream: boolean = true,
+      planChoices?: string[]
     ) => {
       const shouldStream =
         stream &&
@@ -658,7 +724,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             content,
             timestamp: Date.now(),
             toolCalls,
-            error
+            error,
+            planChoices: planChoices?.length ? planChoices : undefined
           }
         ];
       });
@@ -710,7 +777,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
       if (useAgentToolLoop) {
         const priorForAgent = buildAgentPriorMessagesFromThread(
-          messages.slice(-(MAX_HISTORY - 1))
+          threadBefore.slice(-(MAX_HISTORY - 1))
         );
         const contextPack = isGameMode
           ? getGameDevContextPack(starWorkspaceConfig?.gameEngine)
@@ -732,7 +799,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             onActivityLine: (line) => {
               setAgentActivityLines((prev) => [...prev, line]);
             },
-            runId: sendRunId
+            runId: sendRunId,
+            gameDevMode: isGameMode,
+            executionMode: effectiveExecutionMode
           }
         );
         setLastAgentActivity(out.activityLog.length > 0 ? [...out.activityLog] : null);
@@ -750,10 +819,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             !stopped
           );
         } else {
+          const { displayText, choices } = extractPlanReplyChoices(out.finalText);
           pushAssistantMessage(
-            out.finalText,
+            displayText,
             mapRecordedToolOutputsToMessageToolCalls(out.recordedToolOutputs),
-            false
+            false,
+            true,
+            choices
           );
         }
         return;
@@ -825,8 +897,16 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
   const backendLabel = agentToolLoopReady
     ? isGameDevMode
-      ? 'Game Dev (tools on)'
-      : 'ONODE agent (tools)'
+      ? showPlanExecuteToggle && agentExecutionMode === 'plan'
+        ? 'Game Dev (plan)'
+        : showPlanExecuteToggle
+          ? 'Game Dev (execute)'
+          : 'Game Dev'
+      : showPlanExecuteToggle && agentExecutionMode === 'plan'
+        ? 'ONODE agent (plan)'
+        : showPlanExecuteToggle
+          ? 'ONODE agent (execute)'
+          : 'ONODE agent'
     : composerMode === 'agent' &&
         (modelMeta?.provider === 'openai' || modelMeta?.provider === 'xai') &&
         !workspacePath
@@ -855,6 +935,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     const displayText = streamingAssistant
       ? msg.content.slice(0, assistantReveal.visible)
       : msg.content;
+    const planChoices = msg.planChoices ?? [];
+    const showPlanChips =
+      msg.role === 'assistant' &&
+      planChoices.length > 0 &&
+      !streamingAssistant &&
+      !msg.error;
     return (
       <div key={index} className={`composer-message ${msg.role} ${msg.error ? 'error' : ''}`}>
         <div className="composer-message-label">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
@@ -866,6 +952,22 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           <ComposerMarkdownBody text={displayText} />
           {streamingAssistant ? <span className="composer-stream-caret" aria-hidden /> : null}
         </div>
+        {showPlanChips ? (
+          <div className="composer-plan-chips" role="group" aria-label="Quick replies">
+            {planChoices.map((c) => (
+              <button
+                key={`${index}-${c}`}
+                type="button"
+                className="composer-plan-chip"
+                disabled={loading || !canSend}
+                title="Send as your next message"
+                onClick={() => void handleSendMessage(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {msg.toolCalls && msg.toolCalls.length > 0 && (
           <div className="composer-tool-calls">Tool: {msg.toolCalls[0].tool}</div>
         )}
@@ -937,20 +1039,24 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             <div className="composer-message-label">Assistant</div>
             <div className="composer-message-body">
               {agentActivityLines.length > 0 ? (
-                <details open className="composer-activity-live">
-                  <summary className="composer-activity-live-summary">
-                    <span className="typing-indicator">Working</span>
-                    <span className="composer-activity-count">
-                      {agentActivityLines.length}{' '}
-                      {agentActivityLines.length === 1 ? 'step' : 'steps'}
-                    </span>
-                  </summary>
-                  <ol className="composer-activity-list">
-                    {agentActivityLines.map((line, i) => (
-                      <li key={i}>{line}</li>
-                    ))}
-                  </ol>
-                </details>
+                <div className="composer-activity-live">
+                  <span className="typing-indicator composer-activity-current">
+                    {agentActivityLines[agentActivityLines.length - 1]}
+                  </span>
+                  {agentActivityLines.length > 1 && (
+                    <details className="composer-activity-previous">
+                      <summary className="composer-activity-previous-summary">
+                        {agentActivityLines.length - 1} previous{' '}
+                        {agentActivityLines.length === 2 ? 'step' : 'steps'}
+                      </summary>
+                      <ul className="composer-activity-list">
+                        {agentActivityLines.slice(0, -1).map((line, i) => (
+                          <li key={i}>{line}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
               ) : (
                 <span className="typing-indicator">Thinking</span>
               )}
@@ -970,14 +1076,14 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       {lastAgentActivity && lastAgentActivity.length > 0 && (
         <details className="composer-activity-summary">
           <summary className="composer-activity-summary-title">
-            Last request — {lastAgentActivity.length}{' '}
-            {lastAgentActivity.length === 1 ? 'step' : 'steps'}
+            Used {lastAgentActivity.length}{' '}
+            {lastAgentActivity.length === 1 ? 'tool' : 'tools'}
           </summary>
-          <ol className="composer-activity-list">
+          <ul className="composer-activity-list">
             {lastAgentActivity.map((line, i) => (
               <li key={i}>{line}</li>
             ))}
-          </ol>
+          </ul>
         </details>
       )}
 
@@ -1017,7 +1123,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         </button>
       </div>
 
-      {isGameDevMode && <GameToolPalette />}
+      {isGameDevMode && (
+        <GameToolPalette
+          onInjectPrompt={(prompt) => {
+            setInput(prompt);
+          }}
+        />
+      )}
 
       {referencedPaths.length > 0 && (
         <div className="composer-ref-chips" aria-label="Paths attached to the next message">
@@ -1066,6 +1178,35 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
               <option value="agent">Agent</option>
             </select>
           </label>
+          {showPlanExecuteToggle ? (
+            <div
+              className="composer-execution-toggle"
+              role="group"
+              aria-label="Agent: plan or execute"
+              title="Plan: one question at a time, read-only tools, clickable replies. Execute: full tools (write, STAR, npm, MCP)."
+            >
+              <button
+                type="button"
+                className={
+                  agentExecutionMode === 'plan' ? 'composer-exec-btn is-active' : 'composer-exec-btn'
+                }
+                onClick={() => setAgentExecutionMode('plan')}
+              >
+                Plan
+              </button>
+              <button
+                type="button"
+                className={
+                  agentExecutionMode === 'execute'
+                    ? 'composer-exec-btn is-active'
+                    : 'composer-exec-btn'
+                }
+                onClick={() => setAgentExecutionMode('execute')}
+              >
+                Execute
+              </button>
+            </div>
+          ) : null}
           <label className="composer-footer-model">
             <span className="visually-hidden">Model</span>
             <select
@@ -1084,11 +1225,21 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             className={`composer-mode-pill composer-mode-pill--${composerMode}`}
             title={
               composerMode === 'agent'
-                ? 'Tools on: file read, list dir, commands, MCP (needs OpenAI or Grok + workspace).'
+                ? showPlanExecuteToggle
+                  ? agentExecutionMode === 'plan'
+                    ? 'Plan: read-only tools + guided questions.'
+                    : 'Execute: full tools (needs OpenAI or Grok + workspace).'
+                  : 'Agent: workspace tools when the model is OpenAI or Grok.'
                 : 'Tools off: faster text-only replies; no automatic repo inspection.'
             }
           >
-            {composerMode === 'agent' ? 'Tools on' : 'Tools off'}
+            {composerMode === 'agent'
+              ? showPlanExecuteToggle
+                ? agentExecutionMode === 'plan'
+                  ? 'Plan'
+                  : 'Execute'
+                : 'Agent'
+              : 'Chat'}
           </span>
           <span className="composer-footer-spacer" />
           <button

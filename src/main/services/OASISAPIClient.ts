@@ -138,6 +138,36 @@ export class OASISAPIClient {
     }
   }
 
+  /**
+   * Send a new outbound A2A message from the authenticated avatar.
+   * Method is a JSON-RPC 2.0 method name (e.g. "service_request", "ping").
+   */
+  async sendA2ANewMessage(
+    toAgentId: string,
+    method: string,
+    content: string
+  ): Promise<void> {
+    await this.client.post('/api/a2a/jsonrpc', {
+      jsonrpc: '2.0',
+      method,
+      params: { toAgentId, content }
+    });
+  }
+
+  /**
+   * Register the IDE session as a discoverable A2A agent.
+   * Called after login so other agents can find and message this user.
+   * Fire-and-forget — failure should not block login.
+   */
+  async registerAgentCapabilities(agentId: string, capabilities: string[]): Promise<void> {
+    await this.client.post('/api/a2a/agents/register', {
+      agentId,
+      capabilities,
+      agentType: 'ide',
+      description: 'OASIS IDE session'
+    });
+  }
+
   /** IDE chat messages as stored on a single conversation holon (metadata JSON). */
   async saveIdeConversationHolon(params: {
     threadKey: string;
@@ -372,6 +402,8 @@ export class OASISAPIClient {
       fromAvatarId?: string;
       /** Bounded OASIS/STAR reference text from the IDE (see IdeAgentController max length). */
       contextPack?: string | null;
+      /** plan = read-only tools; execute = full tool set (default). */
+      executionMode?: 'plan' | 'execute';
     },
     options?: { signal?: AbortSignal }
   ): Promise<
@@ -408,7 +440,8 @@ export class OASISAPIClient {
           workspaceRoot: body.workspaceRoot ?? undefined,
           referencedPaths: body.referencedPaths?.length ? body.referencedPaths : undefined,
           fromAvatarId: body.fromAvatarId,
-          contextPack: body.contextPack?.trim() ? body.contextPack.trim() : undefined
+          contextPack: body.contextPack?.trim() ? body.contextPack.trim() : undefined,
+          executionMode: body.executionMode === 'plan' ? 'plan' : 'execute'
         },
         {
           timeout: 120000,

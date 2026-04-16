@@ -44,7 +44,7 @@ export function getHyperfyTemplate(projectName: string): TemplateFile[] {
           version: '0.1.0',
           type: 'module',
           scripts: {
-            dev: 'hyperfy dev',
+            dev: 'hyperfy dev --port 5174',
             build: 'hyperfy build',
             deploy: 'star publish --provider hyperfy',
           },
@@ -222,6 +222,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  server: { port: 5174 },
 });
 `,
     },
@@ -449,6 +450,7 @@ export default defineConfig({
     // Babylon is a large ESM package — pre-bundle for faster dev restarts
     include: ['@babylonjs/core', '@babylonjs/gui', '@babylonjs/loaders'],
   },
+  server: { port: 5174 },
 });
 `,
     },
@@ -643,4 +645,183 @@ export const TEMPLATE_REGISTRY: Record<
   hyperfy: getHyperfyTemplate,
   threejs: getThreejsTemplate,
   babylonjs: getBabylonTemplate,
+  'rp-server': getRpServerTemplate,
+  'quest-chain': getQuestChainTemplate,
+  'npc-pack': getNpcPackTemplate,
+  'item-drop': getItemDropTemplate,
+  'content-creator': getContentCreatorTemplate,
 };
+
+// ─── Content Template metadata ────────────────────────────────────────────────
+// Used by MetaverseTemplatePanel to display cards and prompt for variables.
+export type { ContentTemplateVariable, ContentTemplateMeta } from '../../shared/templateTypes.js';
+import type { ContentTemplateMeta } from '../../shared/templateTypes.js';
+
+export const TEMPLATE_META: ContentTemplateMeta[] = [
+  {
+    id: 'rp-server',
+    name: 'GTA-style RP Server',
+    description: 'Lore bible, factions, quest arcs, NPC roster, and server config for a roleplay world.',
+    category: 'rp-server',
+    emoji: '🏙',
+    variables: [
+      { key: 'WORLD_NAME', prompt: 'World name', default: 'Neon District' },
+      { key: 'CITY_NAME', prompt: 'City name', default: 'Los Santos' },
+      { key: 'NUM_FACTIONS', prompt: 'Number of factions', default: '3' },
+      { key: 'MONTHLY_PRICE', prompt: 'Monthly subscription price (USD)', default: '9.99' },
+    ],
+    postInstallPrompt:
+      'My RP server world is called {{WORLD_NAME}} set in {{CITY_NAME}}. Generate a lore bible, {{NUM_FACTIONS}} faction summaries, and a starter quest arc using the Lore Studio.',
+  },
+  {
+    id: 'quest-chain',
+    name: 'Quest Chain',
+    description: 'Linked quest series with objectives JSON and STAR quest hooks ready to publish.',
+    category: 'quest-chain',
+    emoji: '⚔️',
+    variables: [
+      { key: 'CHAIN_NAME', prompt: 'Quest chain name', default: 'The Iron Path' },
+      { key: 'GAME_SOURCE', prompt: 'Game / platform', default: 'OurWorld' },
+      { key: 'NUM_QUESTS', prompt: 'Number of quests', default: '5' },
+    ],
+    postInstallPrompt:
+      'Create a {{NUM_QUESTS}}-quest chain called {{CHAIN_NAME}} in the STAR system for {{GAME_SOURCE}}.',
+  },
+  {
+    id: 'npc-pack',
+    name: 'NPC Pack',
+    description: 'Roster + voice assignment scaffolding for a faction of NPCs with ElevenLabs slots.',
+    category: 'npc-pack',
+    emoji: '🧑‍🤝‍🧑',
+    variables: [
+      { key: 'PACK_NAME', prompt: 'Pack name', default: 'Syndicate Crew' },
+      { key: 'NUM_NPCS', prompt: 'Number of NPCs', default: '5' },
+      { key: 'FACTION', prompt: 'Faction name', default: 'The Iron Syndicate' },
+    ],
+    postInstallPrompt:
+      'Generate {{NUM_NPCS}} diverse NPC characters for the {{FACTION}} faction. For each NPC: name, role, personality, and create an ElevenLabs voice agent.',
+  },
+  {
+    id: 'item-drop',
+    name: 'Cross-game Item Drop',
+    description: 'Item schema + drop table config ready to mint as an OASIS NFT across games.',
+    category: 'item-drop',
+    emoji: '🎁',
+    variables: [
+      { key: 'ITEM_NAME', prompt: 'Item name', default: 'Shadow Blade' },
+      { key: 'ITEM_RARITY', prompt: 'Rarity (common / rare / legendary)', default: 'rare' },
+      { key: 'GAME_SOURCE', prompt: 'Source game', default: 'ODOOM' },
+    ],
+    postInstallPrompt:
+      'Mint a {{ITEM_RARITY}} rarity item called {{ITEM_NAME}} as an NFT for {{GAME_SOURCE}}. Set up the drop table.',
+  },
+  {
+    id: 'content-creator',
+    name: 'Content Creator Kit',
+    description: 'Video script templates, thumbnail brief, and 30-day posting schedule for a game creator.',
+    category: 'content-creator',
+    emoji: '🎬',
+    variables: [
+      { key: 'GAME_NAME', prompt: 'Game / world name', default: 'OurWorld' },
+      { key: 'CREATOR_NICHE', prompt: 'Creator niche', default: 'lore deep-dives' },
+    ],
+    postInstallPrompt:
+      'Help me build a content strategy for {{GAME_NAME}} focused on {{CREATOR_NICHE}}. Generate 10 video script outlines and a 30-day posting schedule.',
+  },
+];
+
+// ─── Phase 5 Content Templates ────────────────────────────────────────────────
+
+function substitute(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
+}
+
+export function getContentTemplateFiles(
+  templateId: string,
+  variables: Record<string, string>
+): TemplateFile[] {
+  const s = (t: string) => substitute(t, variables);
+  switch (templateId) {
+    case 'rp-server': {
+      const w = variables['WORLD_NAME'] ?? 'World';
+      const c = variables['CITY_NAME'] ?? 'City';
+      const price = variables['MONTHLY_PRICE'] ?? '9.99';
+      return [
+        { path: '.star-workspace.json', content: JSON.stringify({ name: w, projectType: 'metaverse-rp-server', starnetNetwork: 'testnet', version: '1.0.0' }, null, 2) },
+        { path: 'lore/lore-bible.md', content: `# ${w} — Lore Bible\n\n> Set in the city of ${c}.\n\n## Overview\n\n<!-- Generated by OASIS IDE. Use the Lore Studio to expand. -->\n` },
+        { path: 'lore/factions.json', content: JSON.stringify([], null, 2) },
+        { path: 'quests/arc-01.json', content: JSON.stringify({ name: 'Arc 01', quests: [] }, null, 2) },
+        { path: 'npcs/roster.json', content: JSON.stringify([], null, 2) },
+        { path: 'scripts/server-config.json', content: JSON.stringify({ world: w, city: c, maxPlayers: 64, monthlyPrice: parseFloat(price) }, null, 2) },
+        { path: 'README.md', content: s(`# Getting started with {{WORLD_NAME}}\n\nWelcome to **{{WORLD_NAME}}**, set in {{CITY_NAME}}.\n\n## Quick start\n\n1. Open the Lore Studio tab in the IDE and generate your lore bible.\n2. Use NPC Voice Studio to create faction NPCs.\n3. Create quests with \`star quest create\` or via the agent.\n`) },
+      ];
+    }
+    case 'quest-chain': {
+      const chain = variables['CHAIN_NAME'] ?? 'Quest Chain';
+      const n = parseInt(variables['NUM_QUESTS'] ?? '5', 10);
+      const game = variables['GAME_SOURCE'] ?? 'Game';
+      return [
+        { path: '.star-workspace.json', content: JSON.stringify({ name: chain, projectType: 'quest-chain', gameSource: game, starnetNetwork: 'testnet', version: '1.0.0' }, null, 2) },
+        { path: `quests/${chain}/overview.md`, content: s(`# {{CHAIN_NAME}}\n\nA ${n}-quest chain for **{{GAME_SOURCE}}**.\n\n## Quests\n\n${Array.from({ length: n }, (_, i) => `${i + 1}. Quest ${i + 1} — *TBD*`).join('\n')}\n`) },
+        { path: `quests/${chain}/objectives.json`, content: JSON.stringify({ chain, gameSource: game, quests: [] }, null, 2) },
+        { path: 'README.md', content: s(`# {{CHAIN_NAME}}\n\nQuest chain for {{GAME_SOURCE}}. Edit \`quests/{{CHAIN_NAME}}/objectives.json\` then ask the agent to publish via STAR.\n`) },
+      ];
+    }
+    case 'npc-pack': {
+      const pack = variables['PACK_NAME'] ?? 'NPC Pack';
+      const faction = variables['FACTION'] ?? 'Faction';
+      return [
+        { path: '.star-workspace.json', content: JSON.stringify({ name: pack, projectType: 'npc-pack', starnetNetwork: 'testnet', version: '1.0.0' }, null, 2) },
+        { path: `npcs/${pack}/roster.json`, content: JSON.stringify({ pack, faction, npcs: [] }, null, 2) },
+        { path: `npcs/${pack}/voices.json`, content: JSON.stringify({ pack, voices: [] }, null, 2) },
+        { path: 'README.md', content: s(`# {{PACK_NAME}}\n\nNPC pack for the **{{FACTION}}** faction.\n\nOpen NPC Voice Studio in the IDE to create voice agents for each NPC.\n`) },
+      ];
+    }
+    case 'item-drop': {
+      const item = variables['ITEM_NAME'] ?? 'Item';
+      const rarity = variables['ITEM_RARITY'] ?? 'common';
+      const game = variables['GAME_SOURCE'] ?? 'Game';
+      return [
+        { path: '.star-workspace.json', content: JSON.stringify({ name: item, projectType: 'item-drop', gameSource: game, starnetNetwork: 'testnet', version: '1.0.0' }, null, 2) },
+        { path: `items/${item}.json`, content: JSON.stringify({ name: item, rarity, gameSource: game, nftMinted: false, contractAddress: null, tokenId: null }, null, 2) },
+        { path: 'scripts/drop-table.json', content: JSON.stringify({ items: [{ name: item, rarity, dropChance: rarity === 'legendary' ? 0.01 : rarity === 'rare' ? 0.05 : 0.2 }] }, null, 2) },
+        { path: 'README.md', content: s(`# {{ITEM_NAME}}\n\nA **{{ITEM_RARITY}}** item for {{GAME_SOURCE}}.\n\nAsk the agent to mint this as an NFT:\n> "Mint {{ITEM_NAME}} as a {{ITEM_RARITY}} NFT on Solana for {{GAME_SOURCE}}"\n`) },
+      ];
+    }
+    case 'content-creator': {
+      const game = variables['GAME_NAME'] ?? 'Game';
+      const niche = variables['CREATOR_NICHE'] ?? 'gameplay';
+      return [
+        { path: '.star-workspace.json', content: JSON.stringify({ name: `${game} Content`, projectType: 'generic', starnetNetwork: 'testnet', version: '1.0.0' }, null, 2) },
+        { path: 'content/video-scripts/template.md', content: `# Video Script Template\n\n**Game:** ${game}\n**Niche:** ${niche}\n\n## Hook (0–10s)\n\n<!-- Grab attention -->\n\n## Main Content (10s–8min)\n\n<!-- Core content -->\n\n## CTA (last 30s)\n\n<!-- Subscribe / join Discord / OASIS link -->\n` },
+        { path: 'content/thumbnail-brief.md', content: `# Thumbnail Brief — ${game}\n\n**Niche:** ${niche}\n\n- Main subject: *character or moment from the game*\n- Text overlay: *short hook (max 5 words)*\n- Style: high contrast, readable at 120px width\n` },
+        { path: 'content/posting-schedule.md', content: `# 30-Day Posting Schedule\n\n**Game:** ${game}\n\n| Day | Topic | Platform |\n|-----|-------|----------|\n| 1 | Introduction to ${game} | YouTube |\n| 3 | ${niche} deep-dive #1 | YouTube + TikTok |\n| 7 | ${niche} deep-dive #2 | YouTube |\n| … | … | … |\n\n*Ask the agent to fill in all 30 days.*\n` },
+        { path: 'README.md', content: s(`# {{GAME_NAME}} Content Creator Kit\n\n**Niche:** {{CREATOR_NICHE}}\n\nAsk the agent:\n> "Generate 10 video script outlines and a full 30-day posting schedule for {{GAME_NAME}} focused on {{CREATOR_NICHE}}"\n`) },
+      ];
+    }
+    default:
+      return [];
+  }
+}
+
+// ─── Phase 5 additional template functions ────────────────────────────────────
+
+export function getRpServerTemplate(projectName: string): TemplateFile[] {
+  return getContentTemplateFiles('rp-server', { WORLD_NAME: projectName, CITY_NAME: 'New City', NUM_FACTIONS: '3', MONTHLY_PRICE: '9.99' });
+}
+
+export function getQuestChainTemplate(projectName: string): TemplateFile[] {
+  return getContentTemplateFiles('quest-chain', { CHAIN_NAME: projectName, GAME_SOURCE: 'OurWorld', NUM_QUESTS: '5' });
+}
+
+export function getNpcPackTemplate(projectName: string): TemplateFile[] {
+  return getContentTemplateFiles('npc-pack', { PACK_NAME: projectName, NUM_NPCS: '5', FACTION: 'Unknown Faction' });
+}
+
+export function getItemDropTemplate(projectName: string): TemplateFile[] {
+  return getContentTemplateFiles('item-drop', { ITEM_NAME: projectName, ITEM_RARITY: 'rare', GAME_SOURCE: 'OurWorld' });
+}
+
+export function getContentCreatorTemplate(projectName: string): TemplateFile[] {
+  return getContentTemplateFiles('content-creator', { GAME_NAME: projectName, CREATOR_NICHE: 'gameplay' });
+}

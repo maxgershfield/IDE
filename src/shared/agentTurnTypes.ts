@@ -41,6 +41,8 @@ export interface AgentTurnRequest {
   fromAvatarId?: string;
   /** IDE-supplied OASIS/STAR reference text; ONODE enforces max length. */
   contextPack?: string | null;
+  /** plan = read-only tools + chip UX; execute = default full tools. */
+  executionMode?: 'plan' | 'execute';
   /** Bump when tool schemas change. */
   toolDefinitionsVersion?: number;
 }

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Mic, Gamepad2 } from 'lucide-react';
 import { useGameDev } from '../../contexts/GameDevContext';
+import { useA2A } from '../../contexts/A2AContext';
 import './RightPanelShell.css';
 
 export type RightPanelTabId = 'composer' | 'inbox' | 'tools' | 'npc' | 'agents';
@@ -23,9 +24,11 @@ const TABS: { id: RightPanelTabId; label: React.ReactNode }[] = [
 
 /**
  * Cursor-style right column: horizontal tabs so the AI surface gets full height like Composer.
+ * Active tab is managed in A2AContext so cross-panel navigation (e.g. Agent -> Inbox compose)
+ * works without prop drilling.
  */
 export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbox, tools, npcVoice, agents }) => {
-  const [active, setActive] = useState<RightPanelTabId>('composer');
+  const { activeTab, setActiveTab } = useA2A();
   const { isGameDevMode, toggleGameDevMode } = useGameDev();
 
   return (
@@ -36,9 +39,9 @@ export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbo
             key={t.id}
             type="button"
             role="tab"
-            aria-selected={active === t.id}
-            className={`right-panel-shell-tab ${active === t.id ? 'active' : ''}`}
-            onClick={() => setActive(t.id)}
+            aria-selected={activeTab === t.id}
+            className={`right-panel-shell-tab ${activeTab === t.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(t.id)}
           >
             {t.label}
           </button>
@@ -66,11 +69,11 @@ export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbo
         role="tabpanel"
         hidden={false}
       >
-        {active === 'composer' && <div className="right-panel-shell-pane">{composer}</div>}
-        {active === 'inbox' && <div className="right-panel-shell-pane">{inbox}</div>}
-        {active === 'tools' && <div className="right-panel-shell-pane">{tools}</div>}
-        {active === 'npc' && <div className="right-panel-shell-pane">{npcVoice}</div>}
-        {active === 'agents' && <div className="right-panel-shell-pane">{agents}</div>}
+        {activeTab === 'composer' && <div className="right-panel-shell-pane">{composer}</div>}
+        {activeTab === 'inbox' && <div className="right-panel-shell-pane">{inbox}</div>}
+        {activeTab === 'tools' && <div className="right-panel-shell-pane">{tools}</div>}
+        {activeTab === 'npc' && <div className="right-panel-shell-pane">{npcVoice}</div>}
+        {activeTab === 'agents' && <div className="right-panel-shell-pane">{agents}</div>}
       </div>
     </div>
   );

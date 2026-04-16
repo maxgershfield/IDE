@@ -6,6 +6,32 @@ import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotoc
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Minimal KEY=VAL .env parser (no export keyword, no command substitution). */
+function parseEnvFile(filePath: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!fs.existsSync(filePath)) return out;
+  const text = fs.readFileSync(filePath, 'utf8');
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val = trimmed.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    if (key) out[key] = val;
+  }
+  return out;
+}
+
+/** STAR WebAPI default from `NextGenSoftware.OASIS.STAR.WebAPI/Properties/launchSettings.json` (profile http). */
+const DEFAULT_STAR_API_URL = 'http://127.0.0.1:50564';
+
 interface MCPServerConnection {
   client: Client;
   transport: StdioClientTransport;
@@ -67,18 +93,28 @@ export class MCPServerManager {
       delete env.OASIS_JWT_TOKEN;
       delete env.OASIS_API_KEY;
     }
-    const starUrl = process.env.STAR_API_URL?.trim();
-    if (starUrl) {
-      env.STAR_API_URL = starUrl;
-    }
-    const elevenLabsKey = process.env.ELEVENLABS_API_KEY?.trim();
+
+    const mcpDistDir = path.dirname(this.mcpServerPath);
+    const mcpRoot = path.resolve(mcpDistDir, '..', '..');
+    const ideRoot = path.resolve(mcpRoot, '..', 'OASIS-IDE');
+    const mcpDotEnv = parseEnvFile(path.join(mcpRoot, '.env'));
+    const ideDotEnv = parseEnvFile(path.join(ideRoot, '.env'));
+
+    const starUrl =
+      process.env.STAR_API_URL?.trim() ||
+      ideDotEnv.STAR_API_URL?.trim() ||
+      mcpDotEnv.STAR_API_URL?.trim() ||
+      DEFAULT_STAR_API_URL;
+    env.STAR_API_URL = starUrl;
+
+    const elevenLabsKey =
+      process.env.ELEVENLABS_API_KEY?.trim() ||
+      ideDotEnv.ELEVENLABS_API_KEY?.trim() ||
+      mcpDotEnv.ELEVENLABS_API_KEY?.trim();
     if (elevenLabsKey) {
       env.ELEVENLABS_API_KEY = elevenLabsKey;
     }
-    const geniesClientId = process.env.GENIES_CLIENT_ID?.trim();
-    if (geniesClientId) {
-      env.GENIES_CLIENT_ID = geniesClientId;
-    }
+
     return env;
   }
 

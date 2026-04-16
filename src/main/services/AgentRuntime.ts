@@ -18,9 +18,24 @@ export class AgentRuntime {
   private oasisClient: OASISAPIClient;
   private mcpManager: MCPServerManager;
 
-  constructor() {
-    this.oasisClient = new OASISAPIClient();
-    this.mcpManager = new MCPServerManager();
+  /**
+   * Pass the shared OASISAPIClient so the runtime inherits the
+   * authenticated JWT token rather than creating an unauthenticated
+   * client of its own.
+   */
+  constructor(sharedClient: OASISAPIClient, mcpManager: MCPServerManager) {
+    this.oasisClient = sharedClient;
+    this.mcpManager = mcpManager;
+  }
+
+  /** Propagate a new auth token to the underlying client. */
+  setAuthToken(token: string): void {
+    this.oasisClient.setAuthToken(token);
+  }
+
+  /** Clear authentication on logout. */
+  clearAuthToken(): void {
+    this.oasisClient.clearAuthToken();
   }
 
   async invokeAgent(
@@ -29,13 +44,9 @@ export class AgentRuntime {
     context?: ProjectContext
   ): Promise<AgentResult> {
     try {
-      // Get agent card
       const agentCard = await this.oasisClient.getAgentCard(agentId);
-
-      // Determine service from task
       const service = this.determineService(task);
 
-      // Prepare request
       const request = {
         jsonrpc: '2.0',
         method: 'service_request',
@@ -51,7 +62,6 @@ export class AgentRuntime {
         id: this.generateId()
       };
 
-      // Send A2A request
       const startTime = Date.now();
       const response = await this.oasisClient.sendA2AMessage(agentId, request);
       const executionTime = Date.now() - startTime;
@@ -72,20 +82,12 @@ export class AgentRuntime {
 
   private determineService(task: string): string {
     const lowerTask = task.toLowerCase();
-    
-    if (lowerTask.includes('mint nft') || lowerTask.includes('nft')) {
-      return 'nft-minting';
-    }
-    if (lowerTask.includes('generate code') || lowerTask.includes('code')) {
-      return 'code-generation';
-    }
-    if (lowerTask.includes('analyze') || lowerTask.includes('data')) {
-      return 'data-analysis';
-    }
-    if (lowerTask.includes('wallet') || lowerTask.includes('transaction')) {
-      return 'wallet-operations';
-    }
-    
+
+    if (lowerTask.includes('mint nft') || lowerTask.includes('nft')) return 'nft-minting';
+    if (lowerTask.includes('generate code') || lowerTask.includes('code')) return 'code-generation';
+    if (lowerTask.includes('analyze') || lowerTask.includes('data')) return 'data-analysis';
+    if (lowerTask.includes('wallet') || lowerTask.includes('transaction')) return 'wallet-operations';
+
     return 'general';
   }
 

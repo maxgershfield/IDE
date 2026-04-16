@@ -17,7 +17,6 @@ import { AgentProvider } from './contexts/AgentContext';
 import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { IdeChatProvider } from './contexts/IdeChatContext';
 import { AuthProvider } from './contexts/AuthContext';
-import { LoginModal } from './components/Auth/LoginModal';
 import { NonElectronBanner } from './components/Layout/NonElectronBanner';
 import { GameDevProvider } from './contexts/GameDevContext';
 import { EditorTabProvider } from './contexts/EditorTabContext';
@@ -99,10 +98,14 @@ declare global {
       authLogin: (username: string, password: string) => Promise<{ success: boolean; username?: string; avatarId?: string; error?: string }>;
       authLogout: () => Promise<void>;
       authGetStatus: () => Promise<{ loggedIn: boolean; username?: string; avatarId?: string }>;
+      authGetToken: () => Promise<string | null>;
       a2aGetPending: () => Promise<{ ok: boolean; messages: unknown[]; error?: string }>;
       a2aMarkProcessed: (messageId: string) => Promise<void>;
       a2aSendReply: (toAgentId: string, content: string, params?: Record<string, unknown>) => Promise<any>;
       a2aSend: (toAgentId: string, method: string, content: string) => Promise<{ ok: boolean; error?: string }>;
+      telegramGetTasks: () => Promise<unknown[]>;
+      telegramTaskDone: (taskId: string) => Promise<void>;
+      onTelegramTask: (callback: (task: unknown) => void) => (() => void) | undefined;
       chatHasLLM: () => Promise<boolean>;
       chatComplete: (
         messages: Array<{ role: string; content: string }>,
@@ -165,7 +168,6 @@ declare global {
 function AppInner() {
   const [mcpReady, setMcpReady] = useState(false);
   const [oasisReady, setOasisReady] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeView, setActiveView] = useState<ActivityView>('files');
 
   useEffect(() => {
@@ -222,7 +224,7 @@ function AppInner() {
                           ) : activeView === 'templates' ? (
                             <MetaverseTemplatePanel inline />
                           ) : (
-                            <FileExplorer onLoginClick={() => setShowLoginModal(true)} />
+                            <FileExplorer />
                           )}
                           <Editor />
                           <RightPanelShell
@@ -238,9 +240,6 @@ function AppInner() {
                       <StatusBar />
                       {/* Settings overlay sits inside app-shell-workspace so TitleBar stays visible */}
                       <SettingsModal />
-                      {showLoginModal && (
-                        <LoginModal onClose={() => setShowLoginModal(false)} />
-                      )}
                     </div>
                   </IdeChatProvider>
                 </WorkspaceProvider>

@@ -6,39 +6,32 @@ import {
   Search,
   Star,
   Package,
-  Users,
   Zap,
   CheckCircle2,
   XCircle,
   Loader2,
   Copy,
+  Globe,
 } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import {
-  fetchAllOapps,
   fetchMyOapps,
   downloadOapp,
   pingStarApi,
   getStarApiUrl,
+  getStarToken,
   oappTypeLabel,
+  totalInstalls,
+  totalDownloads,
+  publishOapp,
   type OAPPRecord,
   type StarApiStatus,
 } from '../../services/starApiService';
 import './StarnetDashboard.css';
 
 type Tab = 'mine' | 'discover';
-
-// ─── Derived stat helpers ─────────────────────────────────────────────────────
-
-function totalInstalls(oapps: OAPPRecord[]): number {
-  return oapps.reduce((s, o) => s + (o.numberOfInstalls ?? 0), 0);
-}
-
-function totalForks(oapps: OAPPRecord[]): number {
-  return oapps.reduce((s, o) => s + (o.numberOfForks ?? 0), 0);
-}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -87,10 +80,13 @@ const TypeBadge: React.FC<{ type?: number }> = ({ type }) => (
 const OappRow: React.FC<{
   oapp: OAPPRecord;
   mine?: boolean;
-  onDownload?: (id: string) => void;
-  downloading?: boolean;
-}> = ({ oapp, mine, onDownload, downloading }) => {
+  onInstall?: (id: string) => void;
+  installing?: boolean;
+}> = ({ oapp, mine, onInstall, installing }) => {
   const [copied, setCopied] = useState(false);
+  const installs = totalInstalls(oapp);
+  const downloads = totalDownloads(oapp);
+
   const handleCopy = () => {
     navigator.clipboard.writeText(oapp.id).catch(() => {});
     setCopied(true);
@@ -100,36 +96,44 @@ const OappRow: React.FC<{
   return (
     <div className="sn-oapp-row">
       <div className="sn-oapp-row-main">
-        <span className="sn-oapp-name">{oapp.name}</span>
-        <TypeBadge type={oapp.oAPPType} />
-        {mine && oapp.isPublished && <span className="sn-badge sn-badge--published">Published</span>}
-        {mine && !oapp.isPublished && <span className="sn-badge sn-badge--draft">Draft</span>}
+        <span className="sn-oapp-name">{oapp.name || oapp.id}</span>
+        <TypeBadge type={oapp.oappType} />
+        {mine && oapp.sourcePublishedOnSTARNET && (
+          <span className="sn-badge sn-badge--published">
+            <Globe size={8} /> STARNET
+          </span>
+        )}
+        {mine && !oapp.sourcePublishedOnSTARNET && (
+          <span className="sn-badge sn-badge--draft">Local</span>
+        )}
       </div>
-      {oapp.description && (
-        <div className="sn-oapp-desc">{oapp.description}</div>
-      )}
+      {oapp.description && <div className="sn-oapp-desc">{oapp.description}</div>}
       <div className="sn-oapp-row-meta">
-        <span className="sn-oapp-stat">
-          <Download size={10} /> {oapp.numberOfInstalls ?? 0} installs
-        </span>
-        <span className="sn-oapp-stat">
-          <Copy size={10} /> {oapp.numberOfForks ?? 0} forks
-        </span>
-        {oapp.publishedByAvatarUsername && (
+        {installs > 0 && (
           <span className="sn-oapp-stat">
-            <Users size={10} /> {oapp.publishedByAvatarUsername}
+            <Download size={10} /> {installs} installs
+          </span>
+        )}
+        {downloads > 0 && (
+          <span className="sn-oapp-stat">
+            <Copy size={10} /> {downloads} downloads
+          </span>
+        )}
+        {oapp.zomes && oapp.zomes.length > 0 && (
+          <span className="sn-oapp-stat">
+            <Zap size={10} /> {oapp.zomes.length} zome{oapp.zomes.length !== 1 ? 's' : ''}
           </span>
         )}
         {oapp.version && <span className="sn-oapp-stat">v{oapp.version}</span>}
         <div className="sn-oapp-spacer" />
-        {!mine && onDownload && (
+        {!mine && onInstall && (
           <button
             className="sn-action-btn"
-            disabled={downloading}
-            title="Install / clone"
-            onClick={() => onDownload(oapp.id)}
+            disabled={installing}
+            title="Install"
+            onClick={() => onInstall(oapp.id)}
           >
-            {downloading ? <Loader2 size={11} className="sn-spin" /> : <Download size={11} />}
+            {installing ? <Loader2 size={11} className="sn-spin" /> : <Download size={11} />}
             Install
           </button>
         )}
@@ -148,8 +152,8 @@ const Offline: React.FC<{ url: string; onRetry: () => void }> = ({ url, onRetry 
     <XCircle size={28} style={{ color: 'var(--error, #f44747)', marginBottom: 8 }} />
     <div className="sn-empty-title">STAR API not reachable</div>
     <div className="sn-empty-sub">
-      Expected at <code className="sn-code">{url}</code>. Start the STAR WebAPI or update the endpoint
-      in Settings → STARNET.
+      Expected at <code className="sn-code">{url}</code>. Start the STAR WebAPI or update the
+      endpoint in Settings → STARNET.
     </div>
     <button className="sn-retry-btn" onClick={onRetry}>
       <RefreshCw size={12} /> Retry
@@ -175,92 +179,64 @@ export const StarnetDashboard: React.FC = () => {
 
   const [apiStatus, setApiStatus] = useState<StarApiStatus>('idle');
   const [tab, setTab] = useState<Tab>('mine');
-  const [myOapps, setMyOapps] = useState<OAPPRecord[]>([]);
-  const [allOapps, setAllOapps] = useState<OAPPRecord[]>([]);
-  const [loadingMine, setLoadingMine] = useState(false);
-  const [loadingAll, setLoadingAll] = useState(false);
-  const [downloading, setDownloading] = useState<string | null>(null);
+  const [oapps, setOapps] = useState<OAPPRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
   const [publishingWs, setPublishingWs] = useState(false);
   const [publishFeedback, setPublishFeedback] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
 
-  // auth token from localStorage (same approach as oportal-repo)
-  const token = (() => {
-    try {
-      const raw = localStorage.getItem('oasis_auth') || localStorage.getItem('starnet_auth');
-      if (raw) {
-        const p = JSON.parse(raw);
-        return p.token || p.jwtToken || null;
-      }
-    } catch { /* ignore */ }
-    return null;
-  })();
+  // Token lives in main process — fetch via IPC, not localStorage
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => {
+    getStarToken().then(setToken);
+  }, [loggedIn]); // re-fetch when auth state changes
 
-  const checkStatus = useCallback(async () => {
+  const checkStatus = useCallback(async (tok: string | null) => {
     setApiStatus('loading');
     const ok = await pingStarApi(baseUrl);
     if (!ok) { setApiStatus('offline'); return false; }
-    // Server is up — determine if we have a usable token
-    setApiStatus(token ? 'ok' : 'auth');
+    setApiStatus(tok ? 'ok' : 'auth');
     return true;
-  }, [baseUrl, token]);
+  }, [baseUrl]);
 
-  const loadMine = useCallback(async () => {
-    setLoadingMine(true);
+  const loadOapps = useCallback(async (tok: string | null) => {
+    if (!tok) return;
+    setLoading(true);
     setError('');
     try {
-      const data = await fetchMyOapps(baseUrl, token);
-      setMyOapps(data);
+      const data = await fetchMyOapps(baseUrl, tok);
+      setOapps(data);
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to load your OAPPs');
+      setError(e?.message ?? 'Failed to load OAPPs from STAR');
     } finally {
-      setLoadingMine(false);
+      setLoading(false);
     }
-  }, [baseUrl, token]);
+  }, [baseUrl]);
 
-  const loadAll = useCallback(async () => {
-    setLoadingAll(true);
-    setError('');
-    try {
-      const data = await fetchAllOapps(baseUrl, token);
-      setAllOapps(data);
-    } catch (e: any) {
-      setError(e?.message ?? 'Failed to load STARNET registry');
-    } finally {
-      setLoadingAll(false);
-    }
-  }, [baseUrl, token]);
+  const boot = useCallback(async (tok: string | null) => {
+    const ok = await checkStatus(tok);
+    if (!ok || !tok) return;
+    await loadOapps(tok);
+  }, [checkStatus, loadOapps]);
 
-  const boot = useCallback(async () => {
-    const ok = await checkStatus();
-    // Only fetch data if the server is reachable AND we have a token.
-    // Without a token, STAR OAPP endpoints hang rather than returning 401.
-    if (!ok || !token) return;
-    await Promise.all([loadMine(), loadAll()]);
-  }, [checkStatus, loadMine, loadAll, token]);
+  useEffect(() => { boot(token); }, [token]);
 
-  useEffect(() => { boot(); }, [boot]);
+  const handleRetry = () => boot(token);
+  const handleRefresh = () => loadOapps(token);
 
-  const handleRetry = () => boot();
-
-  const handleRefresh = () => {
-    if (tab === 'mine') loadMine();
-    else loadAll();
-  };
-
-  const handleDownload = async (id: string) => {
-    setDownloading(id);
+  const handleInstall = async (id: string) => {
+    setInstalling(id);
     try {
       await downloadOapp(baseUrl, id, token);
     } catch (e: any) {
       setError(e?.message ?? 'Install failed');
     } finally {
-      setDownloading(null);
+      setInstalling(null);
     }
   };
 
-  // Publish: reads .star-workspace.json from the open workspace folder
   const handlePublishWorkspace = async () => {
     if (!workspacePath) {
       setPublishFeedback('No workspace open. Open a folder first.');
@@ -279,11 +255,9 @@ export const StarnetDashboard: React.FC = () => {
         setPublishFeedback('.star-workspace.json has no oappId. Run `star create` first.');
         return;
       }
-      await import('../../services/starApiService').then(({ publishOapp }) =>
-        publishOapp(baseUrl, oappId, token)
-      );
-      setPublishFeedback('Published successfully.');
-      await loadMine();
+      await publishOapp(baseUrl, oappId, token);
+      setPublishFeedback('Published to STARNET.');
+      await loadOapps(token);
     } catch (e: any) {
       setPublishFeedback(e?.message ?? 'Publish failed');
     } finally {
@@ -291,17 +265,24 @@ export const StarnetDashboard: React.FC = () => {
     }
   };
 
-  // Filter discover list by search
+  // Tabs: "mine" = OAPPs I've created; "discover" = those published on STARNET
+  const myOapps = oapps;
+  const publishedOapps = oapps.filter((o) => o.sourcePublishedOnSTARNET);
+
+  const visibleList = tab === 'mine' ? myOapps : publishedOapps;
   const filtered = searchQuery.trim()
-    ? allOapps.filter((o) => {
+    ? visibleList.filter((o) => {
         const q = searchQuery.toLowerCase();
         return (
-          o.name?.toLowerCase().includes(q) ||
-          o.description?.toLowerCase().includes(q) ||
-          o.publishedByAvatarUsername?.toLowerCase().includes(q)
+          (o.name ?? '').toLowerCase().includes(q) ||
+          (o.description ?? '').toLowerCase().includes(q)
         );
       })
-    : allOapps;
+    : visibleList;
+
+  const totalInst = oapps.reduce((s, o) => s + totalInstalls(o), 0);
+  const totalDl = oapps.reduce((s, o) => s + totalDownloads(o), 0);
+  const publishedCount = publishedOapps.length;
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
@@ -316,14 +297,10 @@ export const StarnetDashboard: React.FC = () => {
           <button
             className="sn-primary-btn"
             disabled={publishingWs || apiStatus !== 'ok'}
-            title="Publish the OAPP in the current workspace"
+            title="Publish the OAPP in the current workspace to STARNET"
             onClick={handlePublishWorkspace}
           >
-            {publishingWs ? (
-              <Loader2 size={12} className="sn-spin" />
-            ) : (
-              <Upload size={12} />
-            )}
+            {publishingWs ? <Loader2 size={12} className="sn-spin" /> : <Upload size={12} />}
             Publish OAPP
           </button>
         )}
@@ -331,7 +308,7 @@ export const StarnetDashboard: React.FC = () => {
           className="sn-icon-btn"
           title="Refresh"
           onClick={handleRefresh}
-          disabled={apiStatus === 'loading' || loadingMine || loadingAll}
+          disabled={loading || apiStatus === 'loading'}
         >
           <RefreshCw size={13} />
         </button>
@@ -339,18 +316,20 @@ export const StarnetDashboard: React.FC = () => {
 
       {/* ── Publish feedback ── */}
       {publishFeedback && (
-        <div className={`sn-feedback ${publishFeedback.includes('success') ? 'sn-feedback--ok' : 'sn-feedback--err'}`}>
+        <div
+          className={`sn-feedback ${publishFeedback.includes('STARNET') ? 'sn-feedback--ok' : 'sn-feedback--err'}`}
+        >
           {publishFeedback}
         </div>
       )}
 
-      {/* ── Stat chips (my holons only) ── */}
-      {apiStatus === 'ok' && (
+      {/* ── Stat chips ── */}
+      {apiStatus === 'ok' && oapps.length > 0 && (
         <div className="sn-stats-row">
-          <StatChip icon={<Package size={12} />} label="published" value={myOapps.length} />
-          <StatChip icon={<Download size={12} />} label="installs" value={totalInstalls(myOapps)} />
-          <StatChip icon={<Copy size={12} />} label="forks" value={totalForks(myOapps)} />
-          <StatChip icon={<Zap size={12} />} label="in registry" value={allOapps.length} />
+          <StatChip icon={<Package size={12} />} label="OAPPs" value={oapps.length} />
+          <StatChip icon={<Globe size={12} />} label="on STARNET" value={publishedCount} />
+          <StatChip icon={<Download size={12} />} label="installs" value={totalInst} />
+          <StatChip icon={<Copy size={12} />} label="downloads" value={totalDl} />
         </div>
       )}
 
@@ -360,13 +339,13 @@ export const StarnetDashboard: React.FC = () => {
           className={`sn-tab${tab === 'mine' ? ' sn-tab--active' : ''}`}
           onClick={() => setTab('mine')}
         >
-          <Star size={12} /> My Holons
+          <Star size={12} /> My OAPPs
         </button>
         <button
           className={`sn-tab${tab === 'discover' ? ' sn-tab--active' : ''}`}
           onClick={() => setTab('discover')}
         >
-          <Package size={12} /> Discover
+          <Globe size={12} /> On STARNET
         </button>
       </div>
 
@@ -379,57 +358,50 @@ export const StarnetDashboard: React.FC = () => {
             <CheckCircle2 size={28} style={{ color: '#4ec9b0', marginBottom: 8 }} />
             <div className="sn-empty-title">STAR is running</div>
             <div className="sn-empty-sub">
-              Log in with your OASIS Avatar (top-right of the IDE) to browse and publish holons.
-              <br />
+              Log in with your OASIS Avatar (top-left of the IDE title bar) to browse your holons.
               <span style={{ marginTop: 6, display: 'block', opacity: 0.6 }}>
                 STAR API: <code className="sn-code">{baseUrl}</code>
               </span>
             </div>
           </div>
-        ) : tab === 'mine' ? (
-          <>
-            {loadingMine ? (
-              <div className="sn-loading"><Loader2 size={16} className="sn-spin" /> Loading your holons</div>
-            ) : myOapps.length === 0 ? (
-              <EmptyList label={
-                loggedIn
-                  ? 'No OAPPs found. Create one with the STAR CLI, then publish it here.'
-                  : 'Log in to see your published OAPPs.'
-              } />
-            ) : (
-              <div className="sn-list">
-                {myOapps.map((o) => (
-                  <OappRow key={o.id} oapp={o} mine />
-                ))}
-              </div>
-            )}
-          </>
+        ) : loading ? (
+          <div className="sn-loading">
+            <Loader2 size={16} className="sn-spin" /> Loading from STAR API
+          </div>
         ) : (
           <>
-            {/* Search bar */}
-            <div className="sn-search-row">
-              <Search size={13} className="sn-search-icon" />
-              <input
-                className="sn-search-input"
-                placeholder="Search OAPPs, holons, templates..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+            {/* Search bar — only for discover tab */}
+            {tab === 'discover' && (
+              <div className="sn-search-row">
+                <Search size={13} className="sn-search-icon" />
+                <input
+                  className="sn-search-input"
+                  placeholder="Filter published OAPPs..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            )}
+
+            {filtered.length === 0 ? (
+              <EmptyList
+                label={
+                  tab === 'mine'
+                    ? 'No OAPPs found. Create one with `star create` in the terminal.'
+                    : searchQuery
+                    ? 'No results matching your search.'
+                    : 'None of your OAPPs have been published to STARNET yet.'
+                }
               />
-            </div>
-            {loadingAll ? (
-              <div className="sn-loading"><Loader2 size={16} className="sn-spin" /> Loading registry</div>
-            ) : filtered.length === 0 ? (
-              <EmptyList label={
-                searchQuery ? 'No results matching your search.' : 'STARNET registry is empty.'
-              } />
             ) : (
               <div className="sn-list">
                 {filtered.map((o) => (
                   <OappRow
                     key={o.id}
                     oapp={o}
-                    onDownload={handleDownload}
-                    downloading={downloading === o.id}
+                    mine={tab === 'mine'}
+                    onInstall={tab === 'discover' ? handleInstall : undefined}
+                    installing={installing === o.id}
                   />
                 ))}
               </div>

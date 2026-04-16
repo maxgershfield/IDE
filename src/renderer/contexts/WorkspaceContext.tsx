@@ -1,5 +1,7 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { StarWorkspaceConfig } from '../../shared/starWorkspaceTypes';
+
+const LAST_WORKSPACE_KEY = 'oasis:last-workspace';
 
 export interface TreeNode {
   name: string;
@@ -41,21 +43,38 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setStarWorkspaceConfig((raw as StarWorkspaceConfig | null) ?? null);
   }, []);
 
+  /** Internal: open a workspace by absolute path, no dialog. */
+  const openWorkspaceByPath = useCallback(async (path: string) => {
+    const list = await window.electronAPI?.setWorkspacePath?.(path) ?? [];
+    setWorkspacePath(path);
+    setTree(list as TreeNode[]);
+    setOpenFilePath(null);
+    setFileContentState('');
+    setDirty(false);
+    const raw = await window.electronAPI?.readStarWorkspace?.();
+    setStarWorkspaceConfig((raw as StarWorkspaceConfig | null) ?? null);
+    localStorage.setItem(LAST_WORKSPACE_KEY, path);
+  }, []);
+
+  // Restore the last workspace on first mount so the user never has to re-pick it.
+  useEffect(() => {
+    const saved = localStorage.getItem(LAST_WORKSPACE_KEY);
+    if (saved && typeof window.electronAPI?.setWorkspacePath === 'function') {
+      openWorkspaceByPath(saved).catch(() => {
+        // Saved path no longer exists — clear it
+        localStorage.removeItem(LAST_WORKSPACE_KEY);
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const pickWorkspace = useCallback(async () => {
     if (!window.electronAPI?.pickWorkspace) return;
     const path = await window.electronAPI.pickWorkspace();
     if (path) {
-      setWorkspacePath(path);
-      const list = await window.electronAPI.listTree();
-      setTree(list ?? []);
-      setOpenFilePath(null);
-      setFileContentState('');
-      setDirty(false);
-      // Auto-load .star-workspace.json
-      const raw = await window.electronAPI?.readStarWorkspace?.();
-      setStarWorkspaceConfig((raw as StarWorkspaceConfig | null) ?? null);
+      await openWorkspaceByPath(path);
     }
-  }, []);
+  }, [openWorkspaceByPath]);
 
   const refreshTree = useCallback(async () => {
     if (!workspacePath || !window.electronAPI?.listTree) return;

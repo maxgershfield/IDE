@@ -214,18 +214,34 @@
   justify-content: center;
 }
 
-/* ── Webview ── */
-.wpp-webview {
-  flex: 1;
-  width: 100%;
-  border: none;
-  display: block;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  /* Take remaining height after toolbar */
-  height: calc(100% - 38px);
+/* ── Launched state ── */
+.wpp-overlay--launched {
+  background: linear-gradient(160deg, #060a0f 0%, #070f1a 100%);
 }
 
-.wpp-webview.is-visible {
-  opacity: 1;
+.wpp-launched-icon {
+  color: #22d3ee;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+.wpp-btn--primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #818cf8;
+}
+
+.wpp-btn--primary:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: #6366f1;
+  color: #c7d2fe;
+}
+
+.wpp-btn:has(svg) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }

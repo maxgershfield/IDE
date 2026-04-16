@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File System
   pickWorkspace: () => ipcRenderer.invoke('fs:pick-workspace'),
   getWorkspacePath: () => ipcRenderer.invoke('fs:get-workspace-path'),
+  setWorkspacePath: (dir: string) => ipcRenderer.invoke('fs:set-workspace', dir),
   listTree: (dir?: string) => ipcRenderer.invoke('fs:list-tree', dir),
   readFile: (path: string) => ipcRenderer.invoke('fs:read-file', path),
   writeFile: (path: string, content: string) =>
@@ -82,6 +83,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('auth:login', username, password),
   authLogout: () => ipcRenderer.invoke('auth:logout'),
   authGetStatus: () => ipcRenderer.invoke('auth:getStatus'),
+  authGetToken: () => ipcRenderer.invoke('auth:getToken') as Promise<string | null>,
 
   // Chat / LLM
   chatHasLLM: () => ipcRenderer.invoke('chat:hasLLM'),
@@ -127,6 +129,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('a2a:markProcessed', messageId),
   a2aSendReply: (toAgentId: string, content: string, params?: Record<string, unknown>) =>
     ipcRenderer.invoke('a2a:sendReply', toAgentId, content, params),
+  a2aSend: (toAgentId: string, method: string, content: string) =>
+    ipcRenderer.invoke('a2a:send', toAgentId, method, content),
 
   // Terminal
   terminalCreate: (cwd?: string) => ipcRenderer.invoke('terminal:create', cwd),
@@ -141,6 +145,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       callback(payload.sessionId, payload.data);
     ipcRenderer.on('terminal:data', handler);
     return () => ipcRenderer.removeListener('terminal:data', handler);
+  },
+
+  // Telegram bridge
+  telegramGetTasks: () => ipcRenderer.invoke('telegram:getTasks'),
+  telegramTaskDone: (taskId: string) => ipcRenderer.invoke('telegram:taskDone', taskId),
+  onTelegramTask: (callback: (task: unknown) => void) => {
+    const handler = (_: unknown, task: unknown) => callback(task);
+    ipcRenderer.on('telegram:task', handler);
+    return () => ipcRenderer.removeListener('telegram:task', handler);
   },
 
   // Window
