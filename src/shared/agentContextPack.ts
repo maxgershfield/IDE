@@ -3,7 +3,7 @@
  * Keep in sync with MCP tool behaviour in `MCP/src/tools/oasisTools.ts` + `starTools.ts`.
  * ONODE caps total size (see IdeAgentController / IdeChatController MaxContextPackChars).
  */
-export const AGENT_CONTEXT_PACK_VERSION = '1.4.0';
+export const AGENT_CONTEXT_PACK_VERSION = '1.7.0';
 
 export function getAgentContextPack(): string {
   return `## OASIS IDE context pack (v${AGENT_CONTEXT_PACK_VERSION})
@@ -25,7 +25,7 @@ Use **categories** (then \`mcp_invoke\` with the exact tool name when the user n
 1. **Health / connectivity:** \`oasis_health_check\` — always safe to prove ONODE is up.
 2. **Avatars & session:** register / authenticate / update avatar; wallet creation (\`oasis_create_wallet\`, \`oasis_create_wallet_full\`, chain-specific helpers); karma read/write tools.
 3. **Holons (graph data):** \`oasis_save_holon\`, \`oasis_get_holon\`, \`oasis_search_holons\`, \`oasis_advanced_search\`, \`oasis_update_holon\`, \`oasis_delete_holon\`, \`oasis_load_all_holons\` — primary persistence for many OASIS apps and for IDE chat sync.
-4. **NFTs & GeoNFTs:** mint/send/place/list/geo helpers (many \`oasis_*nft*\` tools); Glif / pipeline tools where wired.
+4. **NFTs & GeoNFTs:** \`oasis_workflow_mint_nft\`, \`oasis_workflow_mint_solana_nft\`, \`oasis_create_nft\`, \`oasis_mint_nft\`; geo-anchor tools: **\`oasis_place_geo_nft\`**, **\`oasis_get_geo_nfts\`**, **\`oasis_get_all_geo_nfts\`**, **\`oasis_get_geo_nfts_for_mint_address\`** (all \`oasis_*\` — there are no \`star_*geonft*\` tools).
 5. **Wallets & chains:** balances, portfolio, supported chains, import keys, transactions (\`oasis_send_transaction\`, etc.).
 6. **Agents & OpenSERV / A2A:** register capabilities, register as SERV service, discover agents, **JSON-RPC** to agents, pending inbox messages, mark processed — see \`oasis_register_agent_capabilities\`, \`oasis_send_a2a_jsonrpc_request\`, \`oasis_get_pending_a2a_messages\`, etc.
 7. **STAR:** \`star_*\` tools for OAPPs, holons, zomes, publish — use **\`mcp_invoke\`** with the exact tool name and JSON \`arguments\` per tool schema.
@@ -63,6 +63,15 @@ The IDE composer has **Plan** vs **Execute**: in Plan, ONODE only registers read
 ### Running projects (must use tools)
 If the user wants something **running locally**: inspect (\`list_directory\`, \`read_file\` on \`package.json\` / \`README\`), then \`run_workspace_command\` with real argv. Static sites: \`["npx","--yes","serve",".", "-l","8787"]\` or \`["python3","-m","http.server","8787"]\` from the project directory.
 
+### Stack recipes (must read before scaffolding)
+| App type | Recipe file |
+|---|---|
+| Browser game / minimal OAPP (Vite + Three.js) | \`OASIS-IDE/docs/recipes/minimal-vite-browser-oapp.md\` |
+| Community / social app (Expo + GeoNFTs + time-lock) | \`OASIS-IDE/docs/recipes/community-social-app.md\` |
+| Demo flows (5 copy-pasteable prompts) | \`OASIS-IDE/docs/recipes/demo-flows.md\` |
+
+Read the matching recipe with \`read_file\` before writing any scaffold or calling MCP tools — the recipes contain exact tool names, argument shapes, and the correct Expo / Node scaffolding sequence.
+
 ### npm / Vite scaffolding (must follow)
 When creating a **new** browser game or OAPP with **Vite**:
 1. **Read** \`OASIS-IDE/docs/recipes/minimal-vite-browser-oapp.md\` when the workspace is this monorepo (or follow the same invariants if that path is not in the workspace).
@@ -75,6 +84,47 @@ When creating a **new** browser game or OAPP with **Vite**:
 ### Holonic mental model
 - **STAR:** OAPP + zomes + holons, DNA, STARNET publish/activate, beam-in.
 - **OASIS / ONODE:** graph holons, avatars, SERV/A2A, cross-OAPP linkage when apps need shared graph + identity.
+
+### STARNET holons and templates (task-specific analysis, not catalog copy)
+When the user asks which **STARNET** holons, OAPP templates, or published packages could help build **their** product:
+1. **Restate their goal in one sentence** (geo NFTs, missions, time-locked social, etc.) so every recommendation is anchored to that scenario.
+2. For **each** candidate from \`mcp_invoke\` (\`star_list_holons\`, \`star_list_oapps\`, etc.): explain **what it actually provides** in STAR (forum, DAO, geo hunt, game quests, timebank, …), then **why it fits this app’s flows** (which screen, which data, which user journey). Name **what you would reuse** (holon graph, karma, quest shape, geo check-ins) vs **what you would still build** yourself.
+3. **Be honest about weak fits:** if a template is only tangential, say so and deprioritize it. Do **not** paste generic marketing descriptions or fill a table with interchangeable blurbs.
+4. If the list response is **shallow** (name + short description only), call **\`mcp_invoke\`** with **\`star_get_holon\`** or **\`star_get_oapp\`** for the **top 1–3** candidates before claiming DNA, zomes, or implementation detail. If the workspace has template source, use **\`read_file\`** on README or DNA paths under that template.
+5. **Rank** by relevance to the user’s MVP. Prefer **GeoNFTHuntTemplate**-style assets for geo + NFT missions, **GameTemplate** for quests and progression, **ForumTemplate** for social feed, **DAOTemplate** for governance, etc., only when those concerns appear in the user’s ask.
+
+
+### Holonic architecture diagrams
+**When to produce a diagram:** only when you have reasoned through what the app genuinely needs. A diagram emitted without prior reasoning is worse than no diagram. Follow this strict order:
+
+1. **Derive requirements first.** List the app's actual screens / features / user journeys in prose (e.g. "users need geo check-ins at real-world locations → GeoNFTHuntTemplate; users earn karma and level up → GameTemplate; there is no governance requirement so DAOTemplate is excluded").
+2. **Map each requirement to a holon / template.** For every node you include, name the specific screen or feature it serves. If you cannot name one, omit the node.
+3. **Omit generic nodes.** Do not add holons just because they exist in STARNET. Only include holons with a concrete role in this app.
+4. **Then emit the diagram block** so it reflects the reasoning above it, not a generic template list.
+
+The IDE renders the block as a live interactive React Flow graph. Example structure (replace with real app holons):
+
+<oasis_holon_diagram>
+{
+  "nodes": [
+    { "id": "app",    "label": "MyApp OAPP",         "type": "oapp",     "description": "root OAPP container" },
+    { "id": "geo",    "label": "GeoNFTHuntTemplate",  "type": "template", "description": "location check-ins + NFT minting" },
+    { "id": "quests", "label": "GameTemplate",        "type": "template", "description": "quest + karma progression" },
+    { "id": "auth",   "label": "Avatar / Identity",   "type": "core",     "description": "OASIS avatar + wallet" },
+    { "id": "api",    "label": "ONODE REST API",       "type": "service",  "description": "cross-OAPP graph queries" }
+  ],
+  "edges": [
+    { "source": "app",    "target": "geo",    "label": "extends" },
+    { "source": "app",    "target": "quests", "label": "extends" },
+    { "source": "geo",    "target": "auth",   "label": "uses" },
+    { "source": "quests", "target": "auth",   "label": "uses" },
+    { "source": "app",    "target": "api",    "label": "calls" }
+  ]
+}
+</oasis_holon_diagram>
+
+Node **type** values: \`oapp\` (blue), \`template\` (green), \`core\` (purple), \`service\` (amber), \`custom\` (cyan).
+Each node's **description** field should state the specific feature it serves in this app, not a generic summary of the template.
 
 `;
 }

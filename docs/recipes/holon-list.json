@@ -1,0 +1,21 @@
+{
+  "id": "holon-list",
+  "description": "List holons visible to the logged-in avatar.",
+  "argv": ["star", "-n", "--json", "holon", "list"],
+  "notes": [
+    "Requires avatar beam-in.",
+    "Returns { success: true, data: [ { id, name, description, holonType, ... }, ... ] }.",
+    "Use --search-limit N to control the result count (default 10)."
+  ],
+  "variants": [
+    {
+      "label": "List with custom result limit",
+      "argv": ["star", "-n", "--json", "--search-limit", "50", "holon", "list"]
+    },
+    {
+      "label": "Search holons by keyword",
+      "argv": ["star", "-n", "--json", "holon", "search", "{query}"],
+      "parameters": { "{query}": "Search keyword or partial name" }
+    }
+  ]
+}

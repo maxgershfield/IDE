@@ -1,0 +1,12 @@
+{
+  "id": "holon-show",
+  "description": "Show full details of a single holon by its GUID id.",
+  "argv": ["star", "-n", "--json", "holon", "show", "{holon-id}"],
+  "parameters": {
+    "{holon-id}": "Holon GUID (string)"
+  },
+  "notes": [
+    "Requires avatar beam-in.",
+    "Returns { success: true, data: { id, name, description, holonType, customData, ... } }."
+  ]
+}

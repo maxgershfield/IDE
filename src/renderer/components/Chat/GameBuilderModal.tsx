@@ -1,8 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 
 // ─── Field & builder registry types ────────────────────────────────────────
 
-type FieldType = 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'repeatable';
+type FieldType = 'text' | 'textarea' | 'select' | 'number' | 'boolean' | 'repeatable' | 'imageGenerate';
 
 interface SelectOption {
   value: string;
@@ -247,7 +247,7 @@ Steps:
         ],
         default: 'solana'
       },
-      { key: 'imageUrl', label: 'Image URL (optional)', type: 'text', placeholder: 'https://…', hint: 'Leave blank and the agent will use a placeholder.' },
+      { key: 'imageUrl', label: 'Item Image', type: 'imageGenerate', hint: 'Generate art with AI or paste a URL.' },
       { key: 'game', label: 'Game', type: 'text', placeholder: 'OurWorld', required: true }
     ],
     buildMessage: (v) =>
@@ -472,6 +472,177 @@ function RepeatableField({
   );
 }
 
+// ─── Image generate field ────────────────────────────────────────────────────
+
+export function ImageGenerateField({
+  value,
+  onChange,
+  hint,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+  hint?: string;
+}) {
+  const [prompt, setPrompt] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
+  const [refDataUrl, setRefDataUrl] = useState<string | null>(null);
+  const [refFileName, setRefFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef(false);
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    setLoading(true);
+    setError(null);
+    abortRef.current = false;
+
+    const api = (window as any).electronAPI;
+    if (!api?.glifGenerateImage) {
+      setError('Image generation not available in this environment.');
+      setLoading(false);
+      return;
+    }
+
+    const result = await api.glifGenerateImage(
+      prompt.trim(),
+      refDataUrl ?? undefined
+    ) as { ok: boolean; imageUrl?: string; error?: string };
+
+    if (abortRef.current) return;
+    setLoading(false);
+
+    if (!result.ok || !result.imageUrl) {
+      setError(result.error ?? 'Generation failed');
+      return;
+    }
+
+    setGeneratedUrl(result.imageUrl);
+    onChange(result.imageUrl);
+  };
+
+  const handleRefFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRefFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setRefDataUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearRef = () => {
+    setRefDataUrl(null);
+    setRefFileName(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleManualUrl = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(e.target.value);
+    if (generatedUrl) setGeneratedUrl(null);
+  };
+
+  return (
+    <div className="gb-img-gen">
+
+      {/* ── AI Generation section ── */}
+      <div className="gb-img-gen-section-label">Generate with AI</div>
+
+      {/* Reference image upload */}
+      <div className="gb-img-gen-ref-row">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="gb-img-gen-file-input"
+          id="gb-img-gen-ref-file"
+          onChange={handleRefFileChange}
+        />
+        {refDataUrl ? (
+          <div className="gb-img-gen-ref-preview">
+            <img src={refDataUrl} alt="Reference" className="gb-img-gen-ref-thumb" />
+            <div className="gb-img-gen-ref-info">
+              <span className="gb-img-gen-ref-name">{refFileName}</span>
+              <button type="button" className="gb-img-gen-ref-clear" onClick={clearRef}>
+                Remove
+              </button>
+            </div>
+          </div>
+        ) : (
+          <label htmlFor="gb-img-gen-ref-file" className="gb-img-gen-ref-upload-btn">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 1a.75.75 0 0 1 .75.75V7h5.25a.75.75 0 0 1 0 1.5H8.75v5.25a.75.75 0 0 1-1.5 0V8.5H2a.75.75 0 0 1 0-1.5h5.25V1.75A.75.75 0 0 1 8 1Z"/>
+            </svg>
+            Upload reference image
+          </label>
+        )}
+      </div>
+
+      {/* Prompt + Generate button */}
+      <div className="gb-img-gen-prompt-row">
+        <input
+          type="text"
+          className="gb-input gb-img-gen-prompt-input"
+          placeholder={refDataUrl ? 'Describe how to use the reference…' : 'Describe the image, e.g. a glowing serpent blade…'}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleGenerate(); } }}
+          disabled={loading}
+        />
+        <button
+          type="button"
+          className={`gb-btn gb-img-gen-btn${loading ? ' is-loading' : ''}`}
+          onClick={handleGenerate}
+          disabled={loading || !prompt.trim()}
+        >
+          {loading ? <><span className="gb-img-gen-spinner" /> Generating…</> : '✦ Generate'}
+        </button>
+      </div>
+
+      {/* Error */}
+      {error && <p className="gb-img-gen-error">{error}</p>}
+
+      {/* Generated image preview */}
+      {generatedUrl && (
+        <div className="gb-img-gen-result">
+          <div className="gb-img-gen-result-header">
+            <span className="gb-img-gen-result-label">Generated image</span>
+            <button
+              type="button"
+              className="gb-img-gen-regen"
+              onClick={handleGenerate}
+              disabled={loading}
+            >
+              {loading ? 'Generating…' : 'Regenerate'}
+            </button>
+          </div>
+          <img src={generatedUrl} alt="Generated NFT art" className="gb-img-gen-img" />
+          <p className="gb-img-gen-result-note">This image will be used as the NFT artwork.</p>
+        </div>
+      )}
+
+      {/* ── Manual URL fallback ── */}
+      <div className="gb-img-gen-divider">
+        <span>or</span>
+      </div>
+      <div className="gb-img-gen-manual-row">
+        <span className="gb-img-gen-or">Paste image URL</span>
+        <input
+          type="text"
+          className="gb-input gb-img-gen-url-input"
+          placeholder="https://…"
+          value={generatedUrl ? '' : value}
+          onChange={handleManualUrl}
+        />
+      </div>
+
+      {hint && <p className="gb-hint">{hint}</p>}
+    </div>
+  );
+}
+
 // ─── Main modal ─────────────────────────────────────────────────────────────
 
 export interface GameBuilderModalProps {
@@ -552,6 +723,12 @@ export const GameBuilderModal: React.FC<GameBuilderModalProps> = ({
                 rows={repeatableRows[field.key] || []}
                 onChange={(rows) => setRepeatableRows((prev) => ({ ...prev, [field.key]: rows }))}
               />
+            ) : field.type === 'imageGenerate' ? (
+              <ImageGenerateField
+                value={String(values[field.key] ?? '')}
+                onChange={(url) => setValue(field.key, url)}
+                hint={field.hint}
+              />
             ) : field.type === 'textarea' ? (
               <textarea
                 id={`gb-${field.key}`}
@@ -596,7 +773,7 @@ export const GameBuilderModal: React.FC<GameBuilderModalProps> = ({
               />
             )}
 
-            {field.type !== 'repeatable' && field.hint && (
+            {field.type !== 'repeatable' && field.type !== 'imageGenerate' && field.hint && (
               <p className="gb-hint">{field.hint}</p>
             )}
           </div>

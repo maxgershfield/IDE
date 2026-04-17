@@ -1,0 +1,77 @@
+{
+  "id": "oapp-starnet-publish",
+  "type": "mcp_invoke_sequence",
+  "description": "Create an OAPP on STARNET and publish it so other developers can discover, install, and fork it. Demonstrates the STARNET distribution layer: the moment building locally becomes networked.",
+  "notes": [
+    "This recipe uses mcp_invoke (STAR WebAPI). For the STAR CLI scripted variant, see oapp-create.json.",
+    "An OAPP on STARNET carries: version history, Avatar attribution, download count, karma-weighted trust signal, and install command.",
+    "Use this after you have built the content (NPCs, quests, items) — publish the package, not just code."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "tool": "star_create_oapp",
+      "description": "Register the OAPP as a STARNET holon linked to the logged-in Avatar.",
+      "arguments": {
+        "name": "{oappName}",
+        "description": "{oappDescription}",
+        "version": "{semver}",
+        "tags": "{commaSeparatedTags}"
+      },
+      "parameters": {
+        "{oappName}": "OAPP identifier (no spaces recommended, e.g. 'MarketDistrict-NPCs')",
+        "{oappDescription}": "Human-readable pitch: what this OAPP contains and what problem it solves (string)",
+        "{semver}": "Semantic version string, e.g. '1.0.0'",
+        "{commaSeparatedTags}": "Discovery tags, e.g. 'fivem,npc,rp-server,voice' (string)"
+      },
+      "notes": [
+        "Requires STAR WebAPI running and Avatar beam-in.",
+        "Returns { success: true, data: { id, name, version, ... } }.",
+        "Save the returned id as oappId for step 2.",
+        "The OAPP is created but not yet publicly listed — that happens in step 2."
+      ],
+      "example": {
+        "name": "MarketDistrict-NPCs",
+        "description": "A pack of 3 FiveM RP server NPCs with STAR holons and ElevenLabs voice agents: Martinez (corrupt detective), Elena (bar owner), Dario (street fixer). Drop-in ready.",
+        "version": "1.0.0",
+        "tags": "fivem,npc,rp-server,voice,elevenlabs,market-district"
+      }
+    },
+    {
+      "step": 2,
+      "tool": "star_publish_oapp",
+      "description": "Publish the OAPP to STARNET — it becomes publicly discoverable and installable.",
+      "arguments": {
+        "id": "{oappIdFromStep1}"
+      },
+      "parameters": {
+        "{oappIdFromStep1}": "id returned by star_create_oapp in step 1"
+      },
+      "notes": [
+        "Returns { success: true, data: { id, starnetUrl, installCommand, ... } }.",
+        "After this call, any developer can run: star oapp install {oappName}",
+        "Save the starnetUrl and installCommand to the project README.",
+        "To update later: star_republish_oapp with the same id and bumped version.",
+        "To remove from public listing: star_unpublish_oapp."
+      ]
+    },
+    {
+      "step": 3,
+      "tool": "write_file",
+      "description": "Update or create README.md with the STARNET install command and OAPP metadata.",
+      "output_path": "README.md",
+      "notes": [
+        "Append (or write) a section: ## Install via STARNET, the install command, and the starnetUrl.",
+        "This makes the repo self-documenting for anyone who discovers it on STARNET or GitHub."
+      ],
+      "output_section_example": "## Install via STARNET\n\n```\nstar oapp install MarketDistrict-NPCs\n```\n\nSTARNET: {starnetUrl}\n\nPublished by Avatar: {avatarUsername} | Version: 1.0.0"
+    }
+  ],
+  "cli_alternative": {
+    "description": "CLI scripted variant for create step only (no publish flag in CLI create).",
+    "ref": "oapp-create.json"
+  },
+  "demo_flow_ref": "demo-flows.md#flow-3--publish-an-oapp-to-starnet",
+  "agent_prompt_summary": "Use star_create_oapp with name, description, version, and tags. Then star_publish_oapp with the returned id. Append the STARNET install command to README.md.",
+  "see_also": ["oapp-create.json", "oapp-light.json", "npc-with-voice.json"]
+}

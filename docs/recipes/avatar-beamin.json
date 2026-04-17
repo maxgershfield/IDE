@@ -1,0 +1,23 @@
+{
+  "id": "avatar-beamin",
+  "description": "Authenticate (beam in) as an OASIS avatar. Required before any STARNET operation that mutates data.",
+  "argv": ["star", "-n", "--json", "--username", "{username}", "--password", "{password}", "avatar", "beamin"],
+  "parameters": {
+    "{username}": "Avatar username (string)",
+    "{password}": "Avatar password (string)"
+  },
+  "notes": [
+    "Prefer env vars STAR_CLI_USERNAME / STAR_CLI_PASSWORD over inline credentials when available.",
+    "When the IDE user is already logged in, STAR_CLI_USERNAME and STAR_CLI_PASSWORD are populated from their session — no need to ask for credentials again.",
+    "Commands like 'help', 'version', 'status', 'dna' skip beam-in automatically.",
+    "On success returns { success: true, data: { avatarId, username, ... } }."
+  ],
+  "env_var_variant": {
+    "description": "Use env vars instead of inline creds (preferred for security)",
+    "argv": ["star", "-n", "--json", "avatar", "beamin"],
+    "env": {
+      "STAR_CLI_USERNAME": "avatar-username",
+      "STAR_CLI_PASSWORD": "avatar-password"
+    }
+  }
+}

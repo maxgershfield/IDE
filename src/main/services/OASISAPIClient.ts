@@ -402,8 +402,8 @@ export class OASISAPIClient {
       fromAvatarId?: string;
       /** Bounded OASIS/STAR reference text from the IDE (see IdeAgentController max length). */
       contextPack?: string | null;
-      /** plan = read-only tools; execute = full tool set (default). */
-      executionMode?: 'plan' | 'execute';
+      /** plan | plan_gather | plan_present = read-only tools; execute = full tool set (default). */
+      executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
     },
     options?: { signal?: AbortSignal }
   ): Promise<
@@ -441,7 +441,12 @@ export class OASISAPIClient {
           referencedPaths: body.referencedPaths?.length ? body.referencedPaths : undefined,
           fromAvatarId: body.fromAvatarId,
           contextPack: body.contextPack?.trim() ? body.contextPack.trim() : undefined,
-          executionMode: body.executionMode === 'plan' ? 'plan' : 'execute'
+          executionMode:
+            body.executionMode === 'plan' ||
+            body.executionMode === 'plan_gather' ||
+            body.executionMode === 'plan_present'
+              ? body.executionMode
+              : 'execute'
         },
         {
           timeout: 120000,

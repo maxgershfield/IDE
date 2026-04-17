@@ -1,0 +1,20 @@
+{
+  "id": "quest-list",
+  "description": "List quests visible to the logged-in avatar.",
+  "argv": ["star", "-n", "--json", "quest", "list"],
+  "notes": [
+    "Requires avatar beam-in.",
+    "Returns { success: true, data: [ { id, name, description, missionId, status, ... }, ... ] }."
+  ],
+  "variants": [
+    {
+      "label": "Show a specific quest by id",
+      "argv": ["star", "-n", "--json", "quest", "show", "{quest-id}"],
+      "parameters": { "{quest-id}": "Quest GUID" }
+    },
+    {
+      "label": "List missions",
+      "argv": ["star", "-n", "--json", "mission", "list"]
+    }
+  ]
+}

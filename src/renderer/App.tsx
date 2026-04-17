@@ -44,7 +44,7 @@ declare global {
       getWorkspacePath: () => Promise<string | null>;
       setWorkspacePath: (dir: string) => Promise<any[]>;
       listTree: (dir?: string) => Promise<any[]>;
-      readFile: (path: string) => Promise<string>;
+      readFile: (path: string) => Promise<string | null>;
       writeFile: (path: string, content: string) => Promise<void>;
       revealInFinder: (targetPath: string) => Promise<{ ok: boolean; error?: string }>;
       previewStaticFolder: (
@@ -76,7 +76,7 @@ declare global {
           referencedPaths?: string[];
           fromAvatarId?: string;
           contextPack?: string | null;
-          executionMode?: 'plan' | 'execute';
+          executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
         },
         runId: string
       ) => Promise<

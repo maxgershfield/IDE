@@ -1,0 +1,23 @@
+{
+  "id": "oapp-light",
+  "description": "Run STAR Light code generation for an OAPP — generates C# / ZScript / other code from a DNA definition file.",
+  "argv": ["star", "-n", "--json", "oapp", "light", "{oapp-name-or-id}"],
+  "parameters": {
+    "{oapp-name-or-id}": "OAPP name or GUID"
+  },
+  "notes": [
+    "Requires avatar beam-in.",
+    "Light generation reads the OAPP's DNA and emits code under the STARNET output path (configurable in STAR_DNA.json).",
+    "On success, stdout contains the list of generated file paths under data.generatedFiles.",
+    "After light generation, use write_file or write_files to extend the generated code in the workspace."
+  ],
+  "variants": [
+    {
+      "label": "Light from explicit DNA file path",
+      "argv": ["star", "-n", "--json", "oapp", "light", "--dna-path", "{path-to-dna-json}"],
+      "parameters": {
+        "{path-to-dna-json}": "Absolute or workspace-relative path to the OAPP DNA JSON file"
+      }
+    }
+  ]
+}

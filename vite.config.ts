@@ -21,6 +21,8 @@ export default defineConfig({
     emptyOutDir: true
   },
   resolve: {
+    /** Prefer TS sources over stale `tsc` emit sitting next to them (`foo.js` vs `foo.ts`). */
+    extensions: ['.mjs', '.mts', '.ts', '.tsx', '.jsx', '.js', '.json'],
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@renderer': path.resolve(__dirname, './src/renderer'),
@@ -31,6 +33,7 @@ export default defineConfig({
     port: 3000,
     host: '127.0.0.1',
     strictPort: true,
+    /** Desktop uses Electron only; never auto-open a system browser tab. */
     open: false
   }
 });

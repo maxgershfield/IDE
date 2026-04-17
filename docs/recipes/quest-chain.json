@@ -1,0 +1,113 @@
+{
+  "id": "quest-chain",
+  "type": "mcp_invoke_sequence",
+  "description": "Create a multi-mission quest arc in STAR using AI-generated narrative content. Each mission is a STAR holon; the quest holon links them into an ordered arc. Demonstrates OASIS + STAR narrative infrastructure.",
+  "steps": [
+    {
+      "step": 1,
+      "tool": "star_create_mission",
+      "description": "Create Mission 1 — the opening act. Repeat this step for each mission in the arc (adjust name, description, objectives each time).",
+      "repeat": "once per mission in the arc",
+      "arguments": {
+        "name": "{mission1Name}",
+        "description": "{mission1Description}",
+        "objectives": "{mission1Objectives}",
+        "triggerCondition": "{mission1Trigger}",
+        "rewardDescription": "{mission1Reward}"
+      },
+      "parameters": {
+        "{mission1Name}": "Short mission title (string)",
+        "{mission1Description}": "Narrative summary of what happens in this mission (string)",
+        "{mission1Objectives}": "Comma-separated objectives the player must complete (string)",
+        "{mission1Trigger}": "Condition that starts the mission, e.g. 'player enters casino district' (string)",
+        "{mission1Reward}": "What the player gets on completion, e.g. '$5000 cash, access to Meridian contact list' (string)"
+      },
+      "notes": [
+        "Requires STAR WebAPI running and Avatar beam-in.",
+        "Returns { success: true, data: { id, name, ... } }.",
+        "Save each returned mission id — you need all of them for star_create_quest in the final step.",
+        "AI-generate the narrative content before calling this tool; pass the output directly as arguments."
+      ],
+      "example": {
+        "name": "Meridian Recon",
+        "description": "Scope the casino floor, identify guard rotation, and plant a tracking device on the head of security — without raising suspicion.",
+        "objectives": "Enter casino without flagging security, photograph guard rotation schedule, plant tracker on Vasquez",
+        "triggerCondition": "player accepts The Meridian Job quest from fixer contact",
+        "rewardDescription": "$2500 advance payment, casino employee uniform"
+      }
+    },
+    {
+      "step": 2,
+      "tool": "star_create_mission",
+      "description": "Create Mission 2 — the middle act. Same shape as step 1, different content.",
+      "notes": [
+        "Populate with the second narrative beat. Save the returned mission id.",
+        "The AI should generate content that escalates tension from Mission 1 and sets up Mission 3."
+      ],
+      "example": {
+        "name": "Crew Assembly",
+        "description": "Track down three specialists: a safecracker, a getaway driver, and a network hacker. Each has conditions before they will work with you.",
+        "objectives": "Recruit safecracker Elena Voss, recruit driver Dario Ruiz, recruit hacker known only as 'Null'",
+        "triggerCondition": "Mission 1 complete",
+        "rewardDescription": "Crew assembled, access to Null's encrypted comms channel"
+      }
+    },
+    {
+      "step": 3,
+      "tool": "star_create_mission",
+      "description": "Create Mission 3 — the climax. Same shape. Save the returned mission id.",
+      "example": {
+        "name": "The Meridian Job",
+        "description": "Execute the heist during the New Year's gala. Get in, reach the vault, and get everyone out before the window closes.",
+        "objectives": "Enter via staff entrance, disable vault alarm, crack the Meridian safe, exit before 02:00",
+        "triggerCondition": "Mission 2 complete and New Year's gala active server event",
+        "rewardDescription": "Meridian Plasma Rifle NFT, $80000 split, STARNET achievement unlock"
+      }
+    },
+    {
+      "step": 4,
+      "tool": "star_create_quest",
+      "description": "Link all three missions into a single quest arc holon on STAR.",
+      "arguments": {
+        "name": "{questArcName}",
+        "description": "{questArcSummary}",
+        "missionIds": ["{mission1Id}", "{mission2Id}", "{mission3Id}"]
+      },
+      "parameters": {
+        "{questArcName}": "Arc title, e.g. 'The Meridian Job' (string)",
+        "{questArcSummary}": "One-paragraph pitch for what the arc is about (string)",
+        "{mission1Id}": "id returned by step 1 star_create_mission call",
+        "{mission2Id}": "id returned by step 2 star_create_mission call",
+        "{mission3Id}": "id returned by step 3 star_create_mission call"
+      },
+      "notes": [
+        "Returns { success: true, data: { id, name, missions: [...], ... } }.",
+        "Save the quest id for use in nft-game-item.json (quest completion reward linkage).",
+        "The quest arc is now a STARNET holon — other server owners can discover and fork it."
+      ]
+    },
+    {
+      "step": 5,
+      "tool": "write_file",
+      "description": "Persist the full quest arc structure to workspace.",
+      "output_path": "quests/{questArcName.kebab-case}.json",
+      "output_shape": {
+        "questId": "{idFromStep4}",
+        "questName": "{questArcName}",
+        "missions": [
+          { "missionId": "{mission1Id}", "name": "{mission1Name}", "order": 1 },
+          { "missionId": "{mission2Id}", "name": "{mission2Name}", "order": 2 },
+          { "missionId": "{mission3Id}", "name": "{mission3Name}", "order": 3 }
+        ],
+        "createdAt": "{isoTimestamp}"
+      }
+    }
+  ],
+  "cli_alternative": {
+    "description": "Single-mission variant using STAR CLI instead of MCP (simpler but no arc linking).",
+    "ref": "quest-create.json"
+  },
+  "demo_flow_ref": "demo-flows.md#flow-2--build-a-3-mission-quest-arc",
+  "agent_prompt_summary": "Use star_create_mission for each mission with AI-generated objectives and rewards, then star_create_quest to link them into an arc. Save the arc to quests/{name}.json.",
+  "see_also": ["npc-with-voice.json", "nft-game-item.json", "quest-create.json"]
+}

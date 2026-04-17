@@ -1,0 +1,32 @@
+{
+  "id": "oapp-create",
+  "description": "Create a new OAPP in non-interactive / scripted mode. The CLI uses StarnetUiScriptedCreateCli to drive the wizard without stdin.",
+  "argv": [
+    "star", "-n", "--json", "-y",
+    "oapp", "create",
+    "--name", "{name}",
+    "--description", "{description}",
+    "--version", "0.0.1"
+  ],
+  "parameters": {
+    "{name}": "OAPP name (string, no spaces recommended)",
+    "{description}": "Short description of the OAPP (string)"
+  },
+  "notes": [
+    "Requires avatar beam-in. Add --username / --password flags or set STAR_CLI_USERNAME/PASSWORD env vars.",
+    "-y (--yes) auto-confirms any remaining prompts.",
+    "On success returns { success: true, data: { id, name, ... } }.",
+    "The created OAPP id should be saved — pass it to oapp-show or holon-create recipes next.",
+    "After creation, run 'oapp light' to generate STAR-Light code from the OAPP DNA."
+  ],
+  "example": {
+    "description": "Create a time-bank OAPP for the PanGalactic project",
+    "argv": [
+      "star", "-n", "--json", "-y",
+      "oapp", "create",
+      "--name", "PanGalacticTimebank",
+      "--description", "Decentralised time credit exchange for the OASIS metaverse",
+      "--version", "0.0.1"
+    ]
+  }
+}

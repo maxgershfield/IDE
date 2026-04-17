@@ -86,6 +86,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (!window.electronAPI?.readFile) return;
     try {
       const content = await window.electronAPI.readFile(path);
+      if (content === null) {
+        console.error('Failed to open file (missing):', path);
+        return;
+      }
       setOpenFilePath(path);
       setFileContentState(content);
       setDirty(false);

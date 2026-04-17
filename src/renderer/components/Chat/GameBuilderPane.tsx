@@ -11,7 +11,7 @@
  * graph rather than a blank canvas.
  */
 import React, { useState, useCallback } from 'react';
-import { BUILDERS } from './GameBuilderModal';
+import { BUILDERS, ImageGenerateField } from './GameBuilderModal';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import { QuestGraphPane, type QuestSeed } from '../GameBuilder/QuestGraphPane';
 import { MissionArcPane, type MissionSeed } from '../GameBuilder/MissionArcPane';
@@ -163,6 +163,12 @@ const GameBuilderFormPane: React.FC<FormPaneProps> = ({
                 rows={repeatableRows[field.key] || []}
                 onChange={(rows) => onRepeatableRowsChange(field.key, rows)}
               />
+            ) : field.type === 'imageGenerate' ? (
+              <ImageGenerateField
+                value={String(values[field.key] ?? '')}
+                onChange={(url) => onValuesChange(field.key, url)}
+                hint={field.hint}
+              />
             ) : field.type === 'textarea' ? (
               <textarea
                 id={`gbp-${field.key}`}
@@ -207,7 +213,7 @@ const GameBuilderFormPane: React.FC<FormPaneProps> = ({
               />
             )}
 
-            {field.type !== 'repeatable' && field.hint && (
+            {field.type !== 'repeatable' && field.type !== 'imageGenerate' && field.hint && (
               <p className="gb-hint">{field.hint}</p>
             )}
           </div>

@@ -11,6 +11,9 @@ const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void }> = (
   </label>
 );
 
+const BF = (domain: string) =>
+  `https://cdn.brandfetch.io/domain/${domain}?c=1ida8ggQZDf64bgCqxt`;
+
 type Provider = 'mongodb' | 'holochain' | 'ipfs' | 'solana' | 'sqlite';
 
 interface ProviderMeta {
@@ -19,6 +22,7 @@ interface ProviderMeta {
   type: string;
   desc: string;
   statusClass: 'connected' | 'disconnected' | 'unknown';
+  logoUrl: string;
 }
 
 const PROVIDERS: ProviderMeta[] = [
@@ -28,6 +32,7 @@ const PROVIDERS: ProviderMeta[] = [
     type: 'Document DB',
     desc: 'Default OASIS provider. Supports holons, avatars, and all OAPP data.',
     statusClass: 'unknown',
+    logoUrl: BF('mongodb.com'),
   },
   {
     id: 'holochain',
@@ -35,6 +40,7 @@ const PROVIDERS: ProviderMeta[] = [
     type: 'Distributed P2P',
     desc: 'Agent-centric distributed computing. Holons live in the Holochain DHT.',
     statusClass: 'unknown',
+    logoUrl: BF('holochain.org'),
   },
   {
     id: 'ipfs',
@@ -42,6 +48,7 @@ const PROVIDERS: ProviderMeta[] = [
     type: 'Content-Addressed',
     desc: 'Immutable content store. Use for media, lore, and large binary assets.',
     statusClass: 'unknown',
+    logoUrl: BF('ipfs.tech'),
   },
   {
     id: 'solana',
@@ -49,6 +56,7 @@ const PROVIDERS: ProviderMeta[] = [
     type: 'Blockchain (L1)',
     desc: 'NFT minting, token-gated assets, and on-chain provenance.',
     statusClass: 'unknown',
+    logoUrl: BF('solana.com'),
   },
   {
     id: 'sqlite',
@@ -56,8 +64,40 @@ const PROVIDERS: ProviderMeta[] = [
     type: 'Local DB',
     desc: 'Offline-first. No network required. Not suitable for shared holons.',
     statusClass: 'unknown',
+    logoUrl: BF('sqlite.org'),
   },
 ];
+
+function ProviderLogo({
+  src,
+  alt,
+  size = 36,
+}: {
+  src: string;
+  alt: string;
+  size?: number;
+}) {
+  const [failed, setFailed] = React.useState(false);
+  if (failed) {
+    return (
+      <span
+        className="settings-provider-logo-fallback"
+        style={{ width: size, height: size, fontSize: size * 0.44 }}
+      >
+        {alt[0].toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="settings-provider-logo"
+      style={{ width: size, height: size }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export const DataProvidersSection: React.FC = () => {
   const { settings, updateSettings } = useSettings();
@@ -86,12 +126,12 @@ export const DataProvidersSection: React.FC = () => {
             className={`settings-provider-card${settings.primaryProvider === p.id ? ' active' : ''}`}
             onClick={() => updateSettings({ primaryProvider: p.id })}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <span
-                className={`settings-status-dot ${p.statusClass}`}
-                style={{ display: 'inline-block' }}
-              />
+            <div className="settings-provider-logo-wrap">
+              <ProviderLogo src={p.logoUrl} alt={p.name} size={36} />
+            </div>
+            <div className="settings-provider-card-footer">
               <span className="settings-provider-name">{p.name}</span>
+              <span className={`settings-status-dot ${p.statusClass}`} />
             </div>
             <div className="settings-provider-type">{p.type}</div>
           </button>
@@ -102,9 +142,12 @@ export const DataProvidersSection: React.FC = () => {
       <div className="settings-group">
         {PROVIDERS.filter((p) => p.id !== settings.primaryProvider).map((p) => (
           <div key={p.id} className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-label">{p.name}</div>
-              <div className="settings-row-desc">{p.desc}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+              <ProviderLogo src={p.logoUrl} alt={p.name} size={22} />
+              <div className="settings-row-info">
+                <div className="settings-row-label">{p.name}</div>
+                <div className="settings-row-desc">{p.desc}</div>
+              </div>
             </div>
             <div className="settings-row-control">
               <Toggle

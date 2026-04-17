@@ -4,14 +4,23 @@
  * Omit destructive / session-rotation tools from the agent surface.
  */
 const AGENT_MCP_ALLOWLIST = new Set<string>([
-  // OASIS (ONODE)
+  // OASIS (ONODE) — identity, holons, NFTs, GeoNFTs
   'oasis_health_check',
   'oasis_workflow_mint_nft',
   'oasis_workflow_mint_solana_nft',
+  'oasis_create_nft',
+  'oasis_mint_nft',
   'oasis_get_holon',
   'oasis_save_holon',
+  'oasis_update_holon',
   'oasis_search_holons',
+  'oasis_load_all_holons',
   'oasis_get_avatar_detail',
+  // GeoNFT tools (all live in oasisTools.ts — not star_*; three names below were wrong)
+  'oasis_place_geo_nft',
+  'oasis_get_geo_nfts',
+  'oasis_get_geo_nfts_for_mint_address',
+  'oasis_get_all_geo_nfts',
   // STAR WebAPI (via MCP unified server)
   'star_health_check',
   'star_get_status',
@@ -36,12 +45,9 @@ const AGENT_MCP_ALLOWLIST = new Set<string>([
   'star_list_holons',
   'star_get_holon',
   'star_create_holon',
-  'star_list_quests',
-  'star_get_quest',
-  'star_create_quest',
   'star_list_celestial_bodies',
   'star_get_celestial_body',
-  // STAR game-dev tools
+  // STAR game / app dev tools (quests, missions, NPCs, items)
   'star_list_quests',
   'star_get_quest',
   'star_create_quest',
@@ -59,9 +65,6 @@ const AGENT_MCP_ALLOWLIST = new Set<string>([
   'star_get_item',
   'star_create_item',
   'star_update_item',
-  'star_list_geonft',
-  'star_get_geonft',
-  'star_place_geonft',
   // ElevenLabs voice tools (via MCP unified when wired)
   'elevenlabs_list_voices',
   'elevenlabs_tts_preview',

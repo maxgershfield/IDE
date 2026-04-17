@@ -48,6 +48,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   elevenlabsCreateAgent: (params: { name: string; systemPrompt: string; firstMessage: string; voiceId: string }) =>
     ipcRenderer.invoke('elevenlabs:create-agent', params),
 
+  /** Generate an image from a text prompt (+ optional reference image data URL) using Glif.app. */
+  glifGenerateImage: (prompt: string, referenceImageDataUrl?: string, workflowId?: string) =>
+    ipcRenderer.invoke('glif:generate-image', prompt, referenceImageDataUrl, workflowId),
+
   /** Serve folder via python3 http.server and open browser (IDE assistant). */
   previewStaticFolder: (targetPath: string, openBrowser?: boolean) =>
     ipcRenderer.invoke('ide:preview-static', targetPath, openBrowser),
@@ -70,7 +74,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       referencedPaths?: string[];
       fromAvatarId?: string;
       contextPack?: string | null;
-      executionMode?: 'plan' | 'execute';
+      executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
     },
     runId: string
   ) => ipcRenderer.invoke('chat:agent-turn', { body, runId }),

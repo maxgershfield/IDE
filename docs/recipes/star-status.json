@@ -1,0 +1,20 @@
+{
+  "id": "star-status",
+  "description": "Verify the STAR CLI is reachable and print version info. Does NOT require avatar beam-in.",
+  "argv": ["star", "version"],
+  "notes": [
+    "Use this first to confirm the CLI is installed and STAR_CLI_PATH is wired correctly.",
+    "No credentials required.",
+    "Exit 0 + version string = CLI is working."
+  ],
+  "variants": [
+    {
+      "label": "JSON status (also skips beam-in)",
+      "argv": ["star", "-n", "--json", "status"]
+    },
+    {
+      "label": "Help (non-interactive)",
+      "argv": ["star", "-n", "help"]
+    }
+  ]
+}

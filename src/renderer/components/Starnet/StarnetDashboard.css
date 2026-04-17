@@ -227,6 +227,38 @@
   border-bottom-color: var(--accent, #007acc);
 }
 
+.sn-tab-bar--primary {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border);
+}
+
+.sn-tab-bar--secondary {
+  padding-left: 16px;
+  opacity: 0.98;
+}
+
+.sn-catalog-hint {
+  margin: 8px 12px 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.sn-badge--holon-type {
+  background: rgba(156, 99, 255, 0.12);
+  color: #c4a8ff;
+  border: 1px solid rgba(156, 99, 255, 0.28);
+  font-size: 10px;
+}
+
+.sn-holon-row .sn-code {
+  font-size: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ─── Body / scrollable list ─────────────────────────────────────────────────── */
 
 .sn-body {
@@ -360,6 +392,11 @@
   padding: 24px 16px;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.sn-loading--inline {
+  padding: 16px 0;
+  justify-content: flex-start;
 }
 
 .sn-empty {

@@ -176,6 +176,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -191,16 +192,59 @@ function createWindow() {
   // Load app: default is packaged files (desktop). Set OASIS_IDE_VITE_DEV=1 for Vite dev server + HMR.
   const useViteDevServer = process.env.OASIS_IDE_VITE_DEV === '1';
   const ideDev = process.env.OASIS_IDE_DEV === '1' || useViteDevServer;
+  const devUrl = process.env.OASIS_IDE_VITE_URL || 'http://127.0.0.1:3000';
+
   if (useViteDevServer) {
-    const devUrl = process.env.OASIS_IDE_VITE_URL || 'http://127.0.0.1:3000';
-    mainWindow.loadURL(devUrl);
+    let loadAttempts = 0;
+    const maxAttempts = 20;
+    const tryLoad = () => {
+      loadAttempts += 1;
+      void mainWindow!.loadURL(devUrl);
+    };
+    mainWindow.webContents.on(
+      'did-fail-load',
+      (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        if (!useViteDevServer || !isMainFrame) return;
+        const u = String(validatedURL || '');
+        if (u && u !== devUrl && !u.startsWith(`${devUrl}/`)) return;
+        // Chromium: -102 connection refused, -105 not resolved, -106 offline, -109 address unreachable
+        const retryable = [-102, -105, -106, -109].includes(errorCode);
+        if (retryable && loadAttempts < maxAttempts) {
+          console.warn(
+            `[Main] Main frame did-fail-load (${errorCode} ${errorDescription}), retrying Vite (${loadAttempts}/${maxAttempts})…`
+          );
+          setTimeout(tryLoad, 450);
+          return;
+        }
+        console.error('[Main] Renderer did-fail-load:', errorCode, errorDescription, validatedURL);
+      }
+    );
+    tryLoad();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+    }
+  });
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      console.warn('[Main] Window still hidden after timeout; showing to avoid a stuck black frame.');
+      mainWindow.show();
+    }
+  }, 10000);
+
   if (ideDev) {
-    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-      console.error('[Main] Renderer did-fail-load:', errorCode, errorDescription, validatedURL);
-    });
+    mainWindow.webContents.on(
+      'did-fail-load',
+      (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        if (useViteDevServer) return;
+        if (!isMainFrame) return;
+        console.error('[Main] Renderer did-fail-load:', errorCode, errorDescription, validatedURL);
+      }
+    );
     mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
       const prefix = `[Renderer console L${level}]`;
       if (level >= 2) {
@@ -214,7 +258,9 @@ function createWindow() {
     mainWindow.webContents.on('render-process-gone', (_event, details) => {
       console.error('[Main] render-process-gone:', details.reason, details.exitCode);
     });
-    mainWindow.webContents.openDevTools();
+    if (process.env.OASIS_IDE_DEVTOOLS !== '0') {
+      mainWindow.webContents.openDevTools();
+    }
   }
 
   mainWindow.on('closed', () => {
@@ -384,6 +430,9 @@ ipcMain.handle('fs:read-file', async (_, filePath: string) => {
   try {
     return await fileSystemService.readFile(filePath);
   } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return null;
+    }
     console.error('[IPC] Read file error:', error);
     throw error;
   }
@@ -551,6 +600,43 @@ ipcMain.handle('elevenlabs:create-agent', async (_, params: {
     }
     const data = await res.json() as { agent_id: string };
     return { ok: true, agentId: data.agent_id };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Generate an image via Glif.app (Flux 2 Pro by default). */
+ipcMain.handle('glif:generate-image', async (_, prompt: string, referenceImageDataUrl?: string, workflowId?: string) => {
+  const apiToken = process.env.GLIF_API_TOKEN?.trim();
+  const apiUrl = process.env.GLIF_API_URL?.trim() || 'https://simple-api.glif.app';
+  if (!apiToken) return { ok: false, error: 'GLIF_API_TOKEN not set in .env' };
+  try {
+    const inputs: Record<string, string> = { input1: prompt };
+    if (referenceImageDataUrl) {
+      inputs.image1 = referenceImageDataUrl;
+    }
+    const body = {
+      id: workflowId || 'cmigcvfwm0000k004u9shifki',
+      inputs,
+    };
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      return { ok: false, error: `Glif API error: ${res.status} ${txt}` };
+    }
+    const data = await res.json() as { output?: string; error?: string };
+    if (data.error) return { ok: false, error: data.error };
+    if (data.output) return { ok: true, imageUrl: data.output };
+    return { ok: false, error: 'No image URL in Glif response' };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? String(e) };
   }

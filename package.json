@@ -15,7 +15,7 @@
     "dev:main": "concurrently \"npm run dev:preload\" \"npm run dev:main-tsc\"",
     "dev:preload": "tsc -w --project tsconfig.preload.json",
     "dev:main-tsc": "tsc -w --project tsconfig.main.json",
-    "dev:renderer": "vite",
+    "dev:renderer": "cross-env BROWSER=none vite",
     "dev:renderer:watch": "vite build --watch",
     "build": "npm run build:preload && npm run build:main && npm run build:renderer",
     "build:preload": "tsc --project tsconfig.preload.json",

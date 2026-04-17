@@ -4,6 +4,21 @@
  */
 const PLAN_RE_GLOBAL = /<oasis_plan_replies>\s*(\[[\s\S]*?\])\s*<\/oasis_plan_replies>/gi;
 
+const GATHER_DIGEST_RE = /<oasis_gather_digest>\s*([\s\S]*?)\s*<\/oasis_gather_digest>/gi;
+
+/** Two-step plan: strip gather digest from display; return inner JSON or full block text. */
+export function extractGatherDigest(content: string): string | null {
+  const matches = [...content.matchAll(GATHER_DIGEST_RE)];
+  if (matches.length === 0) return null;
+  const last = matches[matches.length - 1];
+  const inner = (last[1] ?? '').trim();
+  return inner.length > 0 ? inner : null;
+}
+
+export function stripGatherDigestForDisplay(content: string): string {
+  return content.replace(GATHER_DIGEST_RE, '').trimEnd();
+}
+
 export function extractPlanReplyChoices(content: string): { displayText: string; choices: string[] } {
   let choices: string[] = [];
   const matches = [...content.matchAll(PLAN_RE_GLOBAL)];

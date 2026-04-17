@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RefreshCw,
   Upload,
@@ -12,12 +12,15 @@ import {
   Loader2,
   Copy,
   Globe,
+  Layers,
 } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import {
   fetchMyOapps,
+  fetchAllHolons,
+  invalidateStarnetListCache,
   downloadOapp,
   pingStarApi,
   getStarApiUrl,
@@ -26,12 +29,18 @@ import {
   totalInstalls,
   totalDownloads,
   publishOapp,
+  isOappListedForStarnetDiscover,
+  mergeHolonCatalogView,
+  CATALOG_SOURCE_OAPP_TEMPLATE,
   type OAPPRecord,
+  type StarHolonRecord,
   type StarApiStatus,
 } from '../../services/starApiService';
+import { holonTypeNameFromEnum } from '../../services/holonTypeLabels';
 import './StarnetDashboard.css';
 
 type Tab = 'mine' | 'discover';
+type MainCatalog = 'oapps' | 'holons';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -77,6 +86,55 @@ const TypeBadge: React.FC<{ type?: number }> = ({ type }) => (
   <span className={`sn-badge sn-badge--type${type ?? 0}`}>{oappTypeLabel(type)}</span>
 );
 
+const HolonTypeBadge: React.FC<{ holonType: number | string | undefined }> = ({ holonType }) => (
+  <span className="sn-badge sn-badge--holon-type">{holonTypeNameFromEnum(holonType)}</span>
+);
+
+const HolonRow: React.FC<{ holon: StarHolonRecord }> = ({ holon }) => {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(holon.id).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  const active =
+    holon.isActive === undefined ? null : holon.isActive ? 'Active' : 'Inactive';
+  const fromTemplate =
+    holon.metaData?.catalogSource === CATALOG_SOURCE_OAPP_TEMPLATE;
+  return (
+    <div className="sn-oapp-row sn-holon-row">
+      <div className="sn-oapp-row-main">
+        <span className="sn-oapp-name">{holon.name || holon.id}</span>
+        <HolonTypeBadge holonType={holon.holonType} />
+        {fromTemplate ? (
+          <span className="sn-badge sn-badge--published" title="Registered as OAPPTemplate (component library)">
+            Library template
+          </span>
+        ) : (
+          <span className="sn-badge sn-badge--draft" title="STAR holon instance from GET /api/Holons">
+            Instance
+          </span>
+        )}
+        {active && (
+          <span className={`sn-badge ${holon.isActive ? 'sn-badge--published' : 'sn-badge--draft'}`}>
+            {active}
+          </span>
+        )}
+      </div>
+      {holon.description && <div className="sn-oapp-desc">{holon.description}</div>}
+      <div className="sn-oapp-row-meta">
+        <span className="sn-oapp-stat sn-code" title="Holon id">
+          {holon.id}
+        </span>
+        <div className="sn-oapp-spacer" />
+        <button className="sn-action-btn sn-action-btn--ghost" title="Copy id" onClick={handleCopy}>
+          {copied ? <CheckCircle2 size={11} /> : <Copy size={11} />}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const OappRow: React.FC<{
   oapp: OAPPRecord;
   mine?: boolean;
@@ -98,12 +156,12 @@ const OappRow: React.FC<{
       <div className="sn-oapp-row-main">
         <span className="sn-oapp-name">{oapp.name || oapp.id}</span>
         <TypeBadge type={oapp.oappType} />
-        {mine && oapp.sourcePublishedOnSTARNET && (
+        {mine && isOappListedForStarnetDiscover(oapp) && (
           <span className="sn-badge sn-badge--published">
             <Globe size={8} /> STARNET
           </span>
         )}
-        {mine && !oapp.sourcePublishedOnSTARNET && (
+        {mine && !isOappListedForStarnetDiscover(oapp) && (
           <span className="sn-badge sn-badge--draft">Local</span>
         )}
       </div>
@@ -172,15 +230,25 @@ const EmptyList: React.FC<{ label: string }> = ({ label }) => (
 
 export const StarnetDashboard: React.FC = () => {
   const { settings } = useSettings();
-  const { loggedIn } = useAuth();
+  const { loggedIn, avatarId } = useAuth();
   const { workspacePath } = useWorkspace();
 
   const baseUrl = getStarApiUrl(settings.starnetEndpointOverride);
 
   const [apiStatus, setApiStatus] = useState<StarApiStatus>('idle');
+  /** Default to Holons so the GET /api/Holons list is visible (OAPPs stay one click away on the OAPPs tab). */
+  const [mainCatalog, setMainCatalog] = useState<MainCatalog>('holons');
   const [tab, setTab] = useState<Tab>('mine');
   const [oapps, setOapps] = useState<OAPPRecord[]>([]);
+  const [holons, setHolons] = useState<StarHolonRecord[]>([]);
+  const [holonError, setHolonError] = useState('');
+  /** OAPP list load (full-page spinner only while on OAPPs tab; see `mainCatalog`). */
   const [loading, setLoading] = useState(false);
+  /** Holon list load (inline spinner on Holons tab; runs in parallel with OAPPs). */
+  const [loadingHolons, setLoadingHolons] = useState(false);
+  /** True after holons have been fetched at least once (lazy tab or full refresh). */
+  const [holonsCatalogReady, setHolonsCatalogReady] = useState(false);
+  const holonsFetchedRef = useRef(false);
   const [installing, setInstalling] = useState<string | null>(null);
   const [publishingWs, setPublishingWs] = useState(false);
   const [publishFeedback, setPublishFeedback] = useState('');
@@ -201,35 +269,80 @@ export const StarnetDashboard: React.FC = () => {
     return true;
   }, [baseUrl]);
 
-  const loadOapps = useCallback(async (tok: string | null) => {
-    if (!tok) return;
-    setLoading(true);
-    setError('');
-    try {
-      const data = await fetchMyOapps(baseUrl, tok);
-      setOapps(data);
-    } catch (e: any) {
-      setError(e?.message ?? 'Failed to load OAPPs from STAR');
-    } finally {
-      setLoading(false);
-    }
-  }, [baseUrl]);
+  /**
+   * Fetch OAPPs and holons in parallel (same cost to STAR as sequential, much faster wall-clock).
+   * Each list clears its own loading flag when done so the Holons tab is not blocked by slow OAPP payloads.
+   */
+  const loadStarDataFull = useCallback(
+    async (tok: string | null, opts?: { forceRefresh?: boolean }) => {
+      if (!tok) return;
+      setLoading(true);
+      setLoadingHolons(true);
+      setHolonError('');
+      setError('');
+
+      const fetchOpts = { forceRefresh: opts?.forceRefresh === true };
+
+      const runOapps = async () => {
+        try {
+          const o = await fetchMyOapps(baseUrl, tok, avatarId, fetchOpts);
+          setOapps(o);
+        } catch (e: unknown) {
+          setError(e instanceof Error ? e.message : 'Failed to load OAPPs from STAR');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const runHolons = async () => {
+        try {
+          const h = await fetchAllHolons(baseUrl, tok, avatarId, fetchOpts);
+          setHolons(h);
+        } catch (e: unknown) {
+          setHolonError(e instanceof Error ? e.message : 'Failed to load holons from STAR');
+        } finally {
+          holonsFetchedRef.current = true;
+          setHolonsCatalogReady(true);
+          setLoadingHolons(false);
+        }
+      };
+
+      await Promise.all([runOapps(), runHolons()]);
+    },
+    [baseUrl, avatarId]
+  );
 
   const boot = useCallback(async (tok: string | null) => {
     const ok = await checkStatus(tok);
     if (!ok || !tok) return;
-    await loadOapps(tok);
-  }, [checkStatus, loadOapps]);
+    holonsFetchedRef.current = false;
+    await loadStarDataFull(tok);
+  }, [checkStatus, loadStarDataFull]);
 
-  useEffect(() => { boot(token); }, [token]);
+  useEffect(() => {
+    holonsFetchedRef.current = false;
+    setHolons([]);
+    setHolonsCatalogReady(false);
+    invalidateStarnetListCache();
+  }, [token]);
 
-  const handleRetry = () => boot(token);
-  const handleRefresh = () => loadOapps(token);
+  useEffect(() => {
+    void boot(token);
+  }, [token, boot, avatarId]);
+
+  const handleRetry = useCallback(async () => {
+    const ok = await checkStatus(token);
+    if (!ok || !token) return;
+    await loadStarDataFull(token, { forceRefresh: true });
+  }, [checkStatus, token, loadStarDataFull]);
+
+  const handleRefresh = () => loadStarDataFull(token, { forceRefresh: true });
 
   const handleInstall = async (id: string) => {
     setInstalling(id);
     try {
-      await downloadOapp(baseUrl, id, token);
+      await downloadOapp(baseUrl, id, token, avatarId);
+      await loadStarDataFull(token, { forceRefresh: true });
     } catch (e: any) {
       setError(e?.message ?? 'Install failed');
     } finally {
@@ -255,9 +368,9 @@ export const StarnetDashboard: React.FC = () => {
         setPublishFeedback('.star-workspace.json has no oappId. Run `star create` first.');
         return;
       }
-      await publishOapp(baseUrl, oappId, token);
+      await publishOapp(baseUrl, oappId, token, avatarId);
       setPublishFeedback('Published to STARNET.');
-      await loadOapps(token);
+      await loadStarDataFull(token, { forceRefresh: true });
     } catch (e: any) {
       setPublishFeedback(e?.message ?? 'Publish failed');
     } finally {
@@ -265,12 +378,12 @@ export const StarnetDashboard: React.FC = () => {
     }
   };
 
-  // Tabs: "mine" = OAPPs I've created; "discover" = those published on STARNET
+  // Tabs: "mine" = OAPPs I've created; "discover" = STARNET-visible or OAPPTemplate library rows
   const myOapps = oapps;
-  const publishedOapps = oapps.filter((o) => o.sourcePublishedOnSTARNET);
+  const publishedOapps = oapps.filter((o) => isOappListedForStarnetDiscover(o));
 
   const visibleList = tab === 'mine' ? myOapps : publishedOapps;
-  const filtered = searchQuery.trim()
+  const filteredOapps = searchQuery.trim()
     ? visibleList.filter((o) => {
         const q = searchQuery.toLowerCase();
         return (
@@ -279,6 +392,24 @@ export const StarnetDashboard: React.FC = () => {
         );
       })
     : visibleList;
+
+  /** Instances from GET /api/Holons plus OAPPTemplate rows (same library as register_starnet_component_holons.mjs). */
+  const holonCatalogRows = useMemo(() => mergeHolonCatalogView(holons, oapps), [holons, oapps]);
+
+  const filteredHolons = searchQuery.trim()
+    ? holonCatalogRows.filter((h) => {
+        const q = searchQuery.toLowerCase();
+        const typeLabel = holonTypeNameFromEnum(h.holonType).toLowerCase();
+        const src = (h.metaData?.catalogSource ?? '').toLowerCase();
+        return (
+          (h.name ?? '').toLowerCase().includes(q) ||
+          (h.description ?? '').toLowerCase().includes(q) ||
+          h.id.toLowerCase().includes(q) ||
+          typeLabel.includes(q) ||
+          src.includes(q)
+        );
+      })
+    : holonCatalogRows;
 
   const totalInst = oapps.reduce((s, o) => s + totalInstalls(o), 0);
   const totalDl = oapps.reduce((s, o) => s + totalDownloads(o), 0);
@@ -308,7 +439,7 @@ export const StarnetDashboard: React.FC = () => {
           className="sn-icon-btn"
           title="Refresh"
           onClick={handleRefresh}
-          disabled={loading || apiStatus === 'loading'}
+          disabled={loading || loadingHolons || apiStatus === 'loading'}
         >
           <RefreshCw size={13} />
         </button>
@@ -324,30 +455,59 @@ export const StarnetDashboard: React.FC = () => {
       )}
 
       {/* ── Stat chips ── */}
-      {apiStatus === 'ok' && oapps.length > 0 && (
+      {apiStatus === 'ok' && (oapps.length > 0 || holonsCatalogReady || loadingHolons) && (
         <div className="sn-stats-row">
           <StatChip icon={<Package size={12} />} label="OAPPs" value={oapps.length} />
+          <StatChip
+            icon={<Layers size={12} />}
+            label="Holons"
+            value={
+              loadingHolons ? '…' : holonsCatalogReady ? holonCatalogRows.length : '—'
+            }
+          />
           <StatChip icon={<Globe size={12} />} label="on STARNET" value={publishedCount} />
           <StatChip icon={<Download size={12} />} label="installs" value={totalInst} />
           <StatChip icon={<Copy size={12} />} label="downloads" value={totalDl} />
         </div>
       )}
 
-      {/* ── Tabs ── */}
-      <div className="sn-tab-bar">
+      {/* ── Catalog: OAPPs vs Holons ── */}
+      <div className="sn-tab-bar sn-tab-bar--primary">
         <button
-          className={`sn-tab${tab === 'mine' ? ' sn-tab--active' : ''}`}
-          onClick={() => setTab('mine')}
+          type="button"
+          className={`sn-tab${mainCatalog === 'oapps' ? ' sn-tab--active' : ''}`}
+          onClick={() => setMainCatalog('oapps')}
         >
-          <Star size={12} /> My OAPPs
+          <Package size={12} /> OAPPs
         </button>
         <button
-          className={`sn-tab${tab === 'discover' ? ' sn-tab--active' : ''}`}
-          onClick={() => setTab('discover')}
+          type="button"
+          className={`sn-tab${mainCatalog === 'holons' ? ' sn-tab--active' : ''}`}
+          onClick={() => setMainCatalog('holons')}
         >
-          <Globe size={12} /> On STARNET
+          <Layers size={12} /> Holons
         </button>
       </div>
+
+      {/* ── OAPP sub-tabs ── */}
+      {mainCatalog === 'oapps' && (
+        <div className="sn-tab-bar sn-tab-bar--secondary">
+          <button
+            type="button"
+            className={`sn-tab${tab === 'mine' ? ' sn-tab--active' : ''}`}
+            onClick={() => setTab('mine')}
+          >
+            <Star size={12} /> My OAPPs
+          </button>
+          <button
+            type="button"
+            className={`sn-tab${tab === 'discover' ? ' sn-tab--active' : ''}`}
+            onClick={() => setTab('discover')}
+          >
+            <Globe size={12} /> On STARNET
+          </button>
+        </div>
+      )}
 
       {/* ── Body ── */}
       <div className="sn-body">
@@ -358,53 +518,91 @@ export const StarnetDashboard: React.FC = () => {
             <CheckCircle2 size={28} style={{ color: '#4ec9b0', marginBottom: 8 }} />
             <div className="sn-empty-title">STAR is running</div>
             <div className="sn-empty-sub">
-              Log in with your OASIS Avatar (top-left of the IDE title bar) to browse your holons.
+              Log in with your OASIS Avatar (top-left of the IDE title bar) to load your OAPPs and holons
+              from STAR.
               <span style={{ marginTop: 6, display: 'block', opacity: 0.6 }}>
                 STAR API: <code className="sn-code">{baseUrl}</code>
               </span>
             </div>
           </div>
-        ) : loading ? (
+        ) : loading && mainCatalog === 'oapps' ? (
           <div className="sn-loading">
-            <Loader2 size={16} className="sn-spin" /> Loading from STAR API
+            <Loader2 size={16} className="sn-spin" /> Loading OAPPs from STAR API
           </div>
         ) : (
           <>
-            {/* Search bar — only for discover tab */}
-            {tab === 'discover' && (
+            {(mainCatalog === 'holons' || (mainCatalog === 'oapps' && tab === 'discover')) && (
               <div className="sn-search-row">
                 <Search size={13} className="sn-search-icon" />
                 <input
                   className="sn-search-input"
-                  placeholder="Filter published OAPPs..."
+                  placeholder={
+                    mainCatalog === 'holons'
+                      ? 'Filter holons by name, type, or id...'
+                      : 'Filter published OAPPs...'
+                  }
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
             )}
 
-            {filtered.length === 0 ? (
-              <EmptyList
-                label={
-                  tab === 'mine'
-                    ? 'No OAPPs found. Create one with `star create` in the terminal.'
-                    : searchQuery
-                    ? 'No results matching your search.'
-                    : 'None of your OAPPs have been published to STARNET yet.'
-                }
-              />
-            ) : (
-              <div className="sn-list">
-                {filtered.map((o) => (
-                  <OappRow
-                    key={o.id}
-                    oapp={o}
-                    mine={tab === 'mine'}
-                    onInstall={tab === 'discover' ? handleInstall : undefined}
-                    installing={installing === o.id}
+            {mainCatalog === 'oapps' &&
+              (filteredOapps.length === 0 ? (
+                <EmptyList
+                  label={
+                    tab === 'mine'
+                      ? 'No OAPPs found. Create one with `star create` in the terminal.'
+                      : searchQuery
+                        ? 'No results matching your search.'
+                        : 'None of your OAPPs have been published to STARNET yet.'
+                  }
+                />
+              ) : (
+                <div className="sn-list">
+                  {filteredOapps.map((o) => (
+                    <OappRow
+                      key={o.id}
+                      oapp={o}
+                      mine={tab === 'mine'}
+                      onInstall={tab === 'discover' ? handleInstall : undefined}
+                      installing={installing === o.id}
+                    />
+                  ))}
+                </div>
+              ))}
+
+            {mainCatalog === 'holons' && (
+              <>
+                <p className="sn-catalog-hint">
+                  Merged catalog: &quot;Library template&quot; rows are your OAPPTemplate OAPPs (same flow as{' '}
+                  <code className="sn-code">register_starnet_component_holons.mjs</code>). &quot;Instance&quot; rows
+                  come from <code className="sn-code">GET /api/Holons</code>. Registered templates appear here even
+                  when only a few STAR holon instances exist.
+                </p>
+                {holonError && (
+                  <div className="sn-feedback sn-feedback--err" style={{ border: 'none' }}>
+                    {holonError}
+                  </div>
+                )}
+                {loadingHolons && !holonError ? (
+                  <div className="sn-loading sn-loading--inline">
+                    <Loader2 size={14} className="sn-spin" /> Loading holons
+                  </div>
+                ) : filteredHolons.length === 0 && !holonError ? (
+                  <EmptyList
+                    label={`No holon catalog entries at ${baseUrl}. Log in, point Settings → STARNET at this API, run scripts/register_starnet_component_holons.mjs (templates), and/or POST /api/Holons for instances.`}
                   />
-                ))}
-              </div>
+                ) : (
+                  !holonError && (
+                    <div className="sn-list">
+                      {filteredHolons.map((h) => (
+                        <HolonRow key={h.id} holon={h} />
+                      ))}
+                    </div>
+                  )
+                )}
+              </>
             )}
           </>
         )}

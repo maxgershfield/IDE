@@ -1,0 +1,24 @@
+{
+  "id": "zome-list",
+  "description": "List zomes for the logged-in avatar or a specific OAPP.",
+  "argv": ["star", "-n", "--json", "zome", "list"],
+  "notes": [
+    "Requires avatar beam-in.",
+    "Returns { success: true, data: [ { id, name, holons, ... }, ... ] }."
+  ],
+  "variants": [
+    {
+      "label": "Show a specific zome by id",
+      "argv": ["star", "-n", "--json", "zome", "show", "{zome-id}"],
+      "parameters": { "{zome-id}": "Zome GUID" }
+    },
+    {
+      "label": "Create a zome (scripted)",
+      "argv": ["star", "-n", "--json", "-y", "zome", "create", "--name", "{name}", "--description", "{description}"],
+      "parameters": {
+        "{name}": "Zome name",
+        "{description}": "Zome description"
+      }
+    }
+  ]
+}

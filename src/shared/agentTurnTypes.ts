@@ -41,8 +41,13 @@ export interface AgentTurnRequest {
   fromAvatarId?: string;
   /** IDE-supplied OASIS/STAR reference text; ONODE enforces max length. */
   contextPack?: string | null;
-  /** plan = read-only tools + chip UX; execute = default full tools. */
-  executionMode?: 'plan' | 'execute';
+  /**
+   * execute = full tools (default).
+   * plan = read-only tools + user-facing plan with proceed chips.
+   * plan_gather = read-only tools only; internal gather digest (two-step phase 1).
+   * plan_present = read-only tools only; user-facing plan after digest (two-step phase 2).
+   */
+  executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
   /** Bump when tool schemas change. */
   toolDefinitionsVersion?: number;
 }

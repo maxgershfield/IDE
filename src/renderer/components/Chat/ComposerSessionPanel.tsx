@@ -18,6 +18,7 @@ import { getGameDevContextPack } from '../../constants/gameDevPrompt';
 import { useGameDev } from '../../contexts/GameDevContext';
 import {
   buildAgentPriorMessagesFromThread,
+  runIdeAgentGatherPresentSequence,
   runIdeAgentLoop,
   shouldUsePlanModeFirst
 } from '../../services/ideAgentLoop';
@@ -37,6 +38,8 @@ import './ChatInterface.css';
 
 const CHAT_STORAGE_V2_PREFIX = 'oasis-ide-chat-v2-';
 const CHAT_ROOT_HOLON_PREFIX = 'oasis-ide-chat-rootid-';
+/** Two-step Plan (gather repo, then user-facing plan). Default on; user can turn off. */
+const IDE_DEEP_PLAN_TWO_STEP_KEY = 'oasis-ide-deep-plan-two-step';
 /** Legacy key (avatar only — no workspace); migrated when v2 is empty */
 const CHAT_STORAGE_LEGACY_PREFIX = 'oasis-ide-chat-';
 
@@ -83,9 +86,9 @@ interface AssistantRevealState {
 const INITIAL_MESSAGE: Message = {
   role: 'assistant',
   content:
-    'Hi — I\'m the OASIS IDE assistant.\n\n' +
+    'Hi, I\'m the OASIS IDE assistant.\n\n' +
     '**Chat** / **Agent** / **Game Dev** (mode selector below):\n' +
-    '- **Agent**: OpenAI or Grok + a workspace folder open. **Plan** / **Execute** appears while you draft a short create-OAPP or new-game line, or right after a reply with clickable chips. Plan keeps tools read-only; Execute runs writes, STAR, npm, and MCP.\n' +
+    '- **Agent**: OpenAI or Grok + a workspace folder open. Use **Plan** for read-only exploration and a chip handoff, or **Execute** for writes, STAR, npm, and MCP.\n' +
     '- **Game Dev**: Same tool loop as Agent, but with metaverse game developer context pre-loaded — OASIS quests, NPCs, GeoNFTs, ElevenLabs voice, Three.js/Hyperfy/Babylon/Unity/Roblox templates.\n' +
     '- **Chat**: One-shot text through ONODE or a local API key. No workspace tools.\n\n' +
     'Tip: switch to **Game Dev** when building metaverse worlds. **+** opens another tab with its own history.',
@@ -244,6 +247,60 @@ function formatWorkspaceFileCount(n: number): string {
   return `${n.toLocaleString()} files`;
 }
 
+interface PendingWriteFile {
+  path: string;
+  newContent: string;
+  oldContent: string | null;
+}
+
+interface PendingWrite {
+  files: PendingWriteFile[];
+  resolve: (accepted: boolean) => void;
+}
+
+function WriteFilePreview({ file }: { file: PendingWriteFile }) {
+  const [tab, setTab] = useState<'new' | 'old'>('new');
+  const displayName = file.path.split('/').filter(Boolean).pop() ?? file.path;
+  const content = tab === 'old' ? (file.oldContent ?? '') : file.newContent;
+  const lines = content.split('\n');
+  const MAX_LINES = 35;
+  const truncated = lines.length > MAX_LINES;
+  const displayLines = truncated ? lines.slice(0, MAX_LINES) : lines;
+  return (
+    <div className="composer-write-file">
+      <div className="composer-write-file-header">
+        <span className="composer-write-file-name" title={file.path}>{displayName}</span>
+        {file.oldContent !== null ? (
+          <div className="composer-write-file-tabs" role="tablist">
+            <button
+              type="button"
+              className={`composer-write-tab${tab === 'new' ? ' is-active' : ''}`}
+              onClick={() => setTab('new')}
+            >
+              New
+            </button>
+            <button
+              type="button"
+              className={`composer-write-tab${tab === 'old' ? ' is-active' : ''}`}
+              onClick={() => setTab('old')}
+            >
+              Current
+            </button>
+          </div>
+        ) : (
+          <span className="composer-write-file-badge">new file</span>
+        )}
+      </div>
+      <pre className="composer-write-file-content">
+        <code>{displayLines.join('\n')}</code>
+        {truncated && (
+          <div className="composer-write-truncated">…{lines.length - MAX_LINES} more lines</div>
+        )}
+      </pre>
+    </div>
+  );
+}
+
 export interface ComposerSessionPanelProps {
   sessionId: string;
   visible: boolean;
@@ -260,7 +317,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const { isGameDevMode } = useGameDev();
   const { tools, executeTool, loading: mcpLoading } = useMCP();
   const { avatarId, loggedIn } = useAuth();
-  const { workspacePath, tree, refreshTree, starWorkspaceConfig } = useWorkspace();
+  const { workspacePath, tree, refreshTree, starWorkspaceConfig, openFilePath } = useWorkspace();
   const { removeReference, setSessionTitle, getReferencedPathsForSession } = useIdeChat();
   const referencedPaths = getReferencedPathsForSession(sessionId);
   const threadKey = useMemo(
@@ -277,6 +334,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const [loading, setLoading] = useState(false);
   /** Steps shown while the OpenAI/Grok agent loop runs (reads, commands, turns). */
   const [agentActivityLines, setAgentActivityLines] = useState<string[]>([]);
+  const appendAgentActivity = useCallback((line: string) => {
+    setAgentActivityLines((prev) => [...prev, line]);
+  }, []);
   /** Collapsible log after the last agent request finishes. */
   const [lastAgentActivity, setLastAgentActivity] = useState<string[] | null>(null);
   /** Progressive display for the latest long assistant message. */
@@ -307,10 +367,26 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     return 'agent';
   });
   const [agentExecutionMode, setAgentExecutionMode] = useState<AgentExecutionModeId>('execute');
+  const [deepPlanTwoStep, setDeepPlanTwoStep] = useState(() => {
+    try {
+      const v = localStorage.getItem(IDE_DEEP_PLAN_TWO_STEP_KEY);
+      if (v === '0') return false;
+    } catch {
+      /* ignore */
+    }
+    return true;
+  });
+  const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
+  const pendingWriteResolveRef = useRef<((accepted: boolean) => void) | null>(null);
+  /** Text from .oasiside/rules.md or .cursorrules in the current workspace, if present. */
+  const [workspaceRules, setWorkspaceRules] = useState<string | null>(null);
+
   const { registerSubmitHandler, pendingComposerText, clearPendingComposerText } = useEditorTab();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  /** Scroll live agent step list to bottom as new lines arrive. */
+  const agentActivityFeedRef = useRef<HTMLUListElement>(null);
   /** After a new user send, scroll the thread pane to the top of the current turn instead of the bottom. */
   const scrollComposerToFoldTopRef = useRef(false);
   /** User pressed Stop / Enter-to-cancel; agent loop checks between ONODE rounds and tools. */
@@ -322,6 +398,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
   const handleStopGeneration = useCallback(() => {
     cancelAgentRunRef.current = true;
+    // Resolve any pending write confirmation so the loop can exit cleanly.
+    if (pendingWriteResolveRef.current) {
+      pendingWriteResolveRef.current(false);
+      pendingWriteResolveRef.current = null;
+      setPendingWrite(null);
+    }
     const api = getElectronAPI();
     const rid = ideRunIdRef.current;
     if (api?.agentTurnCancel && rid) {
@@ -363,8 +445,41 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   }, [composerMode]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(IDE_DEEP_PLAN_TWO_STEP_KEY, deepPlanTwoStep ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [deepPlanTwoStep]);
+
+  useEffect(() => {
     rootHolonIdRef.current = rootHolonId;
   }, [rootHolonId]);
+
+  // Load .oasiside/rules.md (or .cursorrules) whenever the workspace changes
+  useEffect(() => {
+    if (!workspacePath) { setWorkspaceRules(null); return; }
+    const api = getElectronAPI();
+    if (!api?.readFile) return;
+    let cancelled = false;
+    (async () => {
+      const candidates = [
+        `${workspacePath}/.oasiside/rules.md`,
+        `${workspacePath}/.cursorrules`
+      ];
+      for (const p of candidates) {
+        try {
+          const text = await api.readFile(p);
+          if (!cancelled && text && text.trim()) {
+            setWorkspaceRules(text.trim());
+            return;
+          }
+        } catch { /* unreadable — try next */ }
+      }
+      if (!cancelled) setWorkspaceRules(null);
+    })();
+    return () => { cancelled = true; };
+  }, [workspacePath]);
 
   useEffect(() => {
     workspacePersistenceInitRef.current = false;
@@ -565,6 +680,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, agentActivityLines.length, assistantReveal?.visible, visible]);
 
+  useEffect(() => {
+    if (!loading) return;
+    const el = agentActivityFeedRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [agentActivityLines, loading]);
+
   const modelMeta = getIdeChatModelById(selectedModelId);
   const electronApi = getElectronAPI();
   const agentToolLoopReady =
@@ -577,12 +699,85 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const conversationId = threadKey;
   const MAX_HISTORY = 20;
 
-  const planFirstDraft = shouldUsePlanModeFirst(input);
-  const lastAsstOffersPlanChips = lastAssistantHasPlanChoices(messages);
-  const showPlanExecuteToggle =
-    composerMode === 'agent' &&
-    !!workspacePath &&
-    (planFirstDraft || lastAsstOffersPlanChips);
+  /** Whenever OpenAI/Grok + workspace agent tools are available, user can choose Plan (read-only) vs Execute. */
+  const showPlanExecuteToggle = agentToolLoopReady;
+
+  /**
+   * Wraps agentExecuteTool for write_file / write_files: pauses the loop, shows a diff
+   * panel in the Composer, and waits for Accept or Discard before writing to disk.
+   */
+  const agentExecuteToolWithConfirm = useCallback(
+    async (payload: { toolCallId: string; name: string; argumentsJson: string }) => {
+      const api = getElectronAPI();
+      if (payload.name !== 'write_file' && payload.name !== 'write_files') {
+        return api.agentExecuteTool(payload);
+      }
+      // Parse intended writes
+      let filesToConfirm: Array<{ path: string; newContent: string }> = [];
+      try {
+        const args = JSON.parse(payload.argumentsJson) as Record<string, unknown>;
+        if (payload.name === 'write_file') {
+          const p = typeof args.path === 'string' ? args.path : '';
+          const c = typeof args.content === 'string' ? args.content : '';
+          if (p) filesToConfirm = [{ path: p, newContent: c }];
+        } else {
+          const files = Array.isArray(args.files) ? args.files : [];
+          filesToConfirm = files
+            .filter((f) => f && typeof f === 'object')
+            .map((f) => ({
+              path: String((f as Record<string, unknown>).path ?? ''),
+              newContent: String((f as Record<string, unknown>).content ?? '')
+            }))
+            .filter((f) => f.path);
+        }
+      } catch { /* malformed args — let executor surface the error */ }
+
+      if (filesToConfirm.length === 0) return api.agentExecuteTool(payload);
+
+      // Read current on-disk content (null = new file)
+      const filesWithOld: PendingWriteFile[] = await Promise.all(
+        filesToConfirm.map(async ({ path, newContent }) => {
+          let oldContent: string | null = null;
+          if (api?.readFile) {
+            try {
+              const abs = path.startsWith('/') ? path : `${workspacePath ?? ''}/${path}`;
+              oldContent = await api.readFile(abs);
+            } catch { /* new file or unreadable */ }
+          }
+          return { path, newContent, oldContent };
+        })
+      );
+
+      appendAgentActivity(
+        `Proposed write: ${filesWithOld.length} file(s) — review diff below, then Accept or Discard.`
+      );
+
+      // Pause loop and wait for user decision
+      const accepted = await new Promise<boolean>((resolve) => {
+        pendingWriteResolveRef.current = resolve;
+        setPendingWrite({ files: filesWithOld, resolve });
+      });
+      pendingWriteResolveRef.current = null;
+      setPendingWrite(null);
+
+      if (!accepted) {
+        appendAgentActivity('← discarded, nothing written.');
+        return {
+          ok: true as const,
+          result: {
+            toolCallId: payload.toolCallId,
+            content: `Write discarded by user: ${filesToConfirm.map((f) => f.path).join(', ')}`,
+            isError: false
+          }
+        };
+      }
+      appendAgentActivity('Writing accepted changes to disk…');
+      const written = await api.agentExecuteTool(payload);
+      appendAgentActivity('← written. Continuing…');
+      return written;
+    },
+    [workspacePath, appendAgentActivity]
+  );
 
   const handleSendMessage = async (messageText: string) => {
     if (!messageText.trim() || loading || !canSend) return;
@@ -593,7 +788,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   // Register this session's send handler so the editor-tab builder pane can submit into it
   useEffect(() => {
     registerSubmitHandler((msg) => void handleSendMessage(msg));
-  }, [registerSubmitHandler, loading, canSend, agentExecutionMode, messages.length]);
+  }, [registerSubmitHandler, loading, canSend, agentExecutionMode, deepPlanTwoStep, messages.length]);
 
   // Consume pendingComposerText (set by AI Generate builders) — auto-send directly into the agent.
   // handleSendCore is captured fresh from this render (after pendingComposerText state change),
@@ -683,11 +878,15 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     const isGameMode = isGameDevMode;
 
     const planFirstThisSend = shouldUsePlanModeFirst(currentInput);
-    const continuingPlan = lastAssistantHasPlanChoices(threadBefore);
-    const planExecuteApplicable =
-      Boolean(workspacePath) && (planFirstThisSend || continuingPlan);
+    const apiForMode = getElectronAPI();
+    const agentLoopWillUseOpenAiTools =
+      effectiveComposerMode === 'agent' &&
+      !!workspacePath &&
+      (modelForSend?.provider === 'openai' || modelForSend?.provider === 'xai') &&
+      !!apiForMode?.agentTurn &&
+      !!apiForMode?.agentExecuteTool;
     const effectiveExecutionMode: AgentExecutionModeId =
-      planExecuteApplicable && agentExecutionMode === 'plan' ? 'plan' : 'execute';
+      agentLoopWillUseOpenAiTools && agentExecutionMode === 'plan' ? 'plan' : 'execute';
 
     const historyForApi = [...threadBefore, userMessage].slice(-MAX_HISTORY).map((m) => ({
       role: m.role,
@@ -779,31 +978,47 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         const priorForAgent = buildAgentPriorMessagesFromThread(
           threadBefore.slice(-(MAX_HISTORY - 1))
         );
-        const contextPack = isGameMode
+        const basePack = isGameMode
           ? getGameDevContextPack(starWorkspaceConfig?.gameEngine)
           : getAgentContextPack();
-        const out = await runIdeAgentLoop(
-          {
-            agentTurn: (b, runId) => api.agentTurn(b, runId),
-            agentExecuteTool: (p) => api.agentExecuteTool(p),
-            isCancelled: () => cancelAgentRunRef.current
+        const contextPack = workspaceRules
+          ? `## Workspace rules (.oasiside/rules.md)\n${workspaceRules}\n\n---\n\n${basePack}`
+          : basePack;
+        const agentLoopBase = {
+          userText: currentInput,
+          model: selectedModelId,
+          workspacePath,
+          referencedPaths,
+          fromAvatarId: avatarId ?? undefined,
+          contextPack,
+          priorMessages: priorForAgent,
+          onActivityLine: (line: string) => {
+            setAgentActivityLines((prev) => [...prev, line]);
           },
-          {
-            userText: currentInput,
-            model: selectedModelId,
-            workspacePath,
-            referencedPaths,
-            fromAvatarId: avatarId ?? undefined,
-            contextPack,
-            priorMessages: priorForAgent,
-            onActivityLine: (line) => {
-              setAgentActivityLines((prev) => [...prev, line]);
-            },
-            runId: sendRunId,
-            gameDevMode: isGameMode,
-            executionMode: effectiveExecutionMode
-          }
-        );
+          runId: sendRunId,
+          gameDevMode: isGameMode,
+          executionMode: effectiveExecutionMode,
+          activeFilePath: openFilePath ?? undefined
+        };
+        const useDeepGatherPresent =
+          effectiveExecutionMode === 'plan' && planFirstThisSend && deepPlanTwoStep;
+        const out = useDeepGatherPresent
+          ? await runIdeAgentGatherPresentSequence(
+              {
+                agentTurn: (b, runId) => api.agentTurn(b, runId),
+                agentExecuteTool: agentExecuteToolWithConfirm,
+                isCancelled: () => cancelAgentRunRef.current
+              },
+              agentLoopBase
+            )
+          : await runIdeAgentLoop(
+              {
+                agentTurn: (b, runId) => api.agentTurn(b, runId),
+                agentExecuteTool: agentExecuteToolWithConfirm,
+                isCancelled: () => cancelAgentRunRef.current
+              },
+              agentLoopBase
+            );
         setLastAgentActivity(out.activityLog.length > 0 ? [...out.activityLog] : null);
         setAgentActivityLines([]);
         if (out.error) {
@@ -1038,28 +1253,20 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           <div className="composer-message assistant composer-message--working">
             <div className="composer-message-label">Assistant</div>
             <div className="composer-message-body">
-              {agentActivityLines.length > 0 ? (
-                <div className="composer-activity-live">
-                  <span className="typing-indicator composer-activity-current">
-                    {agentActivityLines[agentActivityLines.length - 1]}
+              <div className="composer-activity-panel" aria-live="polite" aria-busy="true">
+                <div className="composer-activity-panel-header">What the agent is doing</div>
+                {agentActivityLines.length > 0 ? (
+                  <ul ref={agentActivityFeedRef} className="composer-activity-feed">
+                    {agentActivityLines.map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="typing-indicator composer-activity-idle">
+                    Connecting to the model…
                   </span>
-                  {agentActivityLines.length > 1 && (
-                    <details className="composer-activity-previous">
-                      <summary className="composer-activity-previous-summary">
-                        {agentActivityLines.length - 1} previous{' '}
-                        {agentActivityLines.length === 2 ? 'step' : 'steps'}
-                      </summary>
-                      <ul className="composer-activity-list">
-                        {agentActivityLines.slice(0, -1).map((line, i) => (
-                          <li key={i}>{line}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-                </div>
-              ) : (
-                <span className="typing-indicator">Thinking</span>
-              )}
+                )}
+              </div>
               <details className="composer-stop-details">
                 <summary className="composer-stop-details-summary">Cancel and timeouts</summary>
                 <span className="composer-stop-hint">
@@ -1076,8 +1283,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       {lastAgentActivity && lastAgentActivity.length > 0 && (
         <details className="composer-activity-summary">
           <summary className="composer-activity-summary-title">
-            Used {lastAgentActivity.length}{' '}
-            {lastAgentActivity.length === 1 ? 'tool' : 'tools'}
+            Last run: {lastAgentActivity.length}{' '}
+            {lastAgentActivity.length === 1 ? 'step' : 'steps'} (full trace)
           </summary>
           <ul className="composer-activity-list">
             {lastAgentActivity.map((line, i) => (
@@ -1111,17 +1318,39 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         </div>
       </details>
 
-      <div className="composer-review-row composer-review-row--stub" aria-label="Suggested edits (preview)">
-        <button type="button" className="composer-review-btn" disabled title="Coming when inline patch apply ships">
-          Review
-        </button>
-        <button type="button" className="composer-review-btn" disabled title="Keep all AI edits">
-          Keep All
-        </button>
-        <button type="button" className="composer-review-btn" disabled title="Undo AI edits in this turn">
-          Undo All
-        </button>
-      </div>
+      {pendingWrite && (
+        <div className="composer-write-confirm" role="dialog" aria-label="Review file write">
+          <div className="composer-write-confirm-header">
+            <span className="composer-write-confirm-title">
+              Agent wants to write{' '}
+              {pendingWrite.files.length === 1
+                ? '1 file'
+                : `${pendingWrite.files.length} files`}
+            </span>
+            <div className="composer-write-confirm-actions">
+              <button
+                type="button"
+                className="composer-write-accept"
+                onClick={() => pendingWrite.resolve(true)}
+              >
+                Accept
+              </button>
+              <button
+                type="button"
+                className="composer-write-discard"
+                onClick={() => pendingWrite.resolve(false)}
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+          <div className="composer-write-files">
+            {pendingWrite.files.map((f) => (
+              <WriteFilePreview key={f.path} file={f} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {isGameDevMode && (
         <GameToolPalette
@@ -1179,33 +1408,48 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             </select>
           </label>
           {showPlanExecuteToggle ? (
-            <div
-              className="composer-execution-toggle"
-              role="group"
-              aria-label="Agent: plan or execute"
-              title="Plan: one question at a time, read-only tools, clickable replies. Execute: full tools (write, STAR, npm, MCP)."
-            >
-              <button
-                type="button"
-                className={
-                  agentExecutionMode === 'plan' ? 'composer-exec-btn is-active' : 'composer-exec-btn'
-                }
-                onClick={() => setAgentExecutionMode('plan')}
+            <>
+              <div
+                className="composer-execution-toggle"
+                role="group"
+                aria-label="Agent: plan or execute"
+                title="Plan: one question at a time, read-only tools, clickable replies. Execute: full tools (write, STAR, npm, MCP)."
               >
-                Plan
-              </button>
-              <button
-                type="button"
-                className={
-                  agentExecutionMode === 'execute'
-                    ? 'composer-exec-btn is-active'
-                    : 'composer-exec-btn'
-                }
-                onClick={() => setAgentExecutionMode('execute')}
-              >
-                Execute
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className={
+                    agentExecutionMode === 'plan' ? 'composer-exec-btn is-active' : 'composer-exec-btn'
+                  }
+                  onClick={() => setAgentExecutionMode('plan')}
+                >
+                  Plan
+                </button>
+                <button
+                  type="button"
+                  className={
+                    agentExecutionMode === 'execute'
+                      ? 'composer-exec-btn is-active'
+                      : 'composer-exec-btn'
+                  }
+                  onClick={() => setAgentExecutionMode('execute')}
+                >
+                  Execute
+                </button>
+              </div>
+              {agentExecutionMode === 'plan' ? (
+                <label
+                  className="composer-deep-plan-label"
+                  title="When on, the first Plan send for a short create-style prompt runs a gather pass on the repo, then a second pass writes the visible plan and chips."
+                >
+                  <input
+                    type="checkbox"
+                    checked={deepPlanTwoStep}
+                    onChange={(e) => setDeepPlanTwoStep(e.target.checked)}
+                  />
+                  <span>Deep plan</span>
+                </label>
+              ) : null}
+            </>
           ) : null}
           <label className="composer-footer-model">
             <span className="visually-hidden">Model</span>

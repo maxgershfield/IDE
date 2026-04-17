@@ -1,0 +1,29 @@
+{
+  "id": "holon-create",
+  "description": "Create a new holon in non-interactive / scripted mode.",
+  "argv": [
+    "star", "-n", "--json", "-y",
+    "holon", "create",
+    "--name", "{name}",
+    "--description", "{description}"
+  ],
+  "parameters": {
+    "{name}": "Holon name (string)",
+    "{description}": "Holon description (string)"
+  },
+  "notes": [
+    "Requires avatar beam-in.",
+    "-y auto-confirms any remaining wizard prompts.",
+    "Returns { success: true, data: { id, name, ... } }.",
+    "Use mcp_invoke with oasis_save_holon for richer custom data fields — the CLI create is for simple holons."
+  ],
+  "example": {
+    "description": "Create a TimeCreditHolon for the PanGalacticTimebank OAPP",
+    "argv": [
+      "star", "-n", "--json", "-y",
+      "holon", "create",
+      "--name", "TimeCreditHolon",
+      "--description", "Tracks time credits for the PanGalactic exchange"
+    ]
+  }
+}

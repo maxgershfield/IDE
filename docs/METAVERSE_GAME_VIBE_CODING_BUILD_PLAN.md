@@ -58,10 +58,6 @@ const elevenLabsKey = process.env.ELEVENLABS_API_KEY?.trim();
 if (elevenLabsKey) {
   env.ELEVENLABS_API_KEY = elevenLabsKey;
 }
-const geniesClientId = process.env.GENIES_CLIENT_ID?.trim();
-if (geniesClientId) {
-  env.GENIES_CLIENT_ID = geniesClientId;
-}
 ```
 
 This means anyone running the IDE with `ELEVENLABS_API_KEY` set in their shell will automatically
@@ -1071,90 +1067,29 @@ type BottomTab = 'terminal' | 'lore';
 ---
 
 <a name="phase-4"></a>
-## Phase 4 — Genies Avatar Studio Panel
+## Phase 4 — Avatar Studio Panel
 
 **Scope:** Iframe embed panel + OASIS holon link.
 
-**Background:** Ready Player Me was sunset January 31, 2026. Genies is the current Unity/VR
-SDK-verified alternative. They provide an iframe-based avatar creator that can be embedded
-directly.
+**Status: Provider TBD.**
 
-### 4.1 IPC channel for avatar export
+Ready Player Me was sunset January 31, 2026. Genies is Unity-SDK-only (no web/iframe API).
+Avatar SDK (MetaPerson Creator) has the right iframe + postMessage + GLB export API but is
+priced at $800/month for developer access — not viable for this stage.
 
-**File:** `src/main/preload.ts` — add:
+**Requirements for the chosen provider:**
+- Embeddable via `<iframe>` with no server-side component needed
+- Exports `.glb` over `postMessage` (or equivalent)
+- Free or low-cost developer tier
+- Avaturn is the next candidate to evaluate (free tier, iframe + GLB, 15-min integration)
 
-```typescript
-geniesGetAvatarUrl: () => Promise<string>;
-```
+Once a provider is selected, the implementation shape is:
+1. IPC channel in `preload.ts` / `index.ts` to supply the iframe URL + any auth token
+2. `src/renderer/components/Avatar/AvatarStudioPanel.tsx` — iframe + postMessage handler
+3. On export: inject agent prompt to call `oasis_save_holon` with the GLB URL and link to OASIS avatar
+4. Add "Avatar" tab to `RightPanelShell`
 
-**File:** `src/main/index.ts` — handler:
-
-```typescript
-ipcMain.handle('genies:get-avatar-url', async () => {
-  const clientId = process.env.GENIES_CLIENT_ID?.trim();
-  if (!clientId) {
-    return 'https://genies.com/creator'; // public fallback
-  }
-  return `https://genies.com/creator?client_id=${clientId}`;
-});
-```
-
-### 4.2 New panel
-
-**File:** `src/renderer/components/Avatar/AvatarStudioPanel.tsx` (new)
-
-```tsx
-export const AvatarStudioPanel: React.FC = () => {
-  const [avatarUrl, setAvatarUrl] = useState<string>('');
-  const [exportedGlbUrl, setExportedGlbUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    window.electronAPI.geniesGetAvatarUrl().then(setAvatarUrl);
-  }, []);
-
-  // Listen for postMessage from iframe on avatar creation completion
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'genies:avatar-created') {
-        setExportedGlbUrl(e.data.glbUrl);
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, []);
-
-  return (
-    <div className="avatar-studio-panel">
-      <div className="avatar-studio-panel__header">
-        <h3>Avatar Studio</h3>
-        {exportedGlbUrl && (
-          <button onClick={() => handleImportToOasis(exportedGlbUrl)}>
-            Import to OASIS
-          </button>
-        )}
-      </div>
-      {avatarUrl ? (
-        <iframe
-          src={avatarUrl}
-          className="avatar-studio-panel__frame"
-          allow="camera; microphone"
-          title="Genies Avatar Creator"
-        />
-      ) : (
-        <div className="avatar-studio-panel__loading">Loading avatar creator...</div>
-      )}
-    </div>
-  );
-};
-```
-
-`handleImportToOasis` injects a prompt into the chat: "Import this avatar GLB to OASIS:
-`{exportedGlbUrl}` — create an OASIS avatar holon with it and save the holon ID."
-The agent then uses `oasis_save_holon` via `mcp_invoke`.
-
-### 4.3 Wire into `RightPanelShell`
-
-Add "Avatar" as a tab in the right panel shell alongside Agents and OASIS Tools.
+For Unity projects, Genies (NativeGenie component, Unity Asset Store) remains the avatar solution — see Phase 2.5.
 
 ---
 
@@ -1421,7 +1356,7 @@ export interface StarWorkspaceConfig {
   activeQuestChain?: string;          // loads quests/<name>.json context
   defaultComposerMode?: 'chat' | 'agent' | 'game';
   elevenLabsProjectId?: string;       // optional ElevenLabs project scoping
-  geniesProjectId?: string;           // optional Genies project scoping
+  avatarProvider?: 'genies';           // 'genies' only valid when engine is 'unity'; web provider TBD
 }
 ```
 
@@ -1508,9 +1443,10 @@ in the child env via a new `setProjectStarApiUrl(url)` method (call after worksp
 - [ ] "Create in STAR" button fires `run_star_cli` for each mission; quest IDs returned
 
 ### Phase 4
-- [ ] Genies iframe loads with public fallback URL when `GENIES_CLIENT_ID` not set
-- [ ] `window.postMessage({ type: 'genies:avatar-created', glbUrl: '...' })` triggers "Import to OASIS" button appearing
-- [ ] Import injects correct chat prompt
+- [ ] Avatar provider selected (Avaturn or equivalent — free tier, iframe + GLB export)
+- [ ] Avatar Studio iframe loads and receives correct auth/config on load
+- [ ] Export event triggers "Import to OASIS" button
+- [ ] Import injects agent prompt; agent calls `oasis_save_holon` and returns holon ID
 
 ### Phase 5
 - [ ] Template picker shows 5 cards
