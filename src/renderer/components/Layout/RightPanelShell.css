@@ -1,4 +1,4 @@
-/* Cursor-like right column: tab strip + single tall content pane */
+/* OASIS_IDE-style right column: tab strip + single tall content pane */
 
 .right-panel-shell {
   display: flex;

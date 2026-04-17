@@ -1,4 +1,4 @@
-/* Cursor-like Composer column */
+/* OASIS_IDE-style Composer column */
 
 .chat-interface--composer {
   display: flex;
@@ -7,6 +7,40 @@
   min-height: 0;
   background: var(--composer-surface, #181818);
   color: var(--text-primary);
+}
+
+.chat-interface--composer .composer-session-memory-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #444);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-secondary, #aaa);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chat-interface--composer .composer-session-memory-btn:hover {
+  color: var(--text-primary, #eee);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.chat-interface--composer .composer-session-memory-label {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-interface--composer .composer-session-memory-badge {
+  color: rgba(0, 180, 120, 0.95);
+  font-size: 8px;
+  line-height: 1;
 }
 
 .composer-session-panels {
@@ -45,7 +79,7 @@
   white-space: nowrap;
 }
 
-/* Multi-session tabs (Cursor-style) */
+/* Multi-session tabs (OASIS_IDE-style) */
 .composer-session-bar {
   flex-shrink: 0;
   display: flex;
@@ -207,7 +241,7 @@
   gap: 6px;
 }
 
-/* Folded prior turns (Cursor-style: current request stays in focus) */
+/* Folded prior turns (OASIS_IDE-style: current request stays in focus) */
 .composer-earlier-fold {
   flex-shrink: 0;
   margin-bottom: 2px;
@@ -285,7 +319,7 @@
   padding: 0;
 }
 
-/* Labels removed — Cursor-style: content speaks for itself */
+/* Labels removed — OASIS_IDE-style: content speaks for itself */
 .composer-message-label {
   display: none;
 }
@@ -439,7 +473,7 @@
   background: rgba(255, 255, 255, 0.02);
 }
 
-/* User message: subtle right-aligned pill — minimal, like Cursor */
+/* User message: subtle right-aligned pill — minimal */
 .composer-message.user .composer-message-body {
   margin-left: 16%;
   background: rgba(255, 255, 255, 0.055);
@@ -525,7 +559,7 @@
 .composer-activity-feed {
   margin: 0;
   padding: 6px 8px 8px 14px;
-  max-height: min(240px, 38vh);
+  max-height: min(340px, 48vh);
   overflow-y: auto;
   list-style: none;
   font-size: 11px;
@@ -537,6 +571,107 @@
   margin: 0 0 4px;
   padding-left: 8px;
   border-left: 2px solid rgba(0, 122, 204, 0.35);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.composer-activity-feed li.composer-activity-text {
+  white-space: normal;
+}
+
+.composer-activity-text-inner {
+  white-space: pre-wrap;
+}
+
+.composer-activity-file-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 8px;
+  margin-bottom: 6px !important;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+  border-left: 2px solid rgba(0, 122, 204, 0.45) !important;
+}
+
+.composer-activity-file-edit-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-activity-file-name {
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.composer-activity-badges {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.composer-activity-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.composer-activity-badge--add {
+  background: rgba(40, 167, 69, 0.25);
+  color: #7dffb3;
+}
+
+.composer-activity-badge--del {
+  background: rgba(220, 53, 69, 0.25);
+  color: #ffb3b8;
+}
+
+.composer-activity-badge--new {
+  background: rgba(0, 122, 204, 0.3);
+  color: var(--text-primary);
+}
+
+.composer-activity-badge--edit {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ffe08a;
+}
+
+.composer-activity-diff-details {
+  margin: 0;
+}
+
+.composer-activity-diff-summary {
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--text-secondary);
+  list-style: none;
+  user-select: none;
+}
+
+.composer-activity-diff-summary::-webkit-details-marker {
+  display: none;
+}
+
+.composer-activity-diff-pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 10px;
+  line-height: 1.35;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.composer-activity-list.composer-activity-feed li::before {
+  content: none !important;
 }
 
 .composer-activity-idle {
@@ -545,7 +680,7 @@
   font-size: 12px;
 }
 
-/* Live + completed agent step lists (Cursor-style) */
+/* Live + completed agent step lists (OASIS_IDE-style) */
 .composer-activity-live {
   margin: 0 0 6px;
   display: flex;
@@ -651,7 +786,7 @@ details.composer-activity-summary[open] .composer-activity-summary-title::before
   padding-bottom: 8px;
 }
 
-/* Context strip (Cursor-style) */
+/* Context strip (OASIS_IDE-style) */
 .composer-context {
   flex-shrink: 0;
   margin: 0 8px 4px;

@@ -2,7 +2,7 @@ import React from 'react';
 import './StatusBar.css';
 
 /**
- * VS Code / Cursor-style status strip (branch + indicators are placeholders until wired to git).
+ * VS Code–style status strip (branch + indicators are placeholders until wired to git).
  */
 export const StatusBar: React.FC = () => {
   return (

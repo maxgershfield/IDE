@@ -18,6 +18,7 @@ import { getGameDevContextPack } from '../../constants/gameDevPrompt';
 import { useGameDev } from '../../contexts/GameDevContext';
 import {
   buildAgentPriorMessagesFromThread,
+  emitActivityMetaAsFeed,
   runIdeAgentGatherPresentSequence,
   runIdeAgentLoop,
   shouldUsePlanModeFirst
@@ -31,9 +32,18 @@ import {
 } from '../../utils/assistantStreamReveal';
 import { makeIdeThreadKey } from '../../utils/ideThreadKey';
 import { extractPlanReplyChoices } from '../../utils/planReplyParser';
+import type { AgentActivityFeedItem } from '../../../shared/agentActivityFeed';
+import { ComposerActivityFeedRow } from './ComposerActivityFeedRow';
 import { ComposerMarkdownBody } from './ComposerMarkdownBody';
 import { GameToolPalette } from './GameToolPalette';
 import { useEditorTab } from '../../contexts/EditorTabContext';
+import { useProjectMemory } from '../../contexts/ProjectMemoryContext';
+import { loadWorkspaceRulesText } from '../../utils/workspaceRules';
+import {
+  PROJECT_MEMORY_SUMMARIZE_SYSTEM,
+  buildComposerTranscriptForSummary,
+  isNothingToAddSummary
+} from '../../../shared/projectMemorySummarize';
 import './ChatInterface.css';
 
 const CHAT_STORAGE_V2_PREFIX = 'oasis-ide-chat-v2-';
@@ -76,7 +86,7 @@ function lastAssistantHasPlanChoices(thread: Message[]): boolean {
   return false;
 }
 
-/** Long assistant reply: reveal text progressively (Cursor-like). Key = messageIndex:totalChars. */
+/** Long assistant reply: reveal text progressively (OASIS_IDE-style). Key = messageIndex:totalChars. */
 interface AssistantRevealState {
   messageIndex: number;
   visible: number;
@@ -224,7 +234,8 @@ function saveRootHolonId(threadKey: string, id: string): void {
 /** Prefix for local LLM / rule-based assistant when ONODE is unavailable (no structured API fields). */
 function buildLocalIdeContextPrefix(
   workspacePath: string | null,
-  referencedPaths: string[]
+  referencedPaths: string[],
+  projectMemory?: string | null
 ): string {
   const lines: string[] = [
     'Local chat path: no disk or shell from the model—use only the lines below. For read_file / list_dir / run_workspace_command, use Composer Agent (OpenAI or Grok) with a workspace folder open.'
@@ -233,7 +244,27 @@ function buildLocalIdeContextPrefix(
   if (referencedPaths.length > 0) {
     lines.push(`Attached paths: ${referencedPaths.join('; ')}`);
   }
-  return `[IDE context]\n${lines.join('\n')}\n\n`;
+  let block = `[IDE context]\n${lines.join('\n')}\n\n`;
+  if (projectMemory?.trim()) {
+    block += `[Project memory]\n${projectMemory.trim()}\n\n`;
+  }
+  return block;
+}
+
+function buildIdeComposerContextPack(opts: {
+  workspaceRules: string | null;
+  projectMemoryText: string;
+  basePack: string;
+}): string {
+  const parts: string[] = [];
+  if (opts.workspaceRules?.trim()) {
+    parts.push(`## Workspace rules (.oasiside or .OASIS_IDE)\n${opts.workspaceRules.trim()}`);
+  }
+  if (opts.projectMemoryText.trim()) {
+    parts.push(`## Project memory (workspace notes)\n${opts.projectMemoryText.trim()}`);
+  }
+  parts.push(opts.basePack);
+  return parts.join('\n\n---\n\n');
 }
 
 const getElectronAPI = () => (window as any).electronAPI;
@@ -319,6 +350,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const { avatarId, loggedIn } = useAuth();
   const { workspacePath, tree, refreshTree, starWorkspaceConfig, openFilePath } = useWorkspace();
   const { removeReference, setSessionTitle, getReferencedPathsForSession } = useIdeChat();
+  const { text: projectMemoryText, appendAutoTurnLine, appendChatSummaryBlock } = useProjectMemory();
   const referencedPaths = getReferencedPathsForSession(sessionId);
   const threadKey = useMemo(
     () => makeIdeThreadKey(avatarId, workspacePath, sessionId),
@@ -332,16 +364,16 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const rootHolonIdRef = useRef<string | null>(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  /** Steps shown while the OpenAI/Grok agent loop runs (reads, commands, turns). */
-  const [agentActivityLines, setAgentActivityLines] = useState<string[]>([]);
-  const appendAgentActivity = useCallback((line: string) => {
-    setAgentActivityLines((prev) => [...prev, line]);
+  /** Live progress: text lines + structured file-edit rows (matches agent loop + pending writes). */
+  const [agentActivityFeed, setAgentActivityFeed] = useState<AgentActivityFeedItem[]>([]);
+  const appendFeedText = useCallback((line: string) => {
+    setAgentActivityFeed((prev) => [...prev, { kind: 'text', text: line }]);
   }, []);
   /** Collapsible log after the last agent request finishes. */
-  const [lastAgentActivity, setLastAgentActivity] = useState<string[] | null>(null);
+  const [lastAgentActivity, setLastAgentActivity] = useState<AgentActivityFeedItem[] | null>(null);
   /** Progressive display for the latest long assistant message. */
   const [assistantReveal, setAssistantReveal] = useState<AssistantRevealState | null>(null);
-  /** Index in `messages` where the current turn starts; earlier messages fold into a summary (Cursor-style). */
+  /** Index in `messages` where the current turn starts; earlier messages fold into a summary (OASIS_IDE-style). */
   const [earlierFoldStartIndex, setEarlierFoldStartIndex] = useState<number | null>(null);
   const [hasLLM, setHasLLM] = useState<boolean | null>(null);
   /** Match main `DEFAULT_IDE_ASSISTANT_AGENT_ID` so the first send can use the agent tool loop before IPC returns. */
@@ -378,7 +410,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   });
   const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
   const pendingWriteResolveRef = useRef<((accepted: boolean) => void) | null>(null);
-  /** Text from .oasiside/rules.md or .cursorrules in the current workspace, if present. */
+  /** Text from `.oasiside/rules.md` or `.OASIS_IDE/rules.md`, if present. */
   const [workspaceRules, setWorkspaceRules] = useState<string | null>(null);
 
   const { registerSubmitHandler, pendingComposerText, clearPendingComposerText } = useEditorTab();
@@ -429,6 +461,89 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   }, [messages]);
 
   useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{
+        sessionId: string;
+        resolve: (r: { ok: boolean; error?: string; skipped?: boolean }) => void;
+      }>;
+      const detail = ce.detail;
+      if (!detail?.resolve || typeof detail.resolve !== 'function') return;
+      if (detail.sessionId !== sessionId || !visible) return;
+
+      void (async () => {
+        const resolve = detail.resolve;
+        try {
+          const api = getElectronAPI();
+          if (!api?.chatComplete) {
+            resolve({ ok: false, error: 'Composer API not available.' });
+            return;
+          }
+          const llmOk = await api.chatHasLLM().catch(() => false);
+          if (!llmOk) {
+            resolve({
+              ok: false,
+              error:
+                'No LLM configured for local chat. Set OPENAI_API_KEY (or Anthropic, Google, or xAI keys) in the environment used by the IDE main process.'
+            });
+            return;
+          }
+
+          const thread = messagesRef.current.filter(
+            (m): m is Message & { role: 'user' | 'assistant' } =>
+              m.role === 'user' || m.role === 'assistant'
+          );
+          if (!thread.some((m) => m.role === 'user')) {
+            resolve({
+              ok: false,
+              error: 'Nothing to summarize yet. Send at least one message in this chat session.'
+            });
+            return;
+          }
+
+          const transcript = buildComposerTranscriptForSummary(
+            thread.map((m) => ({ role: m.role, content: m.content }))
+          );
+          if (transcript.trim().length < 24) {
+            resolve({ ok: false, error: 'Not enough chat content to summarize.' });
+            return;
+          }
+
+          const userPayload = `Here is the Composer transcript:\n\n${transcript}`;
+
+          const result = await api.chatComplete(
+            [
+              { role: 'system', content: PROJECT_MEMORY_SUMMARIZE_SYSTEM },
+              { role: 'user', content: userPayload }
+            ],
+            selectedModelId
+          );
+
+          if (result.error) {
+            resolve({ ok: false, error: result.error });
+            return;
+          }
+          const out = (result.content || '').trim();
+          if (!out || isNothingToAddSummary(out)) {
+            resolve({ ok: true, skipped: true });
+            return;
+          }
+          appendChatSummaryBlock(out);
+          resolve({ ok: true });
+        } catch (e: unknown) {
+          resolve({
+            ok: false,
+            error: e instanceof Error ? e.message : String(e)
+          });
+        }
+      })();
+    };
+
+    window.addEventListener('oasis-ide-project-memory-summarize-request', handler as EventListener);
+    return () =>
+      window.removeEventListener('oasis-ide-project-memory-summarize-request', handler as EventListener);
+  }, [sessionId, visible, selectedModelId, appendChatSummaryBlock]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(IDE_CHAT_MODEL_STORAGE_KEY, selectedModelId);
     } catch {
@@ -456,29 +571,20 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     rootHolonIdRef.current = rootHolonId;
   }, [rootHolonId]);
 
-  // Load .oasiside/rules.md (or .cursorrules) whenever the workspace changes
+  // Load workspace rules when the workspace changes
   useEffect(() => {
-    if (!workspacePath) { setWorkspaceRules(null); return; }
-    const api = getElectronAPI();
-    if (!api?.readFile) return;
+    if (!workspacePath) {
+      setWorkspaceRules(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
-      const candidates = [
-        `${workspacePath}/.oasiside/rules.md`,
-        `${workspacePath}/.cursorrules`
-      ];
-      for (const p of candidates) {
-        try {
-          const text = await api.readFile(p);
-          if (!cancelled && text && text.trim()) {
-            setWorkspaceRules(text.trim());
-            return;
-          }
-        } catch { /* unreadable — try next */ }
-      }
-      if (!cancelled) setWorkspaceRules(null);
+      const text = await loadWorkspaceRulesText(workspacePath);
+      if (!cancelled) setWorkspaceRules(text);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [workspacePath]);
 
   useEffect(() => {
@@ -678,14 +784,14 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       return;
     }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading, agentActivityLines.length, assistantReveal?.visible, visible]);
+  }, [messages, loading, agentActivityFeed.length, assistantReveal?.visible, visible]);
 
   useEffect(() => {
     if (!loading) return;
     const el = agentActivityFeedRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [agentActivityLines, loading]);
+  }, [agentActivityFeed, loading]);
 
   const modelMeta = getIdeChatModelById(selectedModelId);
   const electronApi = getElectronAPI();
@@ -748,7 +854,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         })
       );
 
-      appendAgentActivity(
+      appendFeedText(
         `Proposed write: ${filesWithOld.length} file(s) — review diff below, then Accept or Discard.`
       );
 
@@ -761,7 +867,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       setPendingWrite(null);
 
       if (!accepted) {
-        appendAgentActivity('← discarded, nothing written.');
+        appendFeedText('← discarded, nothing written.');
         return {
           ok: true as const,
           result: {
@@ -771,12 +877,19 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           }
         };
       }
-      appendAgentActivity('Writing accepted changes to disk…');
+      appendFeedText('Writing accepted changes to disk…');
       const written = await api.agentExecuteTool(payload);
-      appendAgentActivity('← written. Continuing…');
+      if (written.ok && written.result.activityMeta) {
+        emitActivityMetaAsFeed(written.result.activityMeta, (item) => {
+          setAgentActivityFeed((prev) => [...prev, item]);
+        });
+        appendFeedText('Continuing…');
+      } else {
+        appendFeedText('← written. Continuing…');
+      }
       return written;
     },
-    [workspacePath, appendAgentActivity]
+    [workspacePath, appendFeedText]
   );
 
   const handleSendMessage = async (messageText: string) => {
@@ -837,7 +950,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       const hint = currentInput.trim().slice(0, 48);
       if (hint) setSessionTitle(sessionId, hint);
     }
-    setAgentActivityLines([]);
+    setAgentActivityFeed([]);
     setLastAgentActivity(null);
     setAssistantReveal(null);
     setLoading(true);
@@ -933,7 +1046,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     try {
       const api = getElectronAPI();
 
-      // 0) Cursor-like: serve attached / resolved folder and open browser (local IPC, not LLM-only steps)
+      // 0) OASIS_IDE-style: serve attached / resolved folder and open browser (local IPC, not LLM-only steps)
       if (api?.previewStaticFolder && wantsBrowserPreviewAction(currentInput)) {
         const folder = resolvePreviewFolderPath(currentInput, workspacePath, referencedPaths);
         if (folder) {
@@ -981,9 +1094,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         const basePack = isGameMode
           ? getGameDevContextPack(starWorkspaceConfig?.gameEngine)
           : getAgentContextPack();
-        const contextPack = workspaceRules
-          ? `## Workspace rules (.oasiside/rules.md)\n${workspaceRules}\n\n---\n\n${basePack}`
-          : basePack;
+        const contextPack = buildIdeComposerContextPack({
+          workspaceRules,
+          projectMemoryText,
+          basePack
+        });
         const agentLoopBase = {
           userText: currentInput,
           model: selectedModelId,
@@ -992,8 +1107,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           fromAvatarId: avatarId ?? undefined,
           contextPack,
           priorMessages: priorForAgent,
-          onActivityLine: (line: string) => {
-            setAgentActivityLines((prev) => [...prev, line]);
+          onActivityFeedItem: (item: AgentActivityFeedItem) => {
+            setAgentActivityFeed((prev) => [...prev, item]);
           },
           runId: sendRunId,
           gameDevMode: isGameMode,
@@ -1020,7 +1135,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
               agentLoopBase
             );
         setLastAgentActivity(out.activityLog.length > 0 ? [...out.activityLog] : null);
-        setAgentActivityLines([]);
+        setAgentActivityFeed([]);
         if (out.error) {
           const stopped =
             out.cancelled === true ||
@@ -1035,6 +1150,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           );
         } else {
           const { displayText, choices } = extractPlanReplyChoices(out.finalText);
+          appendAutoTurnLine(currentInput, displayText);
           pushAssistantMessage(
             displayText,
             mapRecordedToolOutputsToMessageToolCalls(out.recordedToolOutputs),
@@ -1057,7 +1173,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           selectedModelId,
           workspacePath ?? undefined,
           referencedPaths,
-          getAgentContextPack()
+          buildIdeComposerContextPack({
+            workspaceRules,
+            projectMemoryText,
+            basePack: getAgentContextPack()
+          })
         );
         if (!result.error && (result.content || (result.toolCalls && result.toolCalls.length > 0))) {
           pushAssistantMessage(result.content || '', result.toolCalls, false);
@@ -1069,7 +1189,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       // 2) Fallback: local LLM when available
       if (hasLLM && api?.chatComplete) {
         const localUser =
-          buildLocalIdeContextPrefix(workspacePath, referencedPaths) + currentInput;
+          buildLocalIdeContextPrefix(workspacePath, referencedPaths, projectMemoryText) +
+          currentInput;
         const messagesForApi = [...historyForApi, { role: 'user' as const, content: localUser }];
         const result = await api.chatComplete(messagesForApi, selectedModelId);
         pushAssistantMessage(
@@ -1083,7 +1204,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       // 3) Fallback: rule-based AI Assistant + MCP tools
       if (aiAssistant) {
         const response = await aiAssistant.processMessage(
-          buildLocalIdeContextPrefix(workspacePath, referencedPaths) + currentInput
+          buildLocalIdeContextPrefix(workspacePath, referencedPaths, projectMemoryText) +
+            currentInput
         );
         pushAssistantMessage(response.response, response.toolCalls, response.error);
       } else {
@@ -1254,11 +1376,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             <div className="composer-message-label">Assistant</div>
             <div className="composer-message-body">
               <div className="composer-activity-panel" aria-live="polite" aria-busy="true">
-                <div className="composer-activity-panel-header">What the agent is doing</div>
-                {agentActivityLines.length > 0 ? (
+                <div className="composer-activity-panel-header">Live progress</div>
+                {agentActivityFeed.length > 0 ? (
                   <ul ref={agentActivityFeedRef} className="composer-activity-feed">
-                    {agentActivityLines.map((line, i) => (
-                      <li key={i}>{line}</li>
+                    {agentActivityFeed.map((item, i) => (
+                      <ComposerActivityFeedRow key={i} item={item} />
                     ))}
                   </ul>
                 ) : (
@@ -1286,9 +1408,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             Last run: {lastAgentActivity.length}{' '}
             {lastAgentActivity.length === 1 ? 'step' : 'steps'} (full trace)
           </summary>
-          <ul className="composer-activity-list">
-            {lastAgentActivity.map((line, i) => (
-              <li key={i}>{line}</li>
+          <ul className="composer-activity-list composer-activity-feed">
+            {lastAgentActivity.map((item, i) => (
+              <ComposerActivityFeedRow key={i} item={item} />
             ))}
           </ul>
         </details>

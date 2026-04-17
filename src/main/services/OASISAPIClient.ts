@@ -329,6 +329,164 @@ export class OASISAPIClient {
     }
   }
 
+  /** Workspace-scoped notes holon (metadata `oasis.ide.memoryJson`). */
+  async saveProjectMemoryHolon(params: {
+    memoryKey: string;
+    workspaceRoot?: string | null;
+    rootHolonId?: string | null;
+    memoryJson: string;
+  }): Promise<{ rootHolonId?: string; error?: string }> {
+    const HOLON_TYPE_HOLON = 36;
+
+    const metaData: Record<string, string> = {
+      'oasis.ide.schema': 'project_memory',
+      'oasis.ide.memoryKey': params.memoryKey,
+      'oasis.ide.version': '1',
+      'oasis.ide.memoryJson': params.memoryJson
+    };
+    if (params.workspaceRoot) {
+      metaData['oasis.ide.workspaceRoot'] = params.workspaceRoot;
+    }
+
+    const id =
+      params.rootHolonId && params.rootHolonId.length > 8
+        ? params.rootHolonId
+        : randomUUID();
+
+    const body = {
+      holon: {
+        id,
+        name: `OASIS IDE project memory — ${params.memoryKey}`,
+        description: 'IDE project memory (metadata.memoryJson)',
+        holonType: HOLON_TYPE_HOLON,
+        metaData,
+        children: [] as unknown[]
+      },
+      saveChildren: false,
+      recursive: false,
+      maxChildDepth: 0,
+      continueOnError: true
+    };
+
+    try {
+      const response = await this.client.post('/api/data/save-holon', body);
+      const data = response.data ?? response;
+      if (response.status === 401) {
+        return { error: 'Not authorized — log in to sync project memory to OASIS.' };
+      }
+      if (response.status >= 400) {
+        const msg =
+          (data as any)?.message ??
+          (data as any)?.Message ??
+          (data as any)?.result?.message ??
+          `save-holon failed (${response.status})`;
+        return { error: String(msg) };
+      }
+
+      const unwrapHolon = (d: any): { holon: any | null; error?: string } => {
+        if (!d || typeof d !== 'object') return { holon: null, error: 'Empty response' };
+        if (d.isError === true || d.IsError === true) {
+          return { holon: null, error: String(d.message ?? d.Message ?? 'OASIS error') };
+        }
+        const r = d.result ?? d.Result;
+        if (r && typeof r === 'object') {
+          if (r.isError === true || r.IsError === true) {
+            return { holon: null, error: String(r.message ?? r.Message ?? 'OASIS error') };
+          }
+          const inner = r.result ?? r.Result ?? r;
+          if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+            if (inner.isError === true || inner.IsError === true) {
+              return { holon: null, error: String(inner.message ?? inner.Message ?? 'OASIS error') };
+            }
+            return { holon: inner };
+          }
+        }
+        return { holon: null, error: 'Unexpected save-holon response shape' };
+      };
+
+      const { holon, error: unwrapErr } = unwrapHolon(data);
+      const rid = holon?.id ?? holon?.Id;
+      if (rid) {
+        return { rootHolonId: String(rid) };
+      }
+      const errMsg =
+        unwrapErr ??
+        (data as any)?.message ??
+        (data as any)?.result?.message ??
+        'save-holon returned no holon id';
+      return { error: String(errMsg) };
+    } catch (err: any) {
+      return { error: err?.message ?? String(err) };
+    }
+  }
+
+  async loadProjectMemoryByMemoryKey(memoryKey: string): Promise<{
+    rootHolonId?: string;
+    memoryJson?: string;
+    error?: string;
+  }> {
+    const qs = new URLSearchParams({
+      metaKey: 'oasis.ide.memoryKey',
+      metaValue: memoryKey,
+      holonType: 'Holon',
+      loadChildren: 'false',
+      recursive: 'false',
+      maxChildDepth: '0',
+      continueOnError: 'true'
+    });
+
+    try {
+      const response = await this.client.get(
+        `/api/data/load-holons-by-metadata?${qs.toString()}`
+      );
+      const data = response.data ?? response;
+      if (response.status === 401) {
+        return { error: 'Not authorized' };
+      }
+      if (response.status >= 400) {
+        const msg =
+          (data as any)?.message ??
+          (data as any)?.result?.message ??
+          `load-holons-by-metadata failed (${response.status})`;
+        return { error: String(msg) };
+      }
+
+      const unwrapList = (d: any): any[] => {
+        if (!d || typeof d !== 'object') return [];
+        if (d.isError === true || d.IsError === true) return [];
+        const r = d.result ?? d.Result;
+        if (Array.isArray(r)) return r;
+        if (r && typeof r === 'object') {
+          if (r.isError === true || r.IsError === true) return [];
+          const inner = r.result ?? r.Result;
+          if (Array.isArray(inner)) return inner;
+        }
+        return [];
+      };
+
+      const list = unwrapList(data);
+      if (list.length === 0) {
+        return {};
+      }
+
+      const pick = list[0] as Record<string, unknown>;
+      const meta = (pick.metaData ?? pick.MetaData ?? {}) as Record<string, unknown>;
+      const rawJson =
+        meta['oasis.ide.memoryJson'] ??
+        meta['Oasis.Ide.MemoryJson'] ??
+        meta['memoryJson'];
+      const memoryJson =
+        typeof rawJson === 'string' ? rawJson : rawJson != null ? JSON.stringify(rawJson) : undefined;
+      const id = pick.id ?? pick.Id;
+      return {
+        rootHolonId: id != null ? String(id) : undefined,
+        memoryJson: memoryJson || undefined
+      };
+    } catch (err: any) {
+      return { error: err?.message ?? String(err) };
+    }
+  }
+
   /**
    * Chat with the built-in IDE assistant via POST /api/ide/chat (ONODE routes by model id).
    */

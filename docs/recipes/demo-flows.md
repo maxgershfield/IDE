@@ -65,7 +65,7 @@ I want to create a corrupt detective NPC for my FiveM RP server. His name is Mar
 3. `mcp_invoke elevenlabs_create_agent` — creates a live ElevenLabs conversational agent with system prompt built from Martinez's personality
 4. `write_file npcs/martinez.json` — workspace file with `{ starHolonId, elevenLabsAgentId, name, voice }`
 
-**What you get:** A named, voiced, persistent NPC whose identity lives in your STAR graph and whose voice lives in ElevenLabs. Players can talk to him in real time. Other developers can fork his holon from STARNET. No other IDE has this pipeline — not Cursor, not Copilot, not Claude Code.
+**What you get:** A named, voiced, persistent NPC whose identity lives in your STAR graph and whose voice lives in ElevenLabs. Players can talk to him in real time. Other developers can fork his holon from STARNET. No other IDE has this pipeline — not generic AI IDEs, not Copilot, not Claude Code.
 
 **See also:** `npc-with-voice.json` recipe for the raw `mcp_invoke` argument shapes.
 

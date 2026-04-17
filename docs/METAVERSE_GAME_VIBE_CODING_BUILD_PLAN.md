@@ -1563,7 +1563,7 @@ There is no product overlap. The gap between them is precisely where OASIS IDE s
 
 ### Does Hyperfy have a vibe coding tool?
 
-No. Their developer workflow is: `npx hyperfy create`, write JavaScript in VS Code or Cursor,
+No. Their developer workflow is: `npx hyperfy create`, write JavaScript in VS Code or another editor,
 save, hot-reload in browser. They provide zero AI code generation. You need an external IDE to
 write their app code.
 

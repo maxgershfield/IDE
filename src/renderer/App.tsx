@@ -16,6 +16,7 @@ import { MCPProvider } from './contexts/MCPContext';
 import { AgentProvider } from './contexts/AgentContext';
 import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { IdeChatProvider } from './contexts/IdeChatContext';
+import { ProjectMemoryProvider } from './contexts/ProjectMemoryContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { NonElectronBanner } from './components/Layout/NonElectronBanner';
 import { GameDevProvider } from './contexts/GameDevContext';
@@ -28,6 +29,7 @@ import { SettingsProvider } from './contexts/SettingsContext';
 import { SettingsModal } from './components/Settings/SettingsModal';
 import { A2AProvider } from './contexts/A2AContext';
 import type { ElevenLabsVoice, ElevenLabsAgentParams } from '../shared/elevenLabsTypes';
+import type { AgentActivityMeta } from '../shared/agentTurnTypes';
 import type { ContentTemplateMeta } from '../shared/templateTypes';
 
 declare global {
@@ -60,7 +62,15 @@ declare global {
         name: string;
         argumentsJson: string;
       }) => Promise<
-        | { ok: true; result: { toolCallId: string; content: string; isError?: boolean } }
+        | {
+            ok: true;
+            result: {
+              toolCallId: string;
+              content: string;
+              isError?: boolean;
+              activityMeta?: AgentActivityMeta;
+            };
+          }
         | { ok: false; error: string }
       >;
       agentTurn: (
@@ -134,6 +144,17 @@ declare global {
         messagesJson?: string;
         error?: string;
       }>;
+      projectMemoryHolonSave: (payload: {
+        memoryKey: string;
+        workspaceRoot?: string | null;
+        rootHolonId?: string | null;
+        memoryJson: string;
+      }) => Promise<{ rootHolonId?: string; error?: string }>;
+      projectMemoryHolonLoad: (memoryKey: string) => Promise<{
+        rootHolonId?: string;
+        memoryJson?: string;
+        error?: string;
+      }>;
       readStarWorkspace: (workspacePath?: string) => Promise<Record<string, unknown> | null>;
       scaffoldTemplate: (
         engine: string,
@@ -161,6 +182,17 @@ declare global {
       // Settings
       getSettings?: () => Promise<Record<string, unknown>>;
       setSettings?: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      /** Durable STARNET list cache (userData JSON). */
+      starnetListCacheGet?: (key: string) => Promise<{
+        storedAt: number;
+        kind: 'holons' | 'oapps';
+        payload: unknown;
+      } | null>;
+      starnetListCacheSet?: (
+        key: string,
+        entry: { storedAt: number; kind: 'holons' | 'oapps'; payload: unknown }
+      ) => Promise<void>;
+      starnetListCacheClear?: () => Promise<void>;
     };
   }
 }
@@ -204,6 +236,7 @@ function AppInner() {
             <AgentProvider>
               <AuthProvider>
                 <WorkspaceProvider>
+                  <ProjectMemoryProvider>
                   <IdeChatProvider>
                     <div className="app-shell-workspace">
                       <TitleBar />
@@ -242,6 +275,7 @@ function AppInner() {
                       <SettingsModal />
                     </div>
                   </IdeChatProvider>
+                  </ProjectMemoryProvider>
                 </WorkspaceProvider>
               </AuthProvider>
             </AgentProvider>

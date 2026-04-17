@@ -116,7 +116,7 @@ If **OASIS_MCP_SERVER_PATH** is not set, the IDE still runs; only the MCP tools 
 
 - **Detailed setup:** [SETUP.md](./SETUP.md) (env vars, external repo, troubleshooting)
 - **Local LLM (Ollama / LM Studio, goose-style):** [docs/LOCAL_LLM_AND_GOOSE_STYLE_SETUP.md](./docs/LOCAL_LLM_AND_GOOSE_STYLE_SETUP.md)
-- **Shipping the IDE (installers, remote API, download page like Cursor):** [docs/DISTRIBUTION_AND_DOWNLOADS.md](./docs/DISTRIBUTION_AND_DOWNLOADS.md)
+- **Shipping the IDE (installers, remote API, download page):** [docs/DISTRIBUTION_AND_DOWNLOADS.md](./docs/DISTRIBUTION_AND_DOWNLOADS.md)
 - **OASIS platform:** https://oasisweb4.com
 
 ---

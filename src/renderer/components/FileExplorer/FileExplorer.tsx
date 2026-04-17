@@ -252,7 +252,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onLoginClick }) => {
       </div>
 
 
-      {/* Workspace name section — mimics Cursor's "OASIS_CLEAN >" row */}
+      {/* Workspace name section — project row */}
       {workspaceName && (
         <div className="fe-workspace-section">
           <span className="fe-workspace-name">{workspaceName.toUpperCase()}</span>

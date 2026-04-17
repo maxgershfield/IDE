@@ -175,6 +175,15 @@ then overwrite with the scaffolded files. (Or scaffold directly without `create-
 
 ---
 
+## Acceptance checks (agent)
+
+- **Real project:** `npx expo start` (or `npm run start` in the app folder) runs without red module-resolution errors. Prefer `npx tsc --noEmit` if TypeScript template is used.
+- **No fake packages:** dependencies are real npm packages or local paths; do not invent `@vendor/holon-sdk` style names.
+- **Tool names:** GeoNFT flows use `oasis_*` tools from the allowlist, not non-existent `star_*` geo helpers (see Key invariants below).
+- **User-facing URL:** tell the user the exact dev URL or Expo QR flow from the terminal output, not a guessed port.
+
+---
+
 ## Key invariants for this recipe
 
 - **Never** use `star_list_geonft` / `star_get_geonft` / `star_place_geonft` — those names do not exist. GeoNFT tools are under `oasis_*` prefix (see allowlist).

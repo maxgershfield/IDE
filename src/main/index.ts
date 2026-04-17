@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MCPServerManager } from './services/MCPServerManager.js';
+import { getResolvedStarApiBaseUrl, resolveStarApiBaseUrl } from './services/starApiUrlResolve.js';
 import { OASISAPIClient } from './services/OASISAPIClient.js';
 import { AgentRuntime } from './services/AgentRuntime.js';
 import { FileSystemService } from './services/FileSystemService.js';
@@ -12,6 +13,7 @@ import { loadStoredAuth, saveAuth, clearStoredAuth } from './services/AuthStore.
 import { ChatService } from './services/ChatService.js';
 import { StaticPreviewService } from './services/StaticPreviewService.js';
 import { AgentToolExecutor } from './services/AgentToolExecutor.js';
+import { SemanticSearchService } from './services/SemanticSearchService.js';
 import { TEMPLATE_REGISTRY, TEMPLATE_META, getContentTemplateFiles } from './templates/metaverseTemplates.js';
 import { LocalBridgeServer } from './services/LocalBridgeServer.js';
 
@@ -280,8 +282,11 @@ app.whenReady().then(async () => {
   terminalService = new TerminalService();
   chatService = new ChatService();
   staticPreviewService = new StaticPreviewService();
+  const semanticSearchService = new SemanticSearchService();
   agentToolExecutor = new AgentToolExecutor(fileSystemService, {
-    mcpExecuteTool: (toolName, args) => mcpManager.executeTool(toolName, args)
+    mcpExecuteTool: (toolName, args) => mcpManager.executeTool(toolName, args),
+    openExternalUrl: (url) => shell.openExternal(url),
+    semanticSearch: semanticSearchService
   });
 
   const stored = await loadStoredAuth();
@@ -292,6 +297,15 @@ app.whenReady().then(async () => {
   }
 
   mcpManager.setOasisJwtToken(oasisClient.getAuthToken());
+  mcpManager.setOasisAvatarId(authAvatarId);
+
+  try {
+    const starUrl = await resolveStarApiBaseUrl();
+    process.env.STAR_API_URL = starUrl;
+    console.log('[Main] Resolved STAR WebAPI URL:', starUrl);
+  } catch (e: unknown) {
+    console.warn('[Main] STAR URL resolve failed, using fallback:', e);
+  }
 
   // Start OASIS MCP server
   try {
@@ -690,7 +704,7 @@ ipcMain.handle('ide:preview-stop', () => {
   }
 });
 
-/** Agent tool execution (Cursor-style loop — see docs/CURSOR_PARITY_ROADMAP.md). */
+/** Agent tool execution (OASIS_IDE-style loop — see docs/OASIS_IDE_PARITY_ROADMAP.md). */
 ipcMain.handle(
   'agent:execute-tool',
   async (_e, payload: { toolCallId: string; name: string; argumentsJson: string }) => {
@@ -745,6 +759,7 @@ ipcMain.handle('auth:login', async (_, username: string, password: string) => {
       avatarId: authAvatarId
     });
     mcpManager.setOasisJwtToken(result.token);
+    mcpManager.setOasisAvatarId(authAvatarId);
     try {
       await mcpManager.restartOASISMCP();
     } catch (mcpErr: unknown) {
@@ -768,6 +783,7 @@ ipcMain.handle('auth:logout', async () => {
   authAvatarId = undefined;
   await clearStoredAuth();
   mcpManager.setOasisJwtToken(null);
+  mcpManager.setOasisAvatarId(null);
   try {
     await mcpManager.restartOASISMCP();
   } catch (mcpErr: unknown) {
@@ -785,6 +801,9 @@ ipcMain.handle('auth:getStatus', async () => {
 });
 
 ipcMain.handle('auth:getToken', () => oasisClient.getAuthToken());
+
+/** STAR WebAPI base URL (resolved at startup from launchSettings + health probe, or STAR_API_URL). */
+ipcMain.handle('star:getResolvedApiUrl', () => getResolvedStarApiBaseUrl());
 
 // A2A Inbox (uses auth token from oasisClient)
 ipcMain.handle('a2a:getPending', async () => {
@@ -955,6 +974,35 @@ ipcMain.handle('chat:holon:load', async (_, threadKey: string) => {
   }
 });
 
+ipcMain.handle(
+  'project-memory:holon:save',
+  async (
+    _,
+    payload: {
+      memoryKey: string;
+      workspaceRoot?: string | null;
+      rootHolonId?: string | null;
+      memoryJson: string;
+    }
+  ) => {
+    try {
+      return await oasisClient.saveProjectMemoryHolon(payload);
+    } catch (error: any) {
+      console.error('[IPC] project-memory:holon:save error:', error);
+      return { error: error.message ?? String(error) };
+    }
+  }
+);
+
+ipcMain.handle('project-memory:holon:load', async (_, memoryKey: string) => {
+  try {
+    return await oasisClient.loadProjectMemoryByMemoryKey(memoryKey);
+  } catch (error: any) {
+    console.error('[IPC] project-memory:holon:load error:', error);
+    return { error: error.message ?? String(error) };
+  }
+});
+
 // Settings persistence — stored as JSON in userData
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'oasis-ide-settings.json');
 
@@ -982,4 +1030,53 @@ ipcMain.handle('settings:set', (_, patch: Record<string, unknown>) => {
   const merged = { ...current, ...patch };
   writeSettingsToDisk(merged);
   return merged;
+});
+
+// STARNET list durable cache (renderer: OAPP + holon arrays for fast dashboard paint)
+const STARNET_LIST_CACHE_FILE = path.join(app.getPath('userData'), 'oasis-ide-starnet-list-cache.json');
+
+type StarnetListDiskEntry = {
+  storedAt: number;
+  kind: 'holons' | 'oapps';
+  payload: unknown;
+};
+
+function readStarnetListCacheFromDisk(): Record<string, StarnetListDiskEntry> {
+  try {
+    const raw = fs.readFileSync(STARNET_LIST_CACHE_FILE, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, StarnetListDiskEntry>;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStarnetListCacheToDisk(data: Record<string, StarnetListDiskEntry>): void {
+  try {
+    fs.writeFileSync(STARNET_LIST_CACHE_FILE, JSON.stringify(data), 'utf-8');
+  } catch (e) {
+    console.error('[StarnetListCache] Failed to write:', e);
+  }
+}
+
+ipcMain.handle('starnet-list-cache:get', (_, key: string) => {
+  const all = readStarnetListCacheFromDisk();
+  return all[key] ?? null;
+});
+
+ipcMain.handle(
+  'starnet-list-cache:set',
+  (_, key: string, entry: StarnetListDiskEntry) => {
+    const all = readStarnetListCacheFromDisk();
+    all[key] = entry;
+    writeStarnetListCacheToDisk(all);
+  }
+);
+
+ipcMain.handle('starnet-list-cache:clear', () => {
+  try {
+    if (fs.existsSync(STARNET_LIST_CACHE_FILE)) fs.unlinkSync(STARNET_LIST_CACHE_FILE);
+  } catch (e) {
+    console.error('[StarnetListCache] Failed to clear:', e);
+  }
 });

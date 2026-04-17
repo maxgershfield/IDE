@@ -3,7 +3,10 @@ import { useMCP } from '../../contexts/MCPContext';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useIdeChat } from '../../contexts/IdeChatContext';
 import { countWorkspaceFiles } from '../../utils/countWorkspaceFiles';
+import { Bookmark } from 'lucide-react';
 import { ComposerSessionPanel } from './ComposerSessionPanel';
+import { ProjectMemoryModal } from './ProjectMemoryModal';
+import { useProjectMemory } from '../../contexts/ProjectMemoryContext';
 import { TelegramTaskBanner } from './TelegramTaskBanner';
 import './ChatInterface.css';
 
@@ -14,6 +17,7 @@ import './ChatInterface.css';
 export const ChatInterface: React.FC = () => {
   const { loading: mcpLoading, tools } = useMCP();
   const { workspacePath, tree } = useWorkspace();
+  const { setMemoryModalOpen, text: memoryText } = useProjectMemory();
   const {
     sessions,
     activeSessionId,
@@ -26,6 +30,7 @@ export const ChatInterface: React.FC = () => {
   return (
     <div className="chat-interface chat-interface--composer">
       <TelegramTaskBanner />
+      <ProjectMemoryModal />
       <div className="composer-session-bar" role="tablist" aria-label="Chat sessions">
         <div className="composer-session-tabs">
           {sessions.map((s) => (
@@ -70,6 +75,21 @@ export const ChatInterface: React.FC = () => {
           onClick={() => createEmptySession()}
         >
           +
+        </button>
+        <button
+          type="button"
+          className="composer-session-memory-btn"
+          title="Project memory: extra notes for this workspace (included in agent requests automatically)"
+          aria-label="Open project memory"
+          onClick={() => setMemoryModalOpen(true)}
+        >
+          <Bookmark size={14} strokeWidth={2} aria-hidden />
+          <span className="composer-session-memory-label">Memory</span>
+          {memoryText.trim().length > 0 ? (
+            <span className="composer-session-memory-badge" title="Has notes">
+              ●
+            </span>
+          ) : null}
         </button>
         <span className="composer-session-mcp-hint" title="MCP tool count">
           {mcpLoading ? 'MCP …' : `${tools.length} tools`}

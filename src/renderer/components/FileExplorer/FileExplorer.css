@@ -80,7 +80,7 @@
   color: var(--text-primary);
 }
 
-/* Workspace section header — matches Cursor's "PROJECT >" row */
+/* Workspace section header — matches common IDE "PROJECT >" row */
 .fe-workspace-section {
   padding: 4px 10px 3px;
   display: flex;

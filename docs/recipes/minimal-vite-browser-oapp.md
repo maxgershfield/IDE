@@ -26,7 +26,14 @@ README.md
 Run from the project directory:
 
 1. `run_workspace_command` with `argv`: `["npm","install"]`, `cwd`: absolute path to the project.
-2. `run_workspace_command` with `argv`: `["npm","run","dev"]` only if the user asked to start the server; otherwise tell them to run `npm run dev` and open the URL Vite prints.
+2. `run_workspace_command` with `argv`: `["npm","run","build"]`, same `cwd`, and fix errors until exit code 0 (or run `npm run dev` and confirm no “could not be resolved” warnings).
+3. `run_workspace_command` with `argv`: `["npm","run","dev"]` only if the user asked to start the server; otherwise tell them to run `npm run dev` and open the URL Vite prints.
+
+## Acceptance checks (agent)
+
+- **Imports:** `npm run build` completes with no missing module errors.
+- **Text files:** sources are normal multi-line text (not one line full of literal `\\n` sequences).
+- **One entry:** `index.html` script `src` matches the file that bootstraps the app.
 
 ## Where to see it
 

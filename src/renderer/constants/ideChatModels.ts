@@ -1,5 +1,5 @@
 /**
- * Model ids aligned with common IDE pickers (e.g. Cursor-style menus).
+ * Model ids aligned with common IDE pickers (OASIS_IDE-style menus).
  * Routing: OpenAI chat/completions, Anthropic messages, Gemini generateContent, xAI OpenAI-compatible.
  */
 

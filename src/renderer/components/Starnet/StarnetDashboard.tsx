@@ -20,6 +20,7 @@ import { useWorkspace } from '../../contexts/WorkspaceContext';
 import {
   fetchMyOapps,
   fetchAllHolons,
+  hydrateStarnetCatalogFromDisk,
   invalidateStarnetListCache,
   downloadOapp,
   pingStarApi,
@@ -111,7 +112,7 @@ const HolonRow: React.FC<{ holon: StarHolonRecord }> = ({ holon }) => {
             Library template
           </span>
         ) : (
-          <span className="sn-badge sn-badge--draft" title="STAR holon instance from GET /api/Holons">
+          <span className="sn-badge sn-badge--draft" title="STAR holon instance (load-all-for-avatar)">
             Instance
           </span>
         )}
@@ -233,10 +234,18 @@ export const StarnetDashboard: React.FC = () => {
   const { loggedIn, avatarId } = useAuth();
   const { workspacePath } = useWorkspace();
 
-  const baseUrl = getStarApiUrl(settings.starnetEndpointOverride);
+  /** Base URL from main (launchSettings + /api/Health probe); aligns STARNET tab with MCP STAR_API_URL. */
+  const [resolvedStarFromMain, setResolvedStarFromMain] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const api = (window as unknown as { electronAPI?: { starGetResolvedApiUrl?: () => Promise<string> } })
+      .electronAPI;
+    api?.starGetResolvedApiUrl?.().then((u) => setResolvedStarFromMain(u)).catch(() => {});
+  }, []);
+
+  const baseUrl = getStarApiUrl(settings.starnetEndpointOverride, resolvedStarFromMain);
 
   const [apiStatus, setApiStatus] = useState<StarApiStatus>('idle');
-  /** Default to Holons so the GET /api/Holons list is visible (OAPPs stay one click away on the OAPPs tab). */
+  /** Default to Holons tab (OAPPs stay one click away on the OAPPs tab). */
   const [mainCatalog, setMainCatalog] = useState<MainCatalog>('holons');
   const [tab, setTab] = useState<Tab>('mine');
   const [oapps, setOapps] = useState<OAPPRecord[]>([]);
@@ -282,6 +291,20 @@ export const StarnetDashboard: React.FC = () => {
       setError('');
 
       const fetchOpts = { forceRefresh: opts?.forceRefresh === true };
+
+      if (!fetchOpts.forceRefresh) {
+        const disk = await hydrateStarnetCatalogFromDisk(baseUrl, tok, avatarId);
+        if (disk.oapps && disk.oapps.length > 0) {
+          setOapps(disk.oapps);
+          setLoading(false);
+        }
+        if (disk.holons && disk.holons.length > 0) {
+          setHolons(disk.holons);
+          setLoadingHolons(false);
+          setHolonsCatalogReady(true);
+          holonsFetchedRef.current = true;
+        }
+      }
 
       const runOapps = async () => {
         try {

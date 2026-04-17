@@ -19,18 +19,18 @@ export interface SettingsNavItem {
   id: string;
   label: string;
   Icon: LucideIcon;
-  group: 'cursor' | 'oasis';
+  group: 'ide' | 'oasis';
 }
 
 export const NAV_ITEMS: SettingsNavItem[] = [
-  // Cursor-parity
-  { id: 'general',       label: 'General',             Icon: Settings,  group: 'cursor' },
-  { id: 'plan',          label: 'Plan & Usage',         Icon: CreditCard, group: 'cursor' },
-  { id: 'agents',        label: 'Agents',               Icon: Bot,       group: 'cursor' },
-  { id: 'models',        label: 'Models',               Icon: Cpu,       group: 'cursor' },
-  { id: 'integrations',  label: 'Integrations',         Icon: Plug,      group: 'cursor' },
-  { id: 'rules',         label: 'Rules & Skills',       Icon: BookOpen,  group: 'cursor' },
-  { id: 'mcp',           label: 'Tools & MCPs',         Icon: Wrench,    group: 'cursor' },
+  // Core IDE settings
+  { id: 'general',       label: 'General',             Icon: Settings,  group: 'ide' },
+  { id: 'plan',          label: 'Plan & Usage',         Icon: CreditCard, group: 'ide' },
+  { id: 'agents',        label: 'Agents',               Icon: Bot,       group: 'ide' },
+  { id: 'models',        label: 'Models',               Icon: Cpu,       group: 'ide' },
+  { id: 'integrations',  label: 'Integrations',         Icon: Plug,      group: 'ide' },
+  { id: 'rules',         label: 'Rules & Skills',       Icon: BookOpen,  group: 'ide' },
+  { id: 'mcp',           label: 'Tools & MCPs',         Icon: Wrench,    group: 'ide' },
   // OASIS-specific
   { id: 'avatar',        label: 'OASIS Avatar',         Icon: User,      group: 'oasis' },
   { id: 'starnet',       label: 'STARNET',              Icon: Globe,     group: 'oasis' },
@@ -45,7 +45,7 @@ interface SettingsNavProps {
 }
 
 export const SettingsNav: React.FC<SettingsNavProps> = ({ active, onSelect }) => {
-  const cursorItems = NAV_ITEMS.filter((i) => i.group === 'cursor');
+  const ideItems = NAV_ITEMS.filter((i) => i.group === 'ide');
   const oasisItems = NAV_ITEMS.filter((i) => i.group === 'oasis');
 
   return (
@@ -53,7 +53,7 @@ export const SettingsNav: React.FC<SettingsNavProps> = ({ active, onSelect }) =>
       <div className="settings-nav-header">Settings</div>
 
       <div className="settings-nav-group">
-        {cursorItems.map(({ id, label, Icon }) => (
+        {ideItems.map(({ id, label, Icon }) => (
           <button
             key={id}
             type="button"

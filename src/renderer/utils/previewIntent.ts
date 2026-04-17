@@ -1,5 +1,5 @@
 /**
- * Detect when the user wants the IDE to serve a folder and open it in the browser (Cursor-like),
+ * Detect when the user wants the IDE to serve a folder and open it in the browser (OASIS_IDE-style),
  * and resolve which absolute path to serve.
  */
 

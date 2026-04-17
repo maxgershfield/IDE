@@ -1,6 +1,6 @@
-# Packaging OASIS IDE for external testers (Cursor-style distribution)
+# Packaging OASIS IDE for external testers (OASIS_IDE distribution)
 
-This document answers: **how do we ship installers**, **how do we point everything at a remote OASIS API**, and **how do we present downloads on a website** in a way similar to [Cursor](https://cursor.com).
+This document answers: **how do we ship installers**, **how do we point everything at a remote OASIS API**, and **how do we present downloads on a website** using a **typical modern IDE download** pattern (marketing page, dedicated downloads, OS-specific artifacts, checksums).
 
 ---
 
@@ -18,20 +18,20 @@ If you later want a **hosted MCP** (HTTP/SSE transport), that is a **separate pr
 
 ---
 
-## How Cursor’s flow works (what to emulate)
+## Reference download flow (what to emulate)
 
-From [cursor.com](https://cursor.com) and [cursor.com/download](https://cursor.com/download):
+A common pattern for shipping a desktop IDE:
 
 1. **Marketing site** — Product story, changelog, trust content.
 2. **Dedicated download page** — **Latest** version highlighted; **macOS / Windows / Linux** buttons; optional **older versions** with the same three-platform links; **release notes** links per version.
-3. **Actual binaries** — Each button goes to a **stable CDN/storage URL** (Cursor hosts builds; you might use **GitHub Releases**, **S3 + CloudFront**, or similar).
+3. **Actual binaries** — Each button goes to a **stable CDN/storage URL** (e.g. **GitHub Releases**, **S3 + CloudFront**, or similar).
 4. **Local install** — User runs `.dmg` / `.exe` / `.AppImage` (or `.deb`), drags app or runs installer—**no clone of a monorepo**.
-5. **Updates** — Cursor ships frequent updates; they use an update channel (you already depend on **`electron-updater`** in `package.json` but it is **not wired** in main process yet—treat auto-update as a follow-up).
+5. **Updates** — Frequent updates via an update channel (you already depend on **`electron-updater`** in `package.json` but it is **not wired** in main process yet—treat auto-update as a follow-up).
 
 **Emulation checklist for OASIS**
 
-| Cursor pattern | OASIS equivalent |
-|----------------|------------------|
+| Reference pattern | OASIS equivalent |
+|-------------------|------------------|
 | `/download` with OS picks | A page on **oasisweb4.com** (or a small `downloads/` static site) with **Download for macOS / Windows / Linux** linking to your artifacts. |
 | “Latest” badge | One row at the top pointing to **current** DMG/EXE/AppImage + **version** string matching `package.json` / git tag. |
 | Release notes | Link to **GitHub Releases** notes or `CHANGELOG.md` per tag. |
@@ -102,20 +102,20 @@ Optional MCP-related URLs if tools need them: **`STAR_API_URL`**, **`SMART_CONTR
 2. **Runtime**: `app.setLoginSettings` won’t set global env—use **embedded config JSON** in `extraResources` loaded at startup, or  
 3. **First-run UI**: settings screen storing URL in `userData` (best long-term).
 
-Until (1)–(3) exist, document: “Create `~/.zprofile` …” only for technical preview—not Cursor parity.
+Until (1)–(3) exist, document: “Create `~/.zprofile` …” only for technical preview—not full OASIS_IDE distribution parity.
 
 ### 6. Publish artifacts + checksums
 
 1. Upload **`release/*`** to **GitHub Releases** (or S3) with clear names, e.g. `OASIS-IDE-0.1.0-arm64.dmg`, `OASIS-IDE-0.1.0-x64.exe`.
-2. Publish **SHA256** sums on the same release page (Cursor-style trust).
+2. Publish **SHA256** sums on the same release page (standard trust practice).
 3. Optional: **notarize** macOS builds and **sign** Windows builds so SmartScreen/Gatekeeper friction is low—required for serious public distribution.
 
 ### 7. Put “Download” on your website
 
-Minimal page structure (like [cursor.com/download](https://cursor.com/download)):
+Minimal page structure for a download hub:
 
 - **H1**: Download OASIS IDE  
-- **Primary**: Download for **macOS** (detect Apple Silicon vs Intel if you ship two DMGs—Cursor shows platform tabs).  
+- **Primary**: Download for **macOS** (detect Apple Silicon vs Intel if you ship two DMGs—use platform tabs or labels).  
 - **Secondary rows**: Windows · Linux  
 - **Subtext**: Version **0.x.x** · [Release notes](link) · *Requires macOS 12+* (adjust).  
 - **Footer**: Link to docs, support, privacy.
@@ -157,4 +157,4 @@ IDE-only keys for local LLM / chat are documented in [LOCAL_LLM_AND_GOOSE_STYLE_
 
 ---
 
-*Last updated April 2026. Cursor’s site structure described from public pages; their CDN URLs are not mirrored here.*
+*Last updated April 2026. Describes OASIS_IDE distribution goals; external product sites are not mirrored here.*

@@ -11,7 +11,7 @@ interface LayoutProps {
 }
 
 /**
- * Cursor-style layout:
+ * OASIS_IDE-style layout:
  *
  *  ┌──────────────────────────────┬──────────────┐
  *  │  ActivityBar │ Explorer      │              │

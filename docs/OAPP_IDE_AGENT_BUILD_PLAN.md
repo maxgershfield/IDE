@@ -8,7 +8,7 @@ This plan implements three improvements discussed for **OASIS-IDE** Composer **A
 | **3** | STAR CLI bridge | Agent can run **documented** non-interactive STAR CLI flows (`--json` / `-n`) as the single source of truth for codegen. |
 | **4** | Context pack | Agent receives a **bounded, versioned** slice of API + CLI docs so answers match real endpoints. |
 
-**Architecture invariant** (do not violate): workspace filesystem and subprocess side effects stay in the **Electron main process**; ONODE holds LLM keys and returns **tool_calls** only. See [`CURSOR_PARITY_ROADMAP.md`](./CURSOR_PARITY_ROADMAP.md).
+**Architecture invariant** (do not violate): workspace filesystem and subprocess side effects stay in the **Electron main process**; ONODE holds LLM keys and returns **tool_calls** only. See [`OASIS_IDE_PARITY_ROADMAP.md`](./OASIS_IDE_PARITY_ROADMAP.md).
 
 ---
 
@@ -173,7 +173,7 @@ Rationale: **MCP + JWT** unlocks OASIS/STAR API actions first; **context pack** 
 
 ## Relation to existing roadmap
 
-| [`CURSOR_PARITY_ROADMAP.md`](./CURSOR_PARITY_ROADMAP.md) item | This plan |
+| [`OASIS_IDE_PARITY_ROADMAP.md`](./OASIS_IDE_PARITY_ROADMAP.md) item | This plan |
 |-------------------------------------------------------------|-----------|
 | Phase 2 `mcp_invoke` | Workstream **A** |
 | Phase 2 `run_terminal_cmd` | Partially done as `run_workspace_command`; **B** extends for STAR |

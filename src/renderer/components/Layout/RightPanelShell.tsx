@@ -23,7 +23,7 @@ const TABS: { id: RightPanelTabId; label: React.ReactNode }[] = [
 ];
 
 /**
- * Cursor-style right column: horizontal tabs so the AI surface gets full height like Composer.
+ * OASIS_IDE-style right column: horizontal tabs so the AI surface gets full height like Composer.
  * Active tab is managed in A2AContext so cross-panel navigation (e.g. Agent -> Inbox compose)
  * works without prop drilling.
  */

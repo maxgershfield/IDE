@@ -1,5 +1,5 @@
 /**
- * Shared DTOs for multi-turn agent / tool use (Cursor-style).
+ * Shared DTOs for multi-turn agent / tool use (OASIS_IDE-style).
  * Used by renderer (Composer), main (AgentToolExecutor), and eventually ONODE HTTP JSON.
  */
 
@@ -23,6 +23,37 @@ export interface AgentToolCall {
   argumentsJson: string;
 }
 
+/**
+ * Optional UI-only hints for the Composer activity feed (not sent to the LLM in `content`).
+ * Lets the IDE show Cursor-style line stats without stuffing metadata into tool result text.
+ */
+export type AgentActivityMeta =
+  | {
+      kind: 'file_write';
+      path: string;
+      addedLines: number;
+      removedLines: number;
+      isNewFile: boolean;
+      /** Unified diff preview for activity UI (not sent to LLM). */
+      diffPreview?: string | null;
+    }
+  | {
+      kind: 'file_writes';
+      files: Array<{
+        path: string;
+        addedLines: number;
+        removedLines: number;
+        isNewFile: boolean;
+        diffPreview?: string | null;
+      }>;
+    }
+  | {
+      kind: 'search_replace';
+      path: string;
+      replacementCount: number;
+      diffPreview?: string | null;
+    };
+
 /** Result of executing one tool on the client (Electron main). */
 export interface AgentToolExecutionResult {
   toolCallId: string;
@@ -30,6 +61,8 @@ export interface AgentToolExecutionResult {
   content: string;
   /** Set when execution failed; still send content to model for recovery. */
   isError?: boolean;
+  /** Richer one-line stats for the live activity panel (Composer). */
+  activityMeta?: AgentActivityMeta;
 }
 
 /** Request body for POST /api/ide/agent/turn (ONODE). */

@@ -6,7 +6,7 @@ import { shell } from 'electron';
 
 /**
  * Serves a folder over HTTP on 127.0.0.1 and opens the system browser.
- * Used when the user asks the IDE assistant to "run in the browser" (Cursor-like).
+ * Used when the user asks the IDE assistant to "run in the browser" (OASIS_IDE-style).
  */
 export class StaticPreviewService {
   private proc: ChildProcess | null = null;

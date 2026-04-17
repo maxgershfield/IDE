@@ -1,12 +1,12 @@
-# OASIS IDE — Cursor parity roadmap
+# OASIS IDE — feature parity roadmap (reference IDE UX)
 
-This document defines what “full Cursor parity” means for **OASIS IDE** (Electron) + **ONODE** (API), and the phased plan to get there. It is the single source of truth for agent/tool work in this folder.
+This document defines what **full parity with a modern AI-first IDE** means for **OASIS IDE** (Electron) + **ONODE** (API), and the phased plan to get there. It is the single source of truth for agent/tool work in this folder.
 
 ---
 
 ## What parity means
 
-| Area | Cursor-style behavior | Status in OASIS IDE |
+| Area | Reference IDE behavior (OASIS_IDE target) | Status in OASIS IDE |
 |------|----------------------|---------------------|
 | **Agent loop** | Model emits **tool calls** → client **executes** → **tool results** → model continues until stop or max rounds | **Planned** — see Phase 1. Today: one-shot LLM text via `/api/ide/chat`. |
 | **Tools** | `read_file`, `list_dir`, `grep`, `run_terminal_cmd`, edits/diffs, optional web | **Started** — `AgentToolExecutor` (`read_file`, `list_directory`, `workspace_grep` / ripgrep); terminal/edits next. |
@@ -56,7 +56,7 @@ Composer (renderer)
 
 ---
 
-### Phase 2 — Tool catalog (core Cursor set)
+### Phase 2 — Tool catalog (core reference set)
 
 Implement in `AgentToolExecutor` (main process), with **path guard** (all paths under `workspaceRoot`):
 
@@ -77,7 +77,7 @@ Implement in `AgentToolExecutor` (main process), with **path guard** (all paths 
 ### Phase 3 — Context engine
 
 - [ ] Editor selection + active file path in composer payload
-- [ ] Optional `.oasiside/rules.md` (or `.cursorrules` compatibility) injected into system prompt (bounded size)
+- [ ] Optional `.oasiside/rules.md` or `.OASIS_IDE/rules.md` injected into system prompt (bounded size; see Composer loader)
 - [ ] Optional lightweight index or `codebase_search` tool built on `rg` + `read_file`
 
 ---
@@ -127,4 +127,4 @@ Implement in `AgentToolExecutor` (main process), with **path guard** (all paths 
 
 ---
 
-*Last updated: 2026-04-08 — Agent turn API + Composer Agent mode + tool loop; see `IdeAgentController.cs`, `ideAgentLoop.ts`, `ChatInterface.tsx`.*
+*Last updated: 2026-04-17 — Renamed from legacy parity doc; Agent turn API + Composer Agent mode + tool loop; see `IdeAgentController.cs`, `ideAgentLoop.ts`, `ChatInterface.tsx`.*

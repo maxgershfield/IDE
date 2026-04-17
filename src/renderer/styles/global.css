@@ -10,7 +10,7 @@
   --success: #4ec9b0;
   --error: #f48771;
   --warning: #dcdcaa;
-  /* Cursor-like Composer column */
+  /* OASIS_IDE-style Composer column */
   --composer-surface: #181818;
   --composer-chrome: #1a1a1a;
 }

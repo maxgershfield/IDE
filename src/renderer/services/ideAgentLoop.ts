@@ -1,5 +1,59 @@
-import type { AgentChatMessage, AgentToolCall } from '../../shared/agentTurnTypes';
+import type {
+  AgentActivityMeta,
+  AgentChatMessage,
+  AgentToolCall
+} from '../../shared/agentTurnTypes';
+import type { AgentActivityFeedItem } from '../../shared/agentActivityFeed';
 import { extractGatherDigest } from '../utils/planReplyParser';
+
+function basenamePath(p: string): string {
+  const s = p.replace(/[/\\]+$/, '');
+  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+  return i >= 0 ? s.slice(i + 1) : s;
+}
+
+export function emitActivityMetaAsFeed(
+  meta: AgentActivityMeta,
+  pushFeed: (item: AgentActivityFeedItem) => void
+): void {
+  if (meta.kind === 'file_write') {
+    pushFeed({
+      kind: 'file_edit',
+      displayPath: basenamePath(meta.path),
+      fullPath: meta.path,
+      addedLines: meta.addedLines,
+      removedLines: meta.removedLines,
+      isNewFile: meta.isNewFile,
+      source: 'write',
+      diffPreview: meta.diffPreview ?? null
+    });
+  } else if (meta.kind === 'file_writes') {
+    for (const f of meta.files) {
+      pushFeed({
+        kind: 'file_edit',
+        displayPath: basenamePath(f.path),
+        fullPath: f.path,
+        addedLines: f.addedLines,
+        removedLines: f.removedLines,
+        isNewFile: f.isNewFile,
+        source: 'write',
+        diffPreview: f.diffPreview ?? null
+      });
+    }
+  } else if (meta.kind === 'search_replace') {
+    pushFeed({
+      kind: 'file_edit',
+      displayPath: basenamePath(meta.path),
+      fullPath: meta.path,
+      addedLines: 0,
+      removedLines: 0,
+      isNewFile: false,
+      source: 'search_replace',
+      replacementCount: meta.replacementCount,
+      diffPreview: meta.diffPreview ?? null
+    });
+  }
+}
 
 /** Composer thread bubble (subset of fields) for rebuilding agent context. */
 export type ThreadBubbleForAgent = {
@@ -56,7 +110,7 @@ function truncate(s: string, max: number): string {
 }
 
 /**
- * Sparse "create OAPP / game" prompts: plan and gather context first (Cursor-style plan mode),
+ * Sparse "create OAPP / game" prompts: plan and gather context first (OASIS_IDE-style plan mode),
  * instead of immediately running STAR, npm, or write_*.
  */
 export function shouldUsePlanModeFirst(userText: string): boolean {
@@ -185,11 +239,53 @@ export function formatToolProgressLine(name: string, argumentsJson: string): str
         args.arguments != null ? truncate(JSON.stringify(args.arguments), 80) : '';
       return inner ? `${args.tool} (${inner})` : args.tool;
     }
+    if (name === 'web_search' && typeof args.query === 'string') {
+      return `Web search: ${truncate(args.query.replace(/\s+/g, ' ').trim(), 72)}`;
+    }
+    if (name === 'fetch_url' && typeof args.url === 'string') {
+      return `Fetch ${truncate(args.url, 96)}`;
+    }
+    if (name === 'codebase_search' && typeof args.query === 'string') {
+      return `Code search: ${truncate(args.query.replace(/\s+/g, ' ').trim(), 72)}`;
+    }
+    if (name === 'open_browser_url' && typeof args.url === 'string') {
+      return `Open browser ${truncate(args.url, 80)}`;
+    }
+    if (name === 'search_replace' && typeof args.path === 'string') {
+      return `Edit ${args.path}`;
+    }
+    if (name === 'semantic_search' && typeof args.query === 'string') {
+      return `Semantic search: ${truncate(args.query.replace(/\s+/g, ' ').trim(), 72)}`;
+    }
   } catch {
     /* ignore */
   }
   const raw = truncate(argumentsJson || '', 80);
   return raw ? `${name} (${raw})` : name;
+}
+
+/** Format optional main-process stats for the live activity feed (Cursor-style). */
+export function formatActivityMetaLine(meta: AgentActivityMeta): string {
+  if (meta.kind === 'file_write') {
+    const base = meta.path.split(/[/\\]/).pop() ?? meta.path;
+    if (meta.isNewFile) return `${base}  +${meta.addedLines} lines (new file)`;
+    return `${base}  +${meta.addedLines} −${meta.removedLines}`;
+  }
+  if (meta.kind === 'file_writes') {
+    const parts = meta.files.slice(0, 4).map((f) => {
+      const base = f.path.split(/[/\\]/).pop() ?? f.path;
+      if (f.isNewFile) return `${base} +${f.addedLines} (new)`;
+      return `${base} +${f.addedLines} −${f.removedLines}`;
+    });
+    const more =
+      meta.files.length > 4 ? ` … +${meta.files.length - 4} more file(s)` : '';
+    return `Wrote ${meta.files.length} file(s): ${parts.join('; ')}${more}`;
+  }
+  if (meta.kind === 'search_replace') {
+    const base = meta.path.split(/[/\\]/).pop() ?? meta.path;
+    return `${base}  edited (${meta.replacementCount} replacement(s))`;
+  }
+  return '';
 }
 
 /** One-line summary after a tool finishes (for the live activity feed). */
@@ -212,7 +308,7 @@ export function formatToolResultLine(name: string, ok: boolean, detail: string):
   return snip ? `${sym} ${name} — ${snip}` : `${sym} ${name}`;
 }
 
-/** Cursor-style inner-monologue before a tool runs. Terse, technical. */
+/** OASIS_IDE-style inner-monologue before a tool runs. Terse, technical. */
 export function narrateBeforeTool(name: string, argumentsJson: string): string {
   try {
     const args = JSON.parse(argumentsJson || '{}') as Record<string, unknown>;
@@ -260,6 +356,30 @@ export function narrateBeforeTool(name: string, argumentsJson: string): string {
           : '';
         return inner ? `→ ${tool}(${inner})` : `→ ${tool}()`;
       }
+      case 'web_search': {
+        const q = typeof args.query === 'string' ? args.query.replace(/\s+/g, ' ').trim() : '';
+        return q ? `Searching the web for "${truncate(q, 72)}"…` : 'Web search…';
+      }
+      case 'fetch_url': {
+        const u = typeof args.url === 'string' ? args.url.trim() : '';
+        return u ? `Fetching ${truncate(u, 100)}…` : 'Fetching URL…';
+      }
+      case 'codebase_search': {
+        const q = typeof args.query === 'string' ? args.query.replace(/\s+/g, ' ').trim() : '';
+        return q ? `Searching repo for "${truncate(q, 72)}"…` : 'Searching repository…';
+      }
+      case 'open_browser_url': {
+        const u = typeof args.url === 'string' ? args.url.trim() : '';
+        return u ? `Opening ${truncate(u, 100)}…` : 'Opening browser…';
+      }
+      case 'search_replace': {
+        const p = typeof args.path === 'string' ? args.path : '';
+        return p ? `Replacing in ${p}…` : 'search_replace…';
+      }
+      case 'semantic_search': {
+        const q = typeof args.query === 'string' ? args.query.replace(/\s+/g, ' ').trim() : '';
+        return q ? `Semantic search: "${truncate(q, 72)}"…` : 'Semantic search…';
+      }
       default:
         break;
     }
@@ -267,8 +387,17 @@ export function narrateBeforeTool(name: string, argumentsJson: string): string {
   return `${name}…`;
 }
 
-/** Cursor-style result annotation after a tool finishes. Includes a meaningful snippet. */
-export function narrateAfterTool(name: string, ok: boolean, detail: string): string {
+/** OASIS_IDE-style result annotation after a tool finishes. Includes a meaningful snippet. */
+export function narrateAfterTool(
+  name: string,
+  ok: boolean,
+  detail: string,
+  activityMeta?: AgentActivityMeta | null
+): string {
+  if (ok && activityMeta) {
+    const stats = formatActivityMetaLine(activityMeta);
+    if (stats) return `← ${stats}`;
+  }
   if (ok && (name === 'write_file' || name === 'write_files') && /discarded/i.test(detail)) {
     return `← discarded (no files written)`;
   }
@@ -284,6 +413,26 @@ export function narrateAfterTool(name: string, ok: boolean, detail: string): str
   if (name === 'workspace_grep') {
     const lines = detail.split('\n').filter((l) => l.trim().length > 0);
     return lines.length === 0 ? '← no matches' : `← ${lines.length} match${lines.length === 1 ? '' : 'es'}`;
+  }
+  if (name === 'web_search') {
+    const head = detail.split('\n').find((l) => l.trim().length > 0) ?? '';
+    return head ? `← ${truncate(head.trim(), 120)}` : '← done';
+  }
+  if (name === 'fetch_url') {
+    return `← ${detail.length} characters`;
+  }
+  if (name === 'codebase_search') {
+    const lines = detail.split('\n').filter((l) => l.trim().length > 0);
+    return lines.length === 0 ? '← no hits' : `← ${lines.length} line${lines.length === 1 ? '' : 's'}`;
+  }
+  if (name === 'open_browser_url') {
+    return `← opened`;
+  }
+  if (name === 'search_replace') {
+    return `← ${truncate(detail.replace(/\s+/g, ' ').trim(), 140)}`;
+  }
+  if (name === 'semantic_search') {
+    return `← ${detail.length} characters`;
   }
   if (name === 'write_file' || name === 'write_files') {
     return `← written`;
@@ -339,7 +488,15 @@ export interface IdeAgentLoopDeps {
     name: string;
     argumentsJson: string;
   }) => Promise<
-    | { ok: true; result: { toolCallId: string; content: string; isError?: boolean } }
+    | {
+        ok: true;
+        result: {
+          toolCallId: string;
+          content: string;
+          isError?: boolean;
+          activityMeta?: AgentActivityMeta;
+        };
+      }
     | { ok: false; error: string }
   >;
   /** When true, the loop stops before the next ONODE turn or between tool results (user pressed Stop). */
@@ -362,8 +519,8 @@ export async function runIdeAgentLoop(
     /** Prior user/assistant turns from the Composer thread (same tab). */
     priorMessages?: AgentChatMessage[];
     maxRounds?: number;
-    /** Each significant step (Cursor-style activity list). */
-    onActivityLine?: (line: string) => void;
+    /** Structured live progress rows (text lines + file edit cards). */
+    onActivityFeedItem?: (item: AgentActivityFeedItem) => void;
     /** Same id for every turn in this loop; passed to IPC for scoped cancel. */
     runId: string;
     /** Game Dev context pack active; enables plan-first hint to reference Quick actions. */
@@ -376,8 +533,8 @@ export async function runIdeAgentLoop(
 ): Promise<{
   finalText: string;
   toolCallsLog: Array<{ tool: string; ok: boolean }>;
-  /** Same lines as emitted to onActivityLine, in order. */
-  activityLog: string[];
+  /** Same items as emitted to onActivityFeedItem, in order. */
+  activityLog: AgentActivityFeedItem[];
   /** Raw tool result bodies from this send (for holon ids, mint JSON, etc.). */
   recordedToolOutputs?: Array<{ tool: string; content: string }>;
   error?: string;
@@ -402,10 +559,13 @@ export async function runIdeAgentLoop(
   ];
   const toolCallsLog: Array<{ tool: string; ok: boolean }> = [];
   const recordedToolOutputsForUi: Array<{ tool: string; content: string }> = [];
-  const activityLog: string[] = [];
-  const emit = (line: string) => {
-    activityLog.push(line);
-    options.onActivityLine?.(line);
+  const activityLog: AgentActivityFeedItem[] = [];
+  const pushFeed = (item: AgentActivityFeedItem) => {
+    activityLog.push(item);
+    options.onActivityFeedItem?.(item);
+  };
+  const emitText = (line: string) => {
+    pushFeed({ kind: 'text', text: line });
   };
 
   const emptyOutcome = (extra: {
@@ -427,7 +587,7 @@ export async function runIdeAgentLoop(
       return emptyOutcome({ error: 'Stopped.', cancelled: true });
     }
 
-    emit(
+    emitText(
       `Thinking… (step ${round + 1}/${maxRounds}, ${chain.length} messages in context)`
     );
 
@@ -454,12 +614,12 @@ export async function runIdeAgentLoop(
     }
 
     if (res.kind === 'message') {
-      emit('Model is done with tool calls — writing final response.');
+      emitText('Model is done with tool calls — writing final response.');
       const text = res.content ?? '';
       if (text.trim().length > 40) {
-        emit(`→ ${truncate(text, 200)}`);
+        emitText(`→ ${truncate(text, 200)}`);
       } else if (text.trim().length > 0) {
-        emit(`→ ${truncate(text.trim(), 120)}`);
+        emitText(`→ ${truncate(text.trim(), 120)}`);
       }
       return {
         finalText: text,
@@ -478,7 +638,7 @@ export async function runIdeAgentLoop(
       }));
 
       const names = res.toolCalls.map((tc) => tc.name).join(', ');
-      emit(
+      emitText(
         res.toolCalls.length === 1
           ? `The model wants to run one action next (${names}). Each step appears below as it runs.`
           : `The model wants to run ${res.toolCalls.length} actions in order: ${names}. They run one after another so you can follow along.`
@@ -486,7 +646,7 @@ export async function runIdeAgentLoop(
 
       const sideText = (res.content ?? '').trim();
       if (sideText.length > 40) {
-        emit(`Short note from the model before those actions: ${truncate(sideText, 180)}`);
+        emitText(`Short note from the model before those actions: ${truncate(sideText, 180)}`);
       }
 
       chain.push({
@@ -495,19 +655,40 @@ export async function runIdeAgentLoop(
         toolCalls: assistantToolCalls
       });
 
+      let batchReads = 0;
+      let batchSearches = 0;
+      let batchLists = 0;
+      for (const tc of res.toolCalls) {
+        if (tc.name === 'read_file') batchReads += 1;
+        else if (
+          tc.name === 'workspace_grep' ||
+          tc.name === 'codebase_search' ||
+          tc.name === 'semantic_search'
+        ) {
+          batchSearches += 1;
+        } else if (tc.name === 'list_directory') batchLists += 1;
+      }
+      if (batchReads + batchSearches + batchLists > 0) {
+        const bits: string[] = [];
+        if (batchReads) bits.push(`${batchReads} file${batchReads === 1 ? '' : 's'}`);
+        if (batchSearches) bits.push(`${batchSearches} search${batchSearches === 1 ? '' : 'es'}`);
+        if (batchLists) bits.push(`${batchLists} folder${batchLists === 1 ? '' : 's'}`);
+        emitText(`Explored ${bits.join(', ')}.`);
+      }
+
       for (const tc of res.toolCalls) {
         if (deps.isCancelled?.()) {
           return emptyOutcome({ error: 'Stopped.', cancelled: true });
         }
         const argsJson = tc.argumentsJson ?? '{}';
-        emit(narrateBeforeTool(tc.name, argsJson));
+        emitText(narrateBeforeTool(tc.name, argsJson));
         const ex = await deps.agentExecuteTool({
           toolCallId: tc.id,
           name: tc.name,
           argumentsJson: argsJson
         });
         if (!ex.ok) {
-          emit(narrateAfterTool(tc.name, false, ex.error));
+          emitText(narrateAfterTool(tc.name, false, ex.error));
           toolCallsLog.push({ tool: tc.name, ok: false });
           recordedToolOutputsForUi.push({ tool: tc.name, content: `Error: ${ex.error}` });
           chain.push({
@@ -518,7 +699,23 @@ export async function runIdeAgentLoop(
           continue;
         }
         const toolSucceeded = !ex.result.isError;
-        emit(narrateAfterTool(tc.name, toolSucceeded, ex.result.content));
+        const meta = ex.result.activityMeta;
+        if (
+          toolSucceeded &&
+          meta &&
+          (meta.kind === 'file_write' || meta.kind === 'file_writes' || meta.kind === 'search_replace')
+        ) {
+          emitActivityMetaAsFeed(meta, pushFeed);
+        } else {
+          emitText(
+            narrateAfterTool(
+              tc.name,
+              toolSucceeded,
+              ex.result.content,
+              toolSucceeded ? meta : undefined
+            )
+          );
+        }
         toolCallsLog.push({ tool: tc.name, ok: toolSucceeded });
         const toolBody = ex.result.content;
         recordedToolOutputsForUi.push({ tool: tc.name, content: toolBody });
@@ -540,7 +737,7 @@ export async function runIdeAgentLoop(
     };
   }
 
-  emit(
+  emitText(
     `Stopped after ${maxRounds} model steps (safety limit). Try a smaller ask, or break the work into parts.`
   );
   return {
@@ -566,9 +763,10 @@ export async function runIdeAgentGatherPresentSequence(
   const { maxGatherRounds, ...rest } = options;
   const maxG = maxGatherRounds ?? 14;
 
-  rest.onActivityLine?.(
-    '[Deep plan] Pass 1: scanning repo with read-only searches to ground the plan in real files…'
-  );
+  rest.onActivityFeedItem?.({
+    kind: 'text',
+    text: '[Deep plan] Pass 1: scanning repo with read-only searches to ground the plan in real files…'
+  });
 
   const gather = await runIdeAgentLoop(deps, {
     ...rest,
@@ -583,9 +781,10 @@ export async function runIdeAgentGatherPresentSequence(
   const presentUser =
     `${rest.userText}\n\n[IDE: Gathered workspace notes — use only as grounding; do not dump raw tool logs]\n\n${digestBody}`;
 
-  rest.onActivityLine?.(
-    '[Deep plan] Pass 2: composing plan from gathered evidence…'
-  );
+  rest.onActivityFeedItem?.({
+    kind: 'text',
+    text: '[Deep plan] Pass 2: composing plan from gathered evidence…'
+  });
 
   const present = await runIdeAgentLoop(deps, {
     ...rest,
@@ -603,7 +802,10 @@ export async function runIdeAgentGatherPresentSequence(
     toolCallsLog: [...gather.toolCallsLog, ...present.toolCallsLog],
     activityLog: [
       ...gather.activityLog,
-      '── Between passes: building the visible plan from what we gathered ──',
+      {
+        kind: 'text',
+        text: '── Between passes: building the visible plan from what we gathered ──'
+      },
       ...present.activityLog
     ],
     recordedToolOutputs: mergedRecorded.length > 0 ? mergedRecorded : undefined,

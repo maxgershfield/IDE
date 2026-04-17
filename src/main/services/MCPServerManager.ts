@@ -1,6 +1,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { getResolvedStarApiBaseUrl } from './starApiUrlResolve.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -29,9 +30,6 @@ function parseEnvFile(filePath: string): Record<string, string> {
   return out;
 }
 
-/** STAR WebAPI default from `NextGenSoftware.OASIS.STAR.WebAPI/Properties/launchSettings.json` (profile http). */
-const DEFAULT_STAR_API_URL = 'http://127.0.0.1:50564';
-
 interface MCPServerConnection {
   client: Client;
   transport: StdioClientTransport;
@@ -57,6 +55,8 @@ export class MCPServerManager {
   private mcpServerPath: string;
   /** JWT for ONODE-backed oasis_* MCP tools; applied on next MCP process start. */
   private oasisJwtToken: string | null = null;
+  /** Avatar id for STAR WebAPI X-Avatar-Id when JWT omits it; applied on next MCP process start. */
+  private oasisAvatarId: string | null = null;
 
   constructor() {
     this.mcpServerPath = getMCPServerPath();
@@ -77,6 +77,15 @@ export class MCPServerManager {
     this.oasisJwtToken = token && token.trim() ? token.trim() : null;
   }
 
+  /**
+   * Set current avatar id for MCP child env (`OASIS_AVATAR_ID`) so STAR `star_*` tools send X-Avatar-Id.
+   * Call after login and pass null on logout; restart MCP to apply.
+   */
+  setOasisAvatarId(avatarId: string | null | undefined): void {
+    const t = avatarId?.trim();
+    this.oasisAvatarId = t ? t : null;
+  }
+
   private buildMcpChildEnv(): Record<string, string> {
     const env: Record<string, string> = { ...getDefaultEnvironment() };
     for (const [k, v] of Object.entries(process.env)) {
@@ -94,6 +103,12 @@ export class MCPServerManager {
       delete env.OASIS_API_KEY;
     }
 
+    if (this.oasisAvatarId) {
+      env.OASIS_AVATAR_ID = this.oasisAvatarId;
+    } else {
+      delete env.OASIS_AVATAR_ID;
+    }
+
     const mcpDistDir = path.dirname(this.mcpServerPath);
     const mcpRoot = path.resolve(mcpDistDir, '..', '..');
     const ideRoot = path.resolve(mcpRoot, '..', 'OASIS-IDE');
@@ -104,7 +119,7 @@ export class MCPServerManager {
       process.env.STAR_API_URL?.trim() ||
       ideDotEnv.STAR_API_URL?.trim() ||
       mcpDotEnv.STAR_API_URL?.trim() ||
-      DEFAULT_STAR_API_URL;
+      getResolvedStarApiBaseUrl();
     env.STAR_API_URL = starUrl;
 
     const elevenLabsKey =

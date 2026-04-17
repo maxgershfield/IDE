@@ -24,3 +24,14 @@ export function makeIdeThreadKey(
   if (!sessionId || sessionId === 'main') return base;
   return `${base}-${sessionId}`;
 }
+
+/**
+ * Stable key for `oasis.ide.memoryKey` on the project-memory holon (one holon per avatar + workspace).
+ * Matches the primary composer thread key (`sessionId` `main`).
+ */
+export function makeIdeProjectMemoryKey(
+  avatarId: string | undefined,
+  workspacePath: string | null
+): string {
+  return makeIdeThreadKey(avatarId, workspacePath, 'main');
+}

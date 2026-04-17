@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   authLogout: () => ipcRenderer.invoke('auth:logout'),
   authGetStatus: () => ipcRenderer.invoke('auth:getStatus'),
   authGetToken: () => ipcRenderer.invoke('auth:getToken') as Promise<string | null>,
+  /** Base URL for STAR WebAPI (matches MCP STAR_API_URL after startup resolve). */
+  starGetResolvedApiUrl: () => ipcRenderer.invoke('star:getResolvedApiUrl') as Promise<string>,
 
   // Chat / LLM
   chatHasLLM: () => ipcRenderer.invoke('chat:hasLLM'),
@@ -126,6 +128,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }) => ipcRenderer.invoke('chat:holon:save', payload),
 
   chatHolonLoad: (threadKey: string) => ipcRenderer.invoke('chat:holon:load', threadKey),
+
+  projectMemoryHolonSave: (payload: {
+    memoryKey: string;
+    workspaceRoot?: string | null;
+    rootHolonId?: string | null;
+    memoryJson: string;
+  }) => ipcRenderer.invoke('project-memory:holon:save', payload),
+
+  projectMemoryHolonLoad: (memoryKey: string) =>
+    ipcRenderer.invoke('project-memory:holon:load', memoryKey),
 
   // A2A Inbox
   a2aGetPending: () => ipcRenderer.invoke('a2a:getPending'),
@@ -169,4 +181,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('settings:get') as Promise<Record<string, unknown>>,
   setSettings: (patch: Record<string, unknown>) =>
     ipcRenderer.invoke('settings:set', patch) as Promise<Record<string, unknown>>,
+
+  /** Persisted STARNET OAPP/holon list payloads (userData JSON). */
+  starnetListCacheGet: (key: string) =>
+    ipcRenderer.invoke('starnet-list-cache:get', key) as Promise<{
+      storedAt: number;
+      kind: 'holons' | 'oapps';
+      payload: unknown;
+    } | null>,
+  starnetListCacheSet: (
+    key: string,
+    entry: { storedAt: number; kind: 'holons' | 'oapps'; payload: unknown }
+  ) => ipcRenderer.invoke('starnet-list-cache:set', key, entry),
+  starnetListCacheClear: () => ipcRenderer.invoke('starnet-list-cache:clear'),
 });

@@ -4,7 +4,8 @@
  * Base URL precedence:
  *   1. settings.starnetEndpointOverride (user-set)
  *   2. VITE_STAR_API_URL build-time env
- *   3. Default STAR WebAPI local port (50564)
+ *   3. runtimeDefault (from main process: launchSettings + /api/Health probe)
+ *   4. Default STAR WebAPI local port (50564)
  *
  * Token: fetched from the Electron main process via `window.electronAPI.authGetToken()`
  * (stored in userData/oasis-ide-auth.json). Never sourced from localStorage.
@@ -12,9 +13,12 @@
 
 export const DEFAULT_STAR_API_URL = 'http://127.0.0.1:50564';
 
-export function getStarApiUrl(override?: string): string {
+export function getStarApiUrl(override?: string, runtimeDefault?: string): string {
   if (override?.trim()) return override.trim();
-  return (import.meta as any).env?.VITE_STAR_API_URL?.trim() || DEFAULT_STAR_API_URL;
+  const vite = (import.meta as any).env?.VITE_STAR_API_URL?.trim();
+  if (vite) return vite;
+  if (runtimeDefault?.trim()) return runtimeDefault.trim();
+  return DEFAULT_STAR_API_URL;
 }
 
 /** Retrieve the JWT from the Electron main process. */
@@ -314,8 +318,8 @@ export function mergeHolonCatalogView(instances: StarHolonRecord[], oapps: OAPPR
 // ─── In-memory list cache (renderer) ─────────────────────────────────────────
 
 /**
- * TTL for duplicated GET /api/OAPPs/load-all-for-avatar and GET /api/Holons.
- * Cleared on invalidateStarnetListCache(); bypass with forceRefresh on fetches.
+ * In-memory TTL after a successful STARNET list fetch (60s).
+ * Durable cache: userData `oasis-ide-starnet-list-cache.json` (cleared with invalidateStarnetListCache).
  */
 const STARNET_LIST_CACHE_TTL_MS = 60_000;
 
@@ -347,6 +351,67 @@ function listCacheKey(
   return `${kind}|${norm}|${aid}|${tid}`;
 }
 
+/** Stable cache key for STARNET list payloads (memory + durable disk). */
+export function buildStarnetListCacheKey(
+  kind: 'oapps' | 'holons',
+  baseUrl: string,
+  token: string | null,
+  avatarId?: string | null
+): string {
+  return listCacheKey(kind, baseUrl, token, avatarId);
+}
+
+async function readStarnetListFromDisk(
+  key: string,
+  kind: 'oapps' | 'holons'
+): Promise<unknown | null> {
+  try {
+    const entry = await window.electronAPI?.starnetListCacheGet?.(key);
+    if (!entry || entry.kind !== kind) return null;
+    return entry.payload;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStarnetListToDisk(
+  key: string,
+  kind: 'oapps' | 'holons',
+  payload: unknown
+): Promise<void> {
+  try {
+    await window.electronAPI?.starnetListCacheSet?.(key, {
+      storedAt: Date.now(),
+      kind,
+      payload,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Read last persisted OAPP and holon lists (Electron userData) for instant paint before network refresh.
+ */
+export async function hydrateStarnetCatalogFromDisk(
+  baseUrl: string,
+  token: string | null,
+  avatarId?: string | null
+): Promise<{ oapps: OAPPRecord[] | null; holons: StarHolonRecord[] | null }> {
+  const ko = listCacheKey('oapps', baseUrl, token, avatarId);
+  const kh = listCacheKey('holons', baseUrl, token, avatarId);
+  const [rawO, rawH] = await Promise.all([
+    readStarnetListFromDisk(ko, 'oapps'),
+    readStarnetListFromDisk(kh, 'holons'),
+  ]);
+  const oapps = Array.isArray(rawO) ? (rawO as OAPPRecord[]) : null;
+  const holons = Array.isArray(rawH) ? (rawH as StarHolonRecord[]) : null;
+  return {
+    oapps: oapps && oapps.length > 0 ? oapps : null,
+    holons: holons && holons.length > 0 ? holons : null,
+  };
+}
+
 function getListCache<T>(map: Map<string, ListCacheEntry<T>>, key: string): T | null {
   const e = map.get(key);
   if (!e) return null;
@@ -371,6 +436,7 @@ export type StarListFetchOptions = {
 export function invalidateStarnetListCache(): void {
   oappsListCache.clear();
   holonsListCache.clear();
+  void window.electronAPI?.starnetListCacheClear?.();
 }
 
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
@@ -476,9 +542,8 @@ async function fetchHolonListFromEndpoint(
 }
 
 /**
- * Load STAR holon instances for the current avatar.
- * Merges `GET /api/Holons/load-all-for-avatar` (metadata: CreatedByAvatarId + Active) with
- * `GET /api/Holons` (LoadAll + filter) so rows appear whichever path populated Mongo.
+ * Load STAR holon instances for the current avatar via `GET /api/Holons/load-all-for-avatar`.
+ * When `forceRefresh` is true, also merges `GET /api/Holons` for legacy rows that only appear on the generic list.
  * Does not cache an empty result (avoids a stuck empty list after seeding or slow first load).
  */
 export async function fetchAllHolons(
@@ -492,20 +557,36 @@ export async function fetchAllHolons(
     const hit = getListCache(holonsListCache, key);
     if (hit && hit.length > 0) return hit;
   }
-  const [forAvatar, allHolons] = await Promise.all([
-    fetchHolonListFromEndpoint(baseUrl, '/api/Holons/load-all-for-avatar', token, avatarId),
-    fetchHolonListFromEndpoint(baseUrl, '/api/Holons', token, avatarId),
-  ]);
-  const byId = new Map<string, StarHolonRecord>();
-  for (const h of forAvatar) byId.set(h.id, h);
-  for (const h of allHolons) {
-    if (!byId.has(h.id)) byId.set(h.id, h);
+  const forAvatar = await fetchHolonListFromEndpoint(
+    baseUrl,
+    '/api/Holons/load-all-for-avatar',
+    token,
+    avatarId
+  );
+  let out: StarHolonRecord[];
+  if (options?.forceRefresh) {
+    const allHolons = await fetchHolonListFromEndpoint(
+      baseUrl,
+      '/api/Holons',
+      token,
+      avatarId
+    );
+    const byId = new Map<string, StarHolonRecord>();
+    for (const h of forAvatar) byId.set(h.id, h);
+    for (const h of allHolons) {
+      if (!byId.has(h.id)) byId.set(h.id, h);
+    }
+    out = Array.from(byId.values());
+  } else {
+    out = [...forAvatar];
   }
-  const out = Array.from(byId.values());
   out.sort((a, b) =>
     (a.name ?? a.id).localeCompare(b.name ?? b.id, undefined, { sensitivity: 'base' })
   );
-  if (out.length > 0) setListCache(holonsListCache, key, out);
+  if (out.length > 0) {
+    setListCache(holonsListCache, key, out);
+    void writeStarnetListToDisk(key, 'holons', out);
+  }
   return out;
 }
 
@@ -535,6 +616,7 @@ export async function fetchMyOapps(
   );
   const arr = Array.isArray(data) ? data : [];
   setListCache(oappsListCache, key, arr);
+  if (arr.length > 0) void writeStarnetListToDisk(key, 'oapps', arr);
   return arr;
 }
 
