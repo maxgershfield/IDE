@@ -7,9 +7,16 @@ export class OASISAPIClient {
   private baseURL: string;
   private authToken: string | null = null;
 
-  constructor() {
-    this.baseURL = process.env.OASIS_API_URL || 'http://127.0.0.1:5003';
-    
+  /** Normalize ONODE base URL (no trailing slash). */
+  static normalizeBaseUrl(url: string): string {
+    return url.trim().replace(/\/$/, '');
+  }
+
+  constructor(baseURL?: string) {
+    this.baseURL = OASISAPIClient.normalizeBaseUrl(
+      baseURL ?? process.env.OASIS_API_URL ?? 'http://127.0.0.1:5003'
+    );
+
     this.client = axios.create({
       baseURL: this.baseURL,
       headers: {
@@ -18,6 +25,16 @@ export class OASISAPIClient {
       timeout: 30000,
       validateStatus: (status) => status < 500
     });
+  }
+
+  /** Point the client at a different ONODE base (e.g. after Settings > Integrations override). */
+  setBaseURL(url: string): void {
+    this.baseURL = OASISAPIClient.normalizeBaseUrl(url);
+    this.client.defaults.baseURL = this.baseURL;
+  }
+
+  getBaseURL(): string {
+    return this.baseURL;
   }
 
   setAuthToken(token: string) {
@@ -585,16 +602,27 @@ export class OASISAPIClient {
         '/api/ide/agent/turn',
         {
           model: body.model,
-          messages: body.messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-            toolCallId: m.toolCallId,
-            toolCalls: m.toolCalls?.map((tc) => ({
-              id: tc.id,
-              name: tc.name,
-              argumentsJson: tc.argumentsJson
-            }))
-          })),
+          messages: body.messages.map((m) => {
+            const row: Record<string, unknown> = {
+              role: m.role,
+              toolCallId: m.toolCallId,
+              toolCalls: m.toolCalls?.map((tc) => ({
+                id: tc.id,
+                name: tc.name,
+                argumentsJson: tc.argumentsJson
+              }))
+            };
+            if (m.contentParts && m.contentParts.length > 0) {
+              row.contentParts = m.contentParts.map((p) =>
+                p.type === 'text'
+                  ? { type: 'text', text: p.text }
+                  : { type: 'image_url', imageUrl: p.imageUrl }
+              );
+            } else {
+              row.content = m.content ?? '';
+            }
+            return row;
+          }),
           workspaceRoot: body.workspaceRoot ?? undefined,
           referencedPaths: body.referencedPaths?.length ? body.referencedPaths : undefined,
           fromAvatarId: body.fromAvatarId,

@@ -1,6 +1,7 @@
 import type {
   AgentActivityMeta,
   AgentChatMessage,
+  AgentContentPart,
   AgentToolCall
 } from '../../shared/agentTurnTypes';
 import type { AgentActivityFeedItem } from '../../shared/agentActivityFeed';
@@ -60,6 +61,8 @@ export type ThreadBubbleForAgent = {
   role: 'user' | 'assistant';
   content: string;
   toolCalls?: Array<{ tool: string; result: unknown }>;
+  /** data:image/...;base64,... URLs from pasted images (user turns only). */
+  imageDataUrls?: string[];
 };
 
 const PRIOR_USER_MAX = 12000;
@@ -80,7 +83,19 @@ export function buildAgentPriorMessagesFromThread(past: ThreadBubbleForAgent[]):
   const out: AgentChatMessage[] = [];
   for (const m of past) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: clampChars(m.content ?? '', PRIOR_USER_MAX) });
+      const text = clampChars(m.content ?? '', PRIOR_USER_MAX);
+      const urls = (m.imageDataUrls ?? []).filter(
+        (u) => typeof u === 'string' && u.startsWith('data:') && u.includes(';base64,')
+      );
+      if (urls.length > 0) {
+        const parts: AgentContentPart[] = [{ type: 'text', text }];
+        for (const url of urls.slice(0, 4)) {
+          parts.push({ type: 'image_url', imageUrl: url });
+        }
+        out.push({ role: 'user', contentParts: parts });
+      } else {
+        out.push({ role: 'user', content: text });
+      }
       continue;
     }
     let body = m.content ?? '';
@@ -101,6 +116,34 @@ export function buildAgentPriorMessagesFromThread(past: ThreadBubbleForAgent[]):
     out.push({ role: 'assistant', content: clampChars(body, PRIOR_ASSISTANT_MAX) });
   }
   return out;
+}
+
+function buildInitialUserAgentMessage(options: {
+  userText: string;
+  workspacePath: string;
+  gameDevMode?: boolean;
+  executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
+  activeFilePath?: string;
+  userImageDataUrls?: string[];
+}): AgentChatMessage {
+  const augmented = augmentIdeAgentUserMessage(
+    options.userText,
+    options.workspacePath,
+    options.gameDevMode,
+    skipClientPlanAppendix(options.executionMode),
+    options.activeFilePath
+  );
+  const urls = (options.userImageDataUrls ?? []).filter(
+    (u) => typeof u === 'string' && u.startsWith('data:') && u.includes(';base64,')
+  );
+  if (urls.length === 0) {
+    return { role: 'user', content: augmented };
+  }
+  const parts: AgentContentPart[] = [{ type: 'text', text: augmented }];
+  for (const url of urls.slice(0, 4)) {
+    parts.push({ type: 'image_url', imageUrl: url });
+  }
+  return { role: 'user', contentParts: parts };
 }
 
 function truncate(s: string, max: number): string {
@@ -133,6 +176,17 @@ export function shouldUsePlanModeFirst(userText: string): boolean {
   return !detailed;
 }
 
+/** Reinforces ONODE ground-truth prompt; kept short so older servers still benefit. */
+function groundTruthUserAppendix(): string {
+  return (
+    `[IDE: Ground-truth rules]\n` +
+    `Only treat as **fact** what **tools** or \`[Tool results from this assistant turn]\` in this thread show. ` +
+    `Label **plans** and **assumptions** explicitly. ` +
+    `Do not assert files, imports, or holon ids exist without \`read_file\`, \`list_directory\`, \`workspace_grep\`, or \`mcp_invoke\`. ` +
+    `Do not claim integration, auth, or a green build without matching tool output.`
+  );
+}
+
 function planningModeUserAppendix(gameDevMode: boolean): string {
   const quick = gameDevMode
     ? 'If Game Dev mode is on, mention the **Quick actions** strip (New World, New Quest, NPCs, Lore, etc.) where it saves time.'
@@ -141,7 +195,8 @@ function planningModeUserAppendix(gameDevMode: boolean): string {
     `[IDE: Plan-first for this user message]\n` +
     `This looks like a **high-level** create-OAPP / new-game request with little product context.\n` +
     `**Do not** call \`write_file\`, \`write_files\`, \`run_workspace_command\`, or \`run_star_cli\` in **this** turn. Avoid \`mcp_invoke\` for creating OAPPs, quests, NPCs, mints, or publish flows until the user confirms the plan (read-only checks such as \`oasis_health_check\` are fine).\n` +
-    `**Do** use **read-only** tools first (\`list_directory\`, \`read_file\`, \`workspace_grep\`) to ground the answer in this repo (recipes, docs), then reply with a **numbered plan**, explicit **defaults**, and **at most one** blocking question only if you truly cannot proceed.\n` +
+    `**Do** use **read-only** tools first (\`list_directory\`, \`read_file\`, \`workspace_grep\`) to ground the answer in this repo (recipes, docs), then reply with a **numbered plan**, explicit **defaults**, and **at most one** blocking question only if you truly cannot proceed. ` +
+    `Do not describe **verified progress** or file contents you did not read; distinguish **Verified (tools)** from **Plan**.\n` +
     `End with **clickable reply chips**: append **only** this block at the **very end** (no text after it). The **first** label should be **Proceed with this plan** when you have a sensible default; add 2–4 concrete alternatives (scope, engine, template), not vague "what next?" prompts.\n` +
     `<oasis_plan_replies>\n` +
     `["Proceed with this plan","Narrow scope to MVP","Swap default stack","Not sure — pick best default"]\n` +
@@ -184,6 +239,8 @@ function augmentIdeAgentUserMessage(
   if (activeFilePath) {
     parts.push(`[IDE] Active editor file: ${activeFilePath}`);
   }
+
+  parts.push(groundTruthUserAppendix());
 
   if (wsEndsWithCre && /\bCRE\b/i.test(t)) {
     parts.push(
@@ -529,6 +586,8 @@ export async function runIdeAgentLoop(
     executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
     /** Currently open file in Monaco editor — injected as [IDE] context line. */
     activeFilePath?: string;
+    /** Pasted images (data URLs) for the current send; OpenAI/xAI vision via ONODE. */
+    userImageDataUrls?: string[];
   }
 ): Promise<{
   finalText: string;
@@ -546,16 +605,14 @@ export async function runIdeAgentLoop(
   );
   const chain: AgentChatMessage[] = [
     ...prior,
-    {
-      role: 'user',
-      content: augmentIdeAgentUserMessage(
-        options.userText,
-        options.workspacePath,
-        options.gameDevMode,
-        skipClientPlanAppendix(options.executionMode),
-        options.activeFilePath
-      )
-    }
+    buildInitialUserAgentMessage({
+      userText: options.userText,
+      workspacePath: options.workspacePath,
+      gameDevMode: options.gameDevMode,
+      executionMode: options.executionMode,
+      activeFilePath: options.activeFilePath,
+      userImageDataUrls: options.userImageDataUrls
+    })
   ];
   const toolCallsLog: Array<{ tool: string; ok: boolean }> = [];
   const recordedToolOutputsForUi: Array<{ tool: string; content: string }> = [];
@@ -789,7 +846,8 @@ export async function runIdeAgentGatherPresentSequence(
   const present = await runIdeAgentLoop(deps, {
     ...rest,
     userText: presentUser,
-    executionMode: 'plan_present'
+    executionMode: 'plan_present',
+    userImageDataUrls: undefined
   });
 
   const mergedRecorded = [

@@ -16,6 +16,7 @@ import {
 import { getAgentContextPack } from '../../../shared/agentContextPack';
 import { getGameDevContextPack } from '../../constants/gameDevPrompt';
 import { useGameDev } from '../../contexts/GameDevContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import {
   buildAgentPriorMessagesFromThread,
   emitActivityMetaAsFeed,
@@ -36,9 +37,15 @@ import type { AgentActivityFeedItem } from '../../../shared/agentActivityFeed';
 import { ComposerActivityFeedRow } from './ComposerActivityFeedRow';
 import { ComposerMarkdownBody } from './ComposerMarkdownBody';
 import { GameToolPalette } from './GameToolPalette';
+import { OnChainQuickPalette } from './OnChainQuickPalette';
+import {
+  ComposerInlineOnChainWorkflow,
+  type OnChainWorkflowMode
+} from '../OnChain/ComposerInlineOnChainWorkflow';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import { useProjectMemory } from '../../contexts/ProjectMemoryContext';
 import { loadWorkspaceRulesText } from '../../utils/workspaceRules';
+import { buildOnChainAgentContextNote } from '../../constants/onChainQuickPrompts';
 import {
   PROJECT_MEMORY_SUMMARIZE_SYSTEM,
   buildComposerTranscriptForSummary,
@@ -61,6 +68,41 @@ interface Message {
   error?: boolean;
   /** Plan mode: quick-reply labels (stripped from raw model output). */
   planChoices?: string[];
+  /** Pasted images for this user turn (session only; stripped before localStorage / holon save). */
+  imageDataUrls?: string[];
+}
+
+const MAX_PASTE_IMAGES = 4;
+const MAX_IMAGE_FILE_BYTES = 4 * 1024 * 1024;
+
+/** When ONODE returns a missing-LLM-key error, append actionable context (Agent mode uses ONODE, not IDE .env alone). */
+function augmentOnodeAgentConfigurationError(error: string): string {
+  const t = error.trim();
+  if (!t.includes('OASIS_DNA.json')) return t;
+  if (t.includes('OpenAI API key not configured') || t.includes('OASIS.AI.OpenAI')) {
+    return (
+      `${t}\n\n` +
+      '**What this means:** Agent mode calls your **ONODE** at `/api/ide/agent/turn`. ONODE runs the LLM there, so it needs `OASIS.AI.OpenAI.ApiKey` (for OpenAI) or `OASIS.AI.OpenAI.BaseUrl` pointing at a local OpenAI-compatible server (for example Ollama `http://127.0.0.1:11434/v1`, where a placeholder key is fine). Setting keys only in the IDE is not enough for this path.\n\n' +
+      '**Fix:** Edit the `OASIS_DNA.json` file that ONODE loads, add or fix those fields, **restart ONODE**, then try again.'
+    );
+  }
+  if (t.includes('xAI API key')) {
+    return (
+      `${t}\n\n` +
+      '**Fix:** Set `OASIS.AI.XAI.ApiKey` in ONODE `OASIS_DNA.json`, restart ONODE, then try again.'
+    );
+  }
+  return t;
+}
+
+function messagesForPersistence(messages: Message[]): Message[] {
+  return messages.map((m) => {
+    if (m.role === 'user' && m.imageDataUrls && m.imageDataUrls.length > 0) {
+      const { imageDataUrls: _, ...rest } = m;
+      return rest;
+    }
+    return m;
+  });
 }
 
 function mapRecordedToolOutputsToMessageToolCalls(
@@ -101,6 +143,7 @@ const INITIAL_MESSAGE: Message = {
     '- **Agent**: OpenAI or Grok + a workspace folder open. Use **Plan** for read-only exploration and a chip handoff, or **Execute** for writes, STAR, npm, and MCP.\n' +
     '- **Game Dev**: Same tool loop as Agent, but with metaverse game developer context pre-loaded — OASIS quests, NPCs, GeoNFTs, ElevenLabs voice, Three.js/Hyperfy/Babylon/Unity/Roblox templates.\n' +
     '- **Chat**: One-shot text through ONODE or a local API key. No workspace tools.\n\n' +
+    'In **Agent** mode, **paste images** (Ctrl/Cmd+V) into the composer to ask about screenshots, diagrams, or logos. Uses vision-capable models (for example GPT-4o) via ONODE.\n\n' +
     'Tip: switch to **Game Dev** when building metaverse worlds. **+** opens another tab with its own history.',
   timestamp: Date.now()
 };
@@ -129,13 +172,17 @@ function parseStoredMessages(raw: unknown): Message[] | null {
     const planChoices = Array.isArray(o.planChoices)
       ? (o.planChoices as string[]).filter((s) => typeof s === 'string' && s.trim().length > 0)
       : undefined;
+    const imageDataUrls = Array.isArray(o.imageDataUrls)
+      ? (o.imageDataUrls as string[]).filter((u) => typeof u === 'string' && u.startsWith('data:'))
+      : undefined;
     out.push({
       role,
       content,
       timestamp: typeof o.timestamp === 'number' ? o.timestamp : Number(o.timestamp) || Date.now(),
       toolCalls: Array.isArray(o.toolCalls) ? (o.toolCalls as Message['toolCalls']) : undefined,
       error: Boolean(o.error),
-      planChoices: planChoices?.length ? planChoices : undefined
+      planChoices: planChoices?.length ? planChoices : undefined,
+      imageDataUrls: imageDataUrls?.length ? imageDataUrls : undefined
     });
   }
   return out.length > 0 ? out : null;
@@ -209,7 +256,7 @@ function loadPersistedMessagesWithNoWorkspaceHandoff(
 
 function savePersistedMessages(threadKey: string, messages: Message[]): void {
   try {
-    localStorage.setItem(storageKeyV2(threadKey), JSON.stringify(messages));
+    localStorage.setItem(storageKeyV2(threadKey), JSON.stringify(messagesForPersistence(messages)));
   } catch {
     // ignore quota or parse errors
   }
@@ -255,6 +302,7 @@ function buildIdeComposerContextPack(opts: {
   workspaceRules: string | null;
   projectMemoryText: string;
   basePack: string;
+  onChainNote?: string | null;
 }): string {
   const parts: string[] = [];
   if (opts.workspaceRules?.trim()) {
@@ -262,6 +310,9 @@ function buildIdeComposerContextPack(opts: {
   }
   if (opts.projectMemoryText.trim()) {
     parts.push(`## Project memory (workspace notes)\n${opts.projectMemoryText.trim()}`);
+  }
+  if (opts.onChainNote?.trim()) {
+    parts.push(`## On-chain defaults (IDE)\n${opts.onChainNote.trim()}`);
   }
   parts.push(opts.basePack);
   return parts.join('\n\n---\n\n');
@@ -346,8 +397,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   workspaceFileCount
 }) => {
   const { isGameDevMode } = useGameDev();
+  const { settings } = useSettings();
   const { tools, executeTool, loading: mcpLoading } = useMCP();
   const { avatarId, loggedIn } = useAuth();
+  const onChainContextNote = buildOnChainAgentContextNote(
+    settings.onChainDefaultChain,
+    settings.onChainSolanaCluster
+  );
   const { workspacePath, tree, refreshTree, starWorkspaceConfig, openFilePath } = useWorkspace();
   const { removeReference, setSessionTitle, getReferencedPathsForSession } = useIdeChat();
   const { text: projectMemoryText, appendAutoTurnLine, appendChatSummaryBlock } = useProjectMemory();
@@ -363,6 +419,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const [rootHolonId, setRootHolonId] = useState<string | null>(null);
   const rootHolonIdRef = useRef<string | null>(null);
   const [input, setInput] = useState('');
+  /** data:image/...;base64,... for the next send (Agent vision); not persisted. */
+  const [pendingImageDataUrls, setPendingImageDataUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   /** Live progress: text lines + structured file-edit rows (matches agent loop + pending writes). */
   const [agentActivityFeed, setAgentActivityFeed] = useState<AgentActivityFeedItem[]>([]);
@@ -398,6 +456,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     }
     return 'agent';
   });
+  const showOnChainPalette = composerMode === 'agent' || isGameDevMode;
+  const [onChainWorkflow, setOnChainWorkflow] = useState<OnChainWorkflowMode | null>(null);
   const [agentExecutionMode, setAgentExecutionMode] = useState<AgentExecutionModeId>('execute');
   const [deepPlanTwoStep, setDeepPlanTwoStep] = useState(() => {
     try {
@@ -726,7 +786,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           threadKey,
           workspaceRoot: workspacePath,
           rootHolonId: rootHolonIdRef.current,
-          messagesJson: JSON.stringify(messages)
+          messagesJson: JSON.stringify(messagesForPersistence(messages))
         })
         .then((res: { rootHolonId?: string; error?: string }) => {
           if (res.rootHolonId) {
@@ -893,9 +953,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   );
 
   const handleSendMessage = async (messageText: string) => {
-    if (!messageText.trim() || loading || !canSend) return;
+    if ((!messageText.trim() && pendingImageDataUrls.length === 0) || loading || !canSend) return;
     setInput('');
-    await handleSendCore(messageText);
+    const imgs = [...pendingImageDataUrls];
+    setPendingImageDataUrls([]);
+    await handleSendCore(messageText, imgs);
   };
 
   // Register this session's send handler so the editor-tab builder pane can submit into it
@@ -916,13 +978,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   }, [pendingComposerText, clearPendingComposerText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async () => {
-    if (!input.trim() || loading || !canSend) return;
-    const text = input;
-    setInput('');
-    await handleSendCore(text);
+    await handleSendMessage(input);
   };
 
-  const handleSendCore = async (currentInput: string) => {
+  const handleSendCore = async (currentInput: string, sendImageDataUrls: string[] = []) => {
     const threadBefore = messagesRef.current;
 
     cancelAgentRunRef.current = false;
@@ -938,7 +997,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     const userMessage: Message = {
       role: 'user',
       content: currentInput,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      imageDataUrls: sendImageDataUrls.length > 0 ? [...sendImageDataUrls] : undefined
     };
 
     const foldAt = threadBefore.length;
@@ -1087,9 +1147,25 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         !!api?.agentTurn &&
         !!api?.agentExecuteTool;
 
+      if (sendImageDataUrls.length > 0 && !useAgentToolLoop) {
+        pushAssistantMessage(
+          '**Images** are only sent to the model in **Agent** mode with **OpenAI** or **Grok**, and a workspace folder open. Switch Composer to Agent, pick GPT-4o or Grok, open a folder, then send again.',
+          undefined,
+          true
+        );
+        setLoading(false);
+        ideRunIdRef.current = null;
+        return;
+      }
+
       if (useAgentToolLoop) {
         const priorForAgent = buildAgentPriorMessagesFromThread(
-          threadBefore.slice(-(MAX_HISTORY - 1))
+          threadBefore.slice(-(MAX_HISTORY - 1)).map((m) => ({
+            role: m.role,
+            content: m.content,
+            toolCalls: m.toolCalls,
+            imageDataUrls: m.role === 'user' ? m.imageDataUrls : undefined
+          }))
         );
         const basePack = isGameMode
           ? getGameDevContextPack(starWorkspaceConfig?.gameEngine)
@@ -1097,7 +1173,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         const contextPack = buildIdeComposerContextPack({
           workspaceRules,
           projectMemoryText,
-          basePack
+          basePack,
+          onChainNote: onChainContextNote
         });
         const agentLoopBase = {
           userText: currentInput,
@@ -1113,7 +1190,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           runId: sendRunId,
           gameDevMode: isGameMode,
           executionMode: effectiveExecutionMode,
-          activeFilePath: openFilePath ?? undefined
+          activeFilePath: openFilePath ?? undefined,
+          userImageDataUrls: sendImageDataUrls.length > 0 ? sendImageDataUrls : undefined
         };
         const useDeepGatherPresent =
           effectiveExecutionMode === 'plan' && planFirstThisSend && deepPlanTwoStep;
@@ -1144,7 +1222,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           pushAssistantMessage(
             stopped
               ? '**Stopped.** Generation was cancelled (no further tool or model steps will run for this request).'
-              : `❌ ${out.error}`,
+              : `❌ ${augmentOnodeAgentConfigurationError(out.error)}`,
             undefined,
             !stopped
           );
@@ -1176,7 +1254,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           buildIdeComposerContextPack({
             workspaceRules,
             projectMemoryText,
-            basePack: getAgentContextPack()
+            basePack: getAgentContextPack(),
+            onChainNote: onChainContextNote
           })
         );
         if (!result.error && (result.content || (result.toolCalls && result.toolCalls.length > 0))) {
@@ -1219,14 +1298,45 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     }
   };
 
+  const handleComposerPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items?.length) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'file' && it.type.startsWith('image/')) {
+        const f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length === 0) return;
+    e.preventDefault();
+    void (async () => {
+      const urls: string[] = [];
+      for (const file of files) {
+        if (urls.length >= MAX_PASTE_IMAGES) break;
+        if (file.size > MAX_IMAGE_FILE_BYTES) continue;
+        const dataUrl = await new Promise<string | null>((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve(typeof r.result === 'string' ? r.result : null);
+          r.onerror = () => resolve(null);
+          r.readAsDataURL(file);
+        });
+        if (dataUrl) urls.push(dataUrl);
+      }
+      if (!urls.length) return;
+      setPendingImageDataUrls((prev) => [...prev, ...urls].slice(0, MAX_PASTE_IMAGES));
+    })();
+  }, []);
+
   const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (loading && !input.trim()) {
+      if (loading && !input.trim() && pendingImageDataUrls.length === 0) {
         handleStopGeneration();
         return;
       }
-      if (input.trim()) {
+      if (input.trim() || pendingImageDataUrls.length) {
         void handleSendMessage(input);
       }
     }
@@ -1272,6 +1382,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     const displayText = streamingAssistant
       ? msg.content.slice(0, assistantReveal.visible)
       : msg.content;
+    const bodyMarkdown =
+      displayText.trim().length > 0
+        ? displayText
+        : msg.role === 'user' && (msg.imageDataUrls?.length ?? 0) > 0
+          ? '_(Image attached)_'
+          : displayText;
     const planChoices = msg.planChoices ?? [];
     const showPlanChips =
       msg.role === 'assistant' &&
@@ -1281,12 +1397,19 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     return (
       <div key={index} className={`composer-message ${msg.role} ${msg.error ? 'error' : ''}`}>
         <div className="composer-message-label">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
+        {msg.role === 'user' && msg.imageDataUrls && msg.imageDataUrls.length > 0 ? (
+          <div className="composer-message-images" aria-label="Attached images">
+            {msg.imageDataUrls.map((url, i) => (
+              <img key={i} src={url} alt="" className="composer-message-image-thumb" />
+            ))}
+          </div>
+        ) : null}
         <div
           className={`composer-message-body composer-message-body--markdown${
             streamingAssistant ? ' composer-message-body--streaming' : ''
           }`}
         >
-          <ComposerMarkdownBody text={displayText} />
+          <ComposerMarkdownBody text={bodyMarkdown} />
           {streamingAssistant ? <span className="composer-stream-caret" aria-hidden /> : null}
         </div>
         {showPlanChips ? (
@@ -1399,6 +1522,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             </div>
           </div>
         )}
+        {onChainWorkflow ? (
+          <ComposerInlineOnChainWorkflow
+            mode={onChainWorkflow}
+            onDismiss={() => setOnChainWorkflow(null)}
+            scrollParentRef={messagesScrollRef}
+          />
+        ) : null}
         <div ref={messagesEndRef} />
       </div>
 
@@ -1482,6 +1612,15 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         />
       )}
 
+      {showOnChainPalette && !loggedIn ? (
+        <div className="composer-onchain-login-hint" role="note">
+          Log in with your OASIS avatar for mint and wallet MCP flows that need your session.
+        </div>
+      ) : null}
+
+      {showOnChainPalette ? (
+        <OnChainQuickPalette onStartWorkflow={(mode) => setOnChainWorkflow(mode)} />
+      ) : null}
       {referencedPaths.length > 0 && (
         <div className="composer-ref-chips" aria-label="Paths attached to the next message">
           {referencedPaths.map((p) => (
@@ -1501,17 +1640,37 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       )}
 
       <div className="composer-input-shell">
+        {pendingImageDataUrls.length > 0 ? (
+          <div className="composer-pending-images" aria-label="Images to send">
+            {pendingImageDataUrls.map((url, i) => (
+              <div key={`${url.slice(0, 48)}-${i}`} className="composer-pending-image-wrap">
+                <img src={url} alt="" className="composer-pending-image-thumb" />
+                <button
+                  type="button"
+                  className="composer-pending-image-remove"
+                  aria-label="Remove image"
+                  onClick={() =>
+                    setPendingImageDataUrls((prev) => prev.filter((_, j) => j !== i))
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <textarea
           className="composer-textarea"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleComposerKeyDown}
+          onPaste={handleComposerPaste}
           placeholder={
             !canSend
               ? 'Connect OASIS or set local API keys…'
               : loading
                 ? 'Cancel: press Enter with empty input, or use Stop — Shift+Enter for newline'
-                : 'Plan, ask for edits…   / for commands   ·   @ for context'
+                : 'Plan, ask for edits… Paste images in Agent mode (Ctrl/Cmd+V)'
           }
           disabled={!canSend}
           rows={3}
@@ -1628,7 +1787,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             type="button"
             className={`composer-send-btn${loading ? ' composer-send-btn--stop' : ''}`}
             onClick={() => (loading ? handleStopGeneration() : void handleSendMessage(input))}
-            disabled={!canSend || (!loading && !input.trim())}
+            disabled={
+              !canSend ||
+              (!loading && !input.trim() && pendingImageDataUrls.length === 0)
+            }
           >
             {loading ? 'Stop' : 'Send'}
           </button>

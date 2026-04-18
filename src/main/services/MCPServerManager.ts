@@ -53,6 +53,11 @@ function getMCPServerPath(): string {
 export class MCPServerManager {
   private servers: Map<string, MCPServerConnection> = new Map();
   private mcpServerPath: string;
+  /**
+   * Resolved ONODE base URL (from env + Settings); when set, overrides `process.env.OASIS_API_URL`
+   * for the stdio MCP child so it matches `OASISAPIClient`.
+   */
+  private oasisApiUrlResolved: string | null = null;
   /** JWT for ONODE-backed oasis_* MCP tools; applied on next MCP process start. */
   private oasisJwtToken: string | null = null;
   /** Avatar id for STAR WebAPI X-Avatar-Id when JWT omits it; applied on next MCP process start. */
@@ -86,6 +91,14 @@ export class MCPServerManager {
     this.oasisAvatarId = t ? t : null;
   }
 
+  /**
+   * Keep stdio OASIS MCP HTTP calls aligned with the IDE `OASISAPIClient` (same precedence as main process).
+   */
+  setOasisApiUrlResolved(url: string): void {
+    const t = url?.trim();
+    this.oasisApiUrlResolved = t ? t.replace(/\/$/, '') : null;
+  }
+
   private buildMcpChildEnv(): Record<string, string> {
     const env: Record<string, string> = { ...getDefaultEnvironment() };
     for (const [k, v] of Object.entries(process.env)) {
@@ -93,7 +106,10 @@ export class MCPServerManager {
         env[k] = v;
       }
     }
-    const apiUrl = process.env.OASIS_API_URL?.trim() || 'http://127.0.0.1:5003';
+    const apiUrl =
+      this.oasisApiUrlResolved ||
+      process.env.OASIS_API_URL?.trim() ||
+      'http://127.0.0.1:5003';
     env.OASIS_API_URL = apiUrl;
     if (this.oasisJwtToken) {
       env.OASIS_JWT_TOKEN = this.oasisJwtToken;

@@ -3,7 +3,7 @@
  * Keep in sync with MCP tool behaviour in `MCP/src/tools/oasisTools.ts` + `starTools.ts`.
  * ONODE caps total size (see IdeAgentController / IdeChatController MaxContextPackChars).
  */
-export const AGENT_CONTEXT_PACK_VERSION = '1.8.5';
+export const AGENT_CONTEXT_PACK_VERSION = '1.9.0';
 
 export function getAgentContextPack(): string {
   return `## OASIS IDE context pack (v${AGENT_CONTEXT_PACK_VERSION})
@@ -42,6 +42,14 @@ Before telling the user a task is **done**, you must have **ground truth** from 
 1. After **scaffolding or editing** a Node project (\`package.json\` present): run \`run_workspace_command\` with \`["npm","run","build"]\` in that project directory, or \`["npm","install"]\` then build, and fix failures until **exit_code 0** (or run \`npm run dev\` and confirm no unresolved-import errors in the output). Do not claim success from only writing files.
 2. If a command fails, **quote stderr** in your reply and fix the root cause (wrong dependency name, missing plugin, bad entry path) rather than guessing.
 3. Prefer **one vertical slice** per turn when possible (deps + entry + build green) before adding STAR API calls.
+
+### Ground truth and status claims (strict)
+These rules apply in **Agent (Execute)** and **Plan** modes whenever tools are available. They reduce hallucinated ""progress"" and invented paths.
+1. **Facts vs plans:** A **fact** about the workspace or runtime requires tool output in **this** thread (\`read_file\`, \`list_directory\`, \`workspace_grep\`, \`mcp_invoke\`, \`run_workspace_command\`) or a verbatim quote from \`[Tool results from this assistant turn]\`. Otherwise present content as **plan**, **assumption**, or **typical pattern**, with explicit labeling.
+2. **Files and paths:** Never assert a file exists or a path is in the tree until a read-only tool confirmed it. Never invent concrete paths (for example \`src/api/starnetApi.js\`) without a grep or read hit.
+3. **Holons and on-chain data:** Do not invent holon ids, mint addresses, or JSON fields. Cite \`oasis_get_holon\` / \`oasis_search_holons\` / relevant \`star_*\` tool output, or say **not verified in this session**.
+4. **Integration done:** Do not say the app is authenticated, wired to ONODE, or minted unless \`mcp_invoke\` or command output in this thread supports it. A description of how to integrate is not integration.
+5. **Summaries:** When reporting status, separate **Verified (tools)** from **Recommended next** or **Plan**.
 
 ### Accuracy rules (must follow)
 Obey repo workspace rules when present: **\`.oasiside/rules.md\`** or **\`.OASIS_IDE/rules.md\`** (especially *Greenfield web apps*): real newlines in source files, no invented npm packages, verify with \`npm run build\` or a successful \`npm run dev\` and the printed URL.

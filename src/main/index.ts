@@ -276,7 +276,10 @@ function createWindow() {
 app.whenReady().then(async () => {
   // Initialize services — AgentRuntime shares the authenticated oasisClient
   mcpManager = new MCPServerManager();
-  oasisClient = new OASISAPIClient();
+  const oasisBase = resolveOasisApiBaseUrl();
+  oasisClient = new OASISAPIClient(oasisBase);
+  mcpManager.setOasisApiUrlResolved(oasisBase);
+  console.log('[Main] OASIS API base URL:', oasisBase);
   agentRuntime = new AgentRuntime(oasisClient, mcpManager);
   fileSystemService = new FileSystemService();
   terminalService = new TerminalService();
@@ -1023,12 +1026,38 @@ function writeSettingsToDisk(data: Record<string, unknown>): void {
   }
 }
 
+function readOasisApiEndpointFromSettingsDisk(): string {
+  const data = readSettingsFromDisk();
+  const ep = typeof data.oasisApiEndpoint === 'string' ? data.oasisApiEndpoint.trim() : '';
+  return ep.replace(/\/$/, '');
+}
+
+/**
+ * Same ONODE base for `OASISAPIClient` and stdio OASIS MCP.
+ * Precedence: `OASIS_API_URL` env, then Settings (Integrations) API endpoint override, then local ONODE.
+ */
+function resolveOasisApiBaseUrl(): string {
+  const env = process.env.OASIS_API_URL?.trim();
+  if (env) return OASISAPIClient.normalizeBaseUrl(env);
+  const fromSettings = readOasisApiEndpointFromSettingsDisk();
+  if (fromSettings) return OASISAPIClient.normalizeBaseUrl(fromSettings);
+  return 'http://127.0.0.1:5003';
+}
+
 ipcMain.handle('settings:get', () => readSettingsFromDisk());
 
 ipcMain.handle('settings:set', (_, patch: Record<string, unknown>) => {
   const current = readSettingsFromDisk();
   const merged = { ...current, ...patch };
   writeSettingsToDisk(merged);
+  if ('oasisApiEndpoint' in patch && mcpManager && oasisClient) {
+    const url = resolveOasisApiBaseUrl();
+    oasisClient.setBaseURL(url);
+    mcpManager.setOasisApiUrlResolved(url);
+    mcpManager.restartOASISMCP().catch((e: unknown) => {
+      console.error('[Settings] MCP restart after OASIS API URL change:', e);
+    });
+  }
   return merged;
 });
 

@@ -6,6 +6,12 @@ import React, {
   useCallback,
   ReactNode,
 } from 'react';
+import {
+  isMintWorkflowChainId,
+  isSolanaClusterId,
+  type OnChainMintWorkflowChainId,
+  type OnChainSolanaClusterId,
+} from '../constants/onChainMintWorkflow';
 
 // ---------------------------------------------------------------------------
 // Settings shape
@@ -95,6 +101,11 @@ export interface OASISSettings {
   primaryProvider: 'mongodb' | 'holochain' | 'ipfs' | 'solana' | 'sqlite';
   fallbackProviders: string[];
   autoReplicateHolons: boolean;
+
+  /** Default chain for MCP mint workflow and agent prompts (Tier A list). */
+  onChainDefaultChain: OnChainMintWorkflowChainId;
+  /** Solana RPC cluster when `onChainDefaultChain` is solana. */
+  onChainSolanaCluster: OnChainSolanaClusterId;
 }
 
 export const DEFAULT_SETTINGS: OASISSettings = {
@@ -183,6 +194,9 @@ export const DEFAULT_SETTINGS: OASISSettings = {
   primaryProvider: 'mongodb',
   fallbackProviders: [],
   autoReplicateHolons: true,
+
+  onChainDefaultChain: 'solana',
+  onChainSolanaCluster: 'devnet',
 };
 
 // ---------------------------------------------------------------------------
@@ -202,9 +216,18 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 function mergeWithDefaults(raw: Record<string, unknown>): OASISSettings {
+  const onChainDefaultChain = isMintWorkflowChainId(raw.onChainDefaultChain)
+    ? raw.onChainDefaultChain
+    : DEFAULT_SETTINGS.onChainDefaultChain;
+  const onChainSolanaCluster = isSolanaClusterId(raw.onChainSolanaCluster)
+    ? raw.onChainSolanaCluster
+    : DEFAULT_SETTINGS.onChainSolanaCluster;
+
   return {
     ...DEFAULT_SETTINGS,
     ...raw,
+    onChainDefaultChain,
+    onChainSolanaCluster,
     apiKeys: {
       ...DEFAULT_SETTINGS.apiKeys,
       ...((raw.apiKeys as object | undefined) ?? {}),

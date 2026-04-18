@@ -5,10 +5,18 @@
 
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
+/** OpenAI-style multimodal user content (vision). */
+export type AgentContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; imageUrl: string };
+
 /** One message in the agent thread (OpenAI-compatible enough for mapping). */
 export interface AgentChatMessage {
   role: ChatRole;
-  content: string;
+  /** Plain string when not using vision; omit when `contentParts` is set. */
+  content?: string;
+  /** User messages with images: text + image_url parts for ONODE → OpenAI vision. */
+  contentParts?: AgentContentPart[];
   /** When role === 'tool', which tool call this satisfies. */
   toolCallId?: string;
   /** When role === 'assistant', optional tool calls from the model. */

@@ -1,0 +1,389 @@
+/* Embedded in Composer message scroll area — same column as agent chat */
+
+.composer-inline-onchain {
+  margin: 12px 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(99, 179, 237, 0.35);
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.composer-inline-onchain-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(99, 179, 237, 0.06);
+}
+
+.composer-inline-onchain-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.composer-inline-onchain-sub {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.composer-inline-onchain-close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.composer-inline-onchain-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.composer-inline-onchain-body {
+  padding: 10px 12px;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+}
+
+.composer-inline-onchain-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.composer-inline-onchain-bubble {
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.composer-inline-onchain-bubble--assistant {
+  align-self: flex-start;
+  max-width: 100%;
+  background: rgba(99, 179, 237, 0.1);
+  border: 1px solid rgba(99, 179, 237, 0.22);
+}
+
+.composer-inline-onchain-bubble--user {
+  align-self: flex-end;
+  max-width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+}
+
+.composer-inline-onchain-bubble-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.composer-inline-onchain-bubble-text {
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer-inline-onchain-summary {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(104, 211, 145, 0.25);
+  background: rgba(104, 211, 145, 0.06);
+  font-size: 12px;
+}
+
+.composer-inline-onchain-summary-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #68d391;
+}
+
+.composer-inline-onchain-summary ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.composer-inline-onchain-summary li {
+  margin-bottom: 4px;
+}
+
+.composer-inline-onchain-footer {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.composer-inline-onchain-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  border: none;
+  padding: 0;
+  min-width: 0;
+}
+
+.composer-inline-onchain-form-row {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.composer-inline-onchain-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.composer-inline-onchain-field span {
+  font-weight: 600;
+}
+
+.composer-inline-onchain-field input,
+.composer-inline-onchain-field textarea,
+.composer-inline-onchain-field select {
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text-primary);
+}
+
+.composer-inline-onchain-primary {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent, #007acc);
+  color: #fff;
+  cursor: pointer;
+}
+
+.composer-inline-onchain-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.composer-inline-onchain-primary--full {
+  width: 100%;
+}
+
+.composer-inline-onchain-secondary {
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.composer-inline-onchain-secondary:hover {
+  color: var(--text-primary);
+}
+
+.composer-inline-onchain-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.composer-inline-onchain-or {
+  margin: 0;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.composer-inline-onchain-dropzone {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.2);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.composer-inline-onchain-dropzone:focus-visible {
+  border-color: rgba(99, 179, 237, 0.65);
+  box-shadow: 0 0 0 1px rgba(99, 179, 237, 0.35);
+}
+
+.composer-inline-onchain-dropzone--active {
+  border-color: rgba(99, 179, 237, 0.75);
+  border-style: solid;
+  background: rgba(99, 179, 237, 0.08);
+}
+
+.composer-inline-onchain-dropzone-hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.composer-inline-onchain-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-inline-onchain-file-pick {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.composer-inline-onchain-file-input {
+  position: absolute;
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  z-index: -1;
+}
+
+.composer-inline-onchain-file-btn {
+  display: inline-block;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+}
+
+.composer-inline-onchain-file-pick:hover .composer-inline-onchain-file-btn {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.composer-inline-onchain-field-error {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #fc8181;
+}
+
+.composer-inline-onchain-image-preview {
+  display: block;
+  margin-top: 8px;
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+/* Mint success */
+
+.composer-inline-onchain-success {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(104, 211, 145, 0.45);
+  background: rgba(104, 211, 145, 0.08);
+}
+
+.composer-inline-onchain-success-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #68d391;
+  margin: 0 0 8px;
+}
+
+.composer-inline-onchain-success-lead {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.composer-inline-onchain-success-preview-wrap {
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.composer-inline-onchain-success-preview {
+  max-width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid rgba(104, 211, 145, 0.35);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.composer-inline-onchain-success-links {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.composer-inline-onchain-success-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #63b3ed;
+  text-decoration: none;
+}
+
+.composer-inline-onchain-success-link:hover {
+  text-decoration: underline;
+}
+
+.composer-inline-onchain-success-meta {
+  list-style: none;
+  margin-left: -18px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.composer-inline-onchain-success-code {
+  font-size: 10px;
+  font-family: var(--monaco-monospace-font, ui-monospace, monospace);
+}
+
+.composer-inline-onchain-success-summary {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer-inline-onchain-success-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -12,6 +12,7 @@ import {
   Zap,
   Gamepad2,
   Database,
+  Link2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -34,6 +35,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   // OASIS-specific
   { id: 'avatar',        label: 'OASIS Avatar',         Icon: User,      group: 'oasis' },
   { id: 'starnet',       label: 'STARNET',              Icon: Globe,     group: 'oasis' },
+  { id: 'onchain',       label: 'On-chain',             Icon: Link2,     group: 'oasis' },
   { id: 'ai-routing',    label: 'AI Routing / BRAID',   Icon: Zap,       group: 'oasis' },
   { id: 'game-dev',      label: 'Game Dev Mode',        Icon: Gamepad2,  group: 'oasis' },
   { id: 'providers',     label: 'Data Providers',       Icon: Database,  group: 'oasis' },

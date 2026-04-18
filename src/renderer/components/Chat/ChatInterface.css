@@ -9,6 +9,49 @@
   color: var(--text-primary);
 }
 
+.composer-mcp-missing-banner {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #fcd34d;
+  background: rgba(252, 211, 77, 0.08);
+  border-bottom: 1px solid rgba(252, 211, 77, 0.25);
+}
+
+.composer-mcp-missing-banner code {
+  font-size: 10px;
+}
+
+.composer-mcp-missing-banner__btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.composer-mcp-missing-banner__btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.composer-onchain-login-hint {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  background: rgba(99, 179, 237, 0.06);
+  border-bottom: 1px solid var(--border);
+}
+
 .chat-interface--composer .composer-session-memory-btn {
   flex-shrink: 0;
   display: inline-flex;
@@ -879,6 +922,65 @@ details.composer-activity-summary[open] .composer-activity-summary-title::before
   padding: 6px 10px 8px;
 }
 
+.composer-pending-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: flex-start;
+}
+
+.composer-pending-image-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.composer-pending-image-thumb {
+  display: block;
+  max-height: 72px;
+  max-width: 120px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+  background: #111;
+}
+
+.composer-pending-image-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #2a2a2a;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.composer-pending-image-remove:hover {
+  background: #3a3a3a;
+}
+
+.composer-message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px 8px;
+}
+
+.composer-message-image-thumb {
+  max-height: 160px;
+  max-width: min(100%, 320px);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+  background: #111;
+}
+
 .composer-textarea {
   width: 100%;
   min-height: 72px;
@@ -1194,7 +1296,86 @@ details.composer-activity-summary[open] .composer-activity-summary-title::before
   line-height: 1;
 }
 
-/* ── end Game Tool Palette ─────────────────────────────────── */
+/* ── On-chain quick palette (Agent mode) ───────────────────── */
+
+.onchain-quick-palette {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--composer-chrome, #1a1a1a);
+  overflow: hidden;
+}
+
+.onchain-quick-palette__heading {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #68d391;
+  white-space: nowrap;
+  padding-right: 4px;
+  border-right: 1px solid var(--border);
+}
+
+.onchain-quick-palette__actions {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.onchain-quick-palette__actions::-webkit-scrollbar {
+  display: none;
+}
+
+.onchain-quick-palette__btn {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 9px;
+  border: 1px solid rgba(104, 211, 145, 0.35);
+  border-radius: 4px;
+  background: rgba(104, 211, 145, 0.06);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.onchain-quick-palette__btn:hover {
+  border-color: rgba(104, 211, 145, 0.55);
+  background: rgba(104, 211, 145, 0.1);
+}
+
+.onchain-quick-palette__btn:active {
+  background: rgba(104, 211, 145, 0.16);
+}
+
+.onchain-quick-palette__label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.onchain-quick-palette__sublabel {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #68d391;
+  line-height: 1;
+}
+
+/* ── end On-chain quick palette ─────────────────────────────── */
 
 .composer-ref-chips {
   flex-shrink: 0;

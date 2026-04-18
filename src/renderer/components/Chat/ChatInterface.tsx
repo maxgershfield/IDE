@@ -1,5 +1,6 @@
 import React from 'react';
 import { useMCP } from '../../contexts/MCPContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useIdeChat } from '../../contexts/IdeChatContext';
 import { countWorkspaceFiles } from '../../utils/countWorkspaceFiles';
@@ -16,6 +17,7 @@ import './ChatInterface.css';
  */
 export const ChatInterface: React.FC = () => {
   const { loading: mcpLoading, tools } = useMCP();
+  const { openSettings } = useSettings();
   const { workspacePath, tree } = useWorkspace();
   const { setMemoryModalOpen, text: memoryText } = useProjectMemory();
   const {
@@ -30,6 +32,21 @@ export const ChatInterface: React.FC = () => {
   return (
     <div className="chat-interface chat-interface--composer">
       <TelegramTaskBanner />
+      {!mcpLoading && tools.length === 0 ? (
+        <div className="composer-mcp-missing-banner" role="status">
+          <span>
+            No MCP tools loaded. Set <code>OASIS_MCP_SERVER_PATH</code> to the built OASIS unified MCP
+            server and restart the IDE. See README.md.
+          </span>
+          <button
+            type="button"
+            className="composer-mcp-missing-banner__btn"
+            onClick={() => openSettings('mcp')}
+          >
+            Tools &amp; MCPs
+          </button>
+        </div>
+      ) : null}
       <ProjectMemoryModal />
       <div className="composer-session-bar" role="tablist" aria-label="Chat sessions">
         <div className="composer-session-tabs">
