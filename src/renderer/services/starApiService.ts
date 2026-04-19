@@ -511,15 +511,23 @@ async function starFetch<T>(
     } catch { /* ignore */ }
     throw new Error(msg);
   }
-  const json = await res.json();
+  const json = (await res.json()) as Record<string, unknown>;
+  // OASISResult can return HTTP 200 with isError:true and an empty result; surface the message.
+  if (json.isError === true || json.IsError === true) {
+    const msg =
+      (typeof json.message === 'string' && json.message) ||
+      (typeof json.Message === 'string' && json.Message) ||
+      'STAR API returned an error';
+    throw new Error(msg);
+  }
   // STAR API wraps in { result: [...] } (camelCase or PascalCase)
-  if (json?.result !== undefined) return json.result as T;
-  if (json?.Result !== undefined) return json.Result as T;
+  if (json.result !== undefined) return json.result as T;
+  if (json.Result !== undefined) return json.Result as T;
   return json as T;
 }
 
 /**
- * Pull one holon list endpoint; returns [] on HTTP/logic errors so callers can merge safely.
+ * Pull one holon list endpoint. Logic errors (OASISResult isError) propagate from starFetch.
  */
 async function fetchHolonListFromEndpoint(
   baseUrl: string,
@@ -527,18 +535,14 @@ async function fetchHolonListFromEndpoint(
   token: string | null,
   avatarId?: string | null
 ): Promise<StarHolonRecord[]> {
-  try {
-    const data = await starFetch<unknown>(baseUrl, endpoint, token, {}, avatarId);
-    const raw = unwrapHolonListPayload(data);
-    const out: StarHolonRecord[] = [];
-    for (const item of raw) {
-      const n = normalizeHolonRecord(item);
-      if (n) out.push(n);
-    }
-    return out;
-  } catch {
-    return [];
+  const data = await starFetch<unknown>(baseUrl, endpoint, token, {}, avatarId);
+  const raw = unwrapHolonListPayload(data);
+  const out: StarHolonRecord[] = [];
+  for (const item of raw) {
+    const n = normalizeHolonRecord(item);
+    if (n) out.push(n);
   }
+  return out;
 }
 
 /**
