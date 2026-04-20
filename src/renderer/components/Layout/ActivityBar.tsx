@@ -5,10 +5,11 @@ import {
   GitBranch,
   Star,
   LayoutTemplate,
+  Ticket,
 } from 'lucide-react';
 import './ActivityBar.css';
 
-export type ActivityView = 'files' | 'search' | 'git' | 'starnet' | 'templates';
+export type ActivityView = 'files' | 'search' | 'git' | 'starnet' | 'templates' | 'passes';
 
 interface ActivityBarProps {
   active: ActivityView;
@@ -21,6 +22,7 @@ const ITEMS: { id: ActivityView; label: string; Icon: React.FC }[] = [
   { id: 'git',       label: 'Source Control',     Icon: () => <GitBranch      size={22} strokeWidth={1.5} /> },
   { id: 'starnet',   label: 'STARNET',            Icon: () => <Star           size={22} strokeWidth={1.5} /> },
   { id: 'templates', label: 'Templates',           Icon: () => <LayoutTemplate size={22} strokeWidth={1.5} /> },
+  { id: 'passes',    label: 'IDE Passes',         Icon: () => <Ticket           size={22} strokeWidth={1.5} /> },
 ];
 
 export const ActivityBar: React.FC<ActivityBarProps> = ({ active, onChange }) => (

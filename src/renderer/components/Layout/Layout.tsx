@@ -7,6 +7,11 @@ interface LayoutProps {
   activityBar?: ReactNode;
   /** When set, replaces the explorer + editor horizontal split (full-width center workspace). */
   centerSlot?: ReactNode;
+  /**
+   * When true, the composer / right stack (chat, tools, etc.) is not shown so the left
+   * workspace uses the full window width (e.g. IDE Passes, focused dashboards).
+   */
+  omitRightPanel?: boolean;
   children: ReactNode;
 }
 
@@ -24,22 +29,27 @@ interface LayoutProps {
  * children[0] = Explorer   children[1] = Editor
  * children[2] = RightPanel  children[3] = BottomPanel/Terminal
  */
-export const Layout: React.FC<LayoutProps> = ({ activityBar, centerSlot, children }) => {
+export const Layout: React.FC<LayoutProps> = ({
+  activityBar,
+  centerSlot,
+  omitRightPanel = false,
+  children,
+}) => {
   const childrenArray = React.Children.toArray(children);
 
-  return (
-    <div className="layout">
-      {/* Outer: left editor column | right chat column */}
-      <PanelGroup direction="horizontal" autoSaveId="oasis-v2-outer">
+  const outerSaveId = omitRightPanel ? 'oasis-v2-outer-full' : 'oasis-v2-outer';
 
-        {/* ── Left column ── */}
-        <Panel defaultSize={70} minSize={40} order={1}>
+  return (
+    <div className={`layout${omitRightPanel ? ' layout--no-composer' : ''}`}>
+      {/* Outer: left workspace | optional right chat column */}
+      <PanelGroup direction="horizontal" autoSaveId={outerSaveId}>
+        {/* ── Left column (explorer+editor or centerSlot; terminal below) ── */}
+        <Panel defaultSize={omitRightPanel ? 100 : 70} minSize={omitRightPanel ? 100 : 40} order={1}>
           <div className="layout-left-col">
             {activityBar}
             <div className="layout-left-panels">
               {/* Inner vertical: editor row on top, terminal on bottom */}
               <PanelGroup direction="vertical" autoSaveId="oasis-v2-vert">
-
                 <Panel defaultSize={70} minSize={25} order={1}>
                   <div className="layout-editor-area">
                     {centerSlot ? (
@@ -65,21 +75,20 @@ export const Layout: React.FC<LayoutProps> = ({ activityBar, centerSlot, childre
                     {childrenArray[3]}
                   </div>
                 </Panel>
-
               </PanelGroup>
             </div>
           </div>
         </Panel>
 
-        <PanelResizeHandle className="layout-resize-handle layout-resize-handle-h" />
-
-        {/* ── Right column: full-height chat panel ── */}
-        <Panel defaultSize={30} minSize={18} maxSize={50} order={2}>
-          <div className="layout-right-col">
-            {childrenArray[2]}
-          </div>
-        </Panel>
-
+        {!omitRightPanel ? (
+          <>
+            <PanelResizeHandle className="layout-resize-handle layout-resize-handle-h" />
+            {/* ── Right column: full-height chat panel ── */}
+            <Panel defaultSize={30} minSize={18} maxSize={50} order={2}>
+              <div className="layout-right-col">{childrenArray[2]}</div>
+            </Panel>
+          </>
+        ) : null}
       </PanelGroup>
     </div>
   );

@@ -150,6 +150,7 @@ Only **ONODE** (or a dedicated auth service) should mint these JWTs after verifi
 
 | Topic | Location |
 |--------|-----------|
+| **IDE Passes panel (IDE slots UI + API)** | `OASIS-IDE/docs/NFT_ENTITLEMENT_SLOTS_SPEC.md`, `GET /api/ide/entitlement-slots` |
 | Mint workflow chain map | `MCP/src/clients/oasisClient.ts` |
 | MCP tool definitions | `MCP/src/tools/oasisTools.ts` |
 | Supported chains API | `ONODE/NextGenSoftware.OASIS.API.ONODE.WebAPI/Controllers/WalletController.cs` |

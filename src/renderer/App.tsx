@@ -23,8 +23,10 @@ import { GameDevProvider } from './contexts/GameDevContext';
 import { EditorTabProvider } from './contexts/EditorTabContext';
 import { ActivityBar, ActivityView } from './components/Layout/ActivityBar';
 import { TitleBar } from './components/Layout/TitleBar';
+import { FirstRunWelcomeBanner } from './components/Layout/FirstRunWelcomeBanner';
 import { SearchPanel } from './components/FileExplorer/SearchPanel';
 import { StarnetDashboard } from './components/Starnet/StarnetDashboard';
+import { EntitlementSlotsPanel } from './components/Entitlements/EntitlementSlotsPanel';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { SettingsModal } from './components/Settings/SettingsModal';
 import { A2AProvider } from './contexts/A2AContext';
@@ -61,6 +63,7 @@ declare global {
         toolCallId: string;
         name: string;
         argumentsJson: string;
+        executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
       }) => Promise<
         | {
             ok: true;
@@ -106,6 +109,14 @@ declare global {
       terminalDestroy: (sessionId: string) => Promise<void>;
       onTerminalData: (callback: (sessionId: string, data: string) => void) => () => void;
       authLogin: (username: string, password: string) => Promise<{ success: boolean; username?: string; avatarId?: string; error?: string }>;
+      authRegister: (payload: {
+        firstName: string;
+        lastName: string;
+        email: string;
+        username: string;
+        password: string;
+        confirmPassword: string;
+      }) => Promise<{ success: boolean; username?: string; avatarId?: string; error?: string }>;
       authLogout: () => Promise<void>;
       authGetStatus: () => Promise<{ loggedIn: boolean; username?: string; avatarId?: string }>;
       authGetToken: () => Promise<string | null>;
@@ -240,6 +251,7 @@ function AppInner() {
                   <IdeChatProvider>
                     <div className="app-shell-workspace">
                       <TitleBar />
+                      <FirstRunWelcomeBanner />
                       <div className="workspace-main">
                         <Layout
                           activityBar={
@@ -248,8 +260,13 @@ function AppInner() {
                               onChange={setActiveView}
                             />
                           }
+                          omitRightPanel={activeView === 'passes'}
                           centerSlot={
-                            activeView === 'starnet' ? <StarnetDashboard /> : undefined
+                            activeView === 'starnet' ? (
+                              <StarnetDashboard />
+                            ) : activeView === 'passes' ? (
+                              <EntitlementSlotsPanel />
+                            ) : undefined
                           }
                         >
                           {activeView === 'search' ? (

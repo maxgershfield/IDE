@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { useMCP } from '../../contexts/MCPContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
@@ -42,6 +42,8 @@ import {
   ComposerInlineOnChainWorkflow,
   type OnChainWorkflowMode
 } from '../OnChain/ComposerInlineOnChainWorkflow';
+import { ComposerInlineGameWorkflow } from './ComposerInlineGameWorkflow';
+import type { GameQuickActionId } from '../../constants/gameQuickActions';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import { useProjectMemory } from '../../contexts/ProjectMemoryContext';
 import { loadWorkspaceRulesText } from '../../utils/workspaceRules';
@@ -52,6 +54,10 @@ import {
   isNothingToAddSummary
 } from '../../../shared/projectMemorySummarize';
 import './ChatInterface.css';
+
+/** Composer textarea auto-grow: min visible area, cap before inner scroll */
+const COMPOSER_TEXTAREA_MIN_PX = 72;
+const COMPOSER_TEXTAREA_MAX_PX = 220;
 
 const CHAT_STORAGE_V2_PREFIX = 'oasis-ide-chat-v2-';
 const CHAT_ROOT_HOLON_PREFIX = 'oasis-ide-chat-rootid-';
@@ -458,6 +464,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   });
   const showOnChainPalette = composerMode === 'agent' || isGameDevMode;
   const [onChainWorkflow, setOnChainWorkflow] = useState<OnChainWorkflowMode | null>(null);
+  const [gameQuickWorkflow, setGameQuickWorkflow] = useState<GameQuickActionId | null>(null);
   const [agentExecutionMode, setAgentExecutionMode] = useState<AgentExecutionModeId>('execute');
   const [deepPlanTwoStep, setDeepPlanTwoStep] = useState(() => {
     try {
@@ -473,10 +480,16 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   /** Text from `.oasiside/rules.md` or `.OASIS_IDE/rules.md`, if present. */
   const [workspaceRules, setWorkspaceRules] = useState<string | null>(null);
 
-  const { registerSubmitHandler, pendingComposerText, clearPendingComposerText } = useEditorTab();
+  const {
+    registerSubmitHandler,
+    pendingComposerText,
+    clearPendingComposerText,
+    openBuilderTab,
+  } = useEditorTab();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   /** Scroll live agent step list to bottom as new lines arrive. */
   const agentActivityFeedRef = useRef<HTMLUListElement>(null);
   /** After a new user send, scroll the thread pane to the top of the current turn instead of the bottom. */
@@ -519,6 +532,26 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    if (!isGameDevMode) {
+      setGameQuickWorkflow(null);
+    }
+  }, [isGameDevMode]);
+
+  const syncComposerTextareaHeight = useCallback(() => {
+    const el = composerTextareaRef.current;
+    if (!el) return;
+    el.style.height = '0px';
+    const scrollH = el.scrollHeight;
+    const next = Math.min(Math.max(scrollH, COMPOSER_TEXTAREA_MIN_PX), COMPOSER_TEXTAREA_MAX_PX);
+    el.style.height = `${next}px`;
+    el.style.overflowY = scrollH > COMPOSER_TEXTAREA_MAX_PX ? 'auto' : 'hidden';
+  }, []);
+
+  useLayoutEffect(() => {
+    syncComposerTextareaHeight();
+  }, [input, syncComposerTextareaHeight, visible]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -873,7 +906,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
    * panel in the Composer, and waits for Accept or Discard before writing to disk.
    */
   const agentExecuteToolWithConfirm = useCallback(
-    async (payload: { toolCallId: string; name: string; argumentsJson: string }) => {
+    async (payload: {
+      toolCallId: string;
+      name: string;
+      argumentsJson: string;
+      executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
+    }) => {
       const api = getElectronAPI();
       if (payload.name !== 'write_file' && payload.name !== 'write_files') {
         return api.agentExecuteTool(payload);
@@ -1528,6 +1566,14 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             onDismiss={() => setOnChainWorkflow(null)}
             scrollParentRef={messagesScrollRef}
           />
+        ) : isGameDevMode && gameQuickWorkflow ? (
+          <ComposerInlineGameWorkflow
+            actionId={gameQuickWorkflow}
+            onDismiss={() => setGameQuickWorkflow(null)}
+            scrollParentRef={messagesScrollRef}
+            onOpenBuilder={(id) => openBuilderTab(id)}
+            onInsertComposer={(text) => setInput(text)}
+          />
         ) : null}
         <div ref={messagesEndRef} />
       </div>
@@ -1606,8 +1652,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
       {isGameDevMode && (
         <GameToolPalette
-          onInjectPrompt={(prompt) => {
-            setInput(prompt);
+          onStartWorkflow={(id) => {
+            setOnChainWorkflow(null);
+            setGameQuickWorkflow(id);
           }}
         />
       )}
@@ -1619,7 +1666,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       ) : null}
 
       {showOnChainPalette ? (
-        <OnChainQuickPalette onStartWorkflow={(mode) => setOnChainWorkflow(mode)} />
+        <OnChainQuickPalette
+          onStartWorkflow={(mode) => {
+            setGameQuickWorkflow(null);
+            setOnChainWorkflow(mode);
+          }}
+        />
       ) : null}
       {referencedPaths.length > 0 && (
         <div className="composer-ref-chips" aria-label="Paths attached to the next message">
@@ -1660,6 +1712,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           </div>
         ) : null}
         <textarea
+          ref={composerTextareaRef}
           className="composer-textarea"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -1673,7 +1726,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
                 : 'Plan, ask for edits… Paste images in Agent mode (Ctrl/Cmd+V)'
           }
           disabled={!canSend}
-          rows={3}
+          rows={1}
           spellCheck={false}
         />
         <div className="composer-input-footer">
