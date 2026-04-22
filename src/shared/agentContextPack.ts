@@ -3,10 +3,16 @@
  * Keep in sync with MCP tool behaviour in `MCP/src/tools/oasisTools.ts` + `starTools.ts`.
  * ONODE caps total size (see IdeAgentController / IdeChatController MaxContextPackChars).
  */
-export const AGENT_CONTEXT_PACK_VERSION = '1.9.0';
+export const AGENT_CONTEXT_PACK_VERSION = '1.11.8';
 
 export function getAgentContextPack(): string {
   return `## OASIS IDE context pack (v${AGENT_CONTEXT_PACK_VERSION})
+
+### Auto-loaded project instructions (IDE)
+The Composer may prepend **AGENTS.md** (workspace root and each directory along the path to the **active editor file**, with the path **nearest the file** winning on conflict) and bounded markdown under **\`.cursor/rules/\`** (\`.md\`, \`.mdc\`; YAML frontmatter stripped on \`.mdc\`) in addition to **\`.oasiside/rules.md\`** / **\`.OASIS_IDE/rules.md\`**. Treat them like first-class repo instructions. See **\`OASIS-IDE/docs/IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md\`**.
+
+### Planning document (IDE — optional)
+When the context pack includes **\`## Planning document (IDE — user-set)\`** with file contents, the user attached that markdown as the **product and repo index** (read order, linked paths, invariants). Follow it before improvising stacks or skipping linked docs. It is **not** a substitute for **read_file** on implementation targets: still open paths you depend on.
 
 ### What “OASIS” means here
 - **OASIS** is the wider platform: identity (avatars), graph **holons**, NFT / wallet surfaces, **OpenSERV** agents, A2A JSON-RPC, and APIs exposed by **ONODE** (OASIS WebAPI).
@@ -16,7 +22,7 @@ export function getAgentContextPack(): string {
 | Surface | Role | Typical base URL |
 |--------|------|-------------------|
 | **ONODE** | Avatars + JWT, data holons, IDE assistant HTTP (\`/api/ide/chat\`, \`/api/ide/agent/turn\`), much graph + wallet + SERV wiring | \`http://127.0.0.1:5003\` (dev) |
-| **STAR WebAPI** | OAPP / zome / STARNET operations used by **\`star_*\`** MCP tools | \`STAR_API_URL\` / env (see STAR WebAPI \`launchSettings.json\`) |
+| **STAR WebAPI** | OAPP / zome / STARNET operations used by **\`star_*\`** MCP tools | IDE **Settings → STARNET** (then \`STAR_API_URL\` / env); **hosted** MCP uses the MCP host's STAR base, not yours — local **stdio** MCP aligns \`star_*\` with the STARNET panel |
 | **Unified MCP** (stdio in Electron) | **\`oasis_*\`**, **\`star_*\`**, smart-contract helpers — one server; ONODE + STAR behind it | Started by IDE main; \`OASIS_API_URL\` often ONODE |
 
 ### Unified MCP — how to answer “what can OASIS do?”
@@ -52,7 +58,7 @@ These rules apply in **Agent (Execute)** and **Plan** modes whenever tools are a
 5. **Summaries:** When reporting status, separate **Verified (tools)** from **Recommended next** or **Plan**.
 
 ### Accuracy rules (must follow)
-Obey repo workspace rules when present: **\`.oasiside/rules.md\`** or **\`.OASIS_IDE/rules.md\`** (especially *Greenfield web apps*): real newlines in source files, no invented npm packages, verify with \`npm run build\` or a successful \`npm run dev\` and the printed URL.
+Obey repo workspace rules when present: **\`.oasiside/rules.md\`**, **\`.OASIS_IDE/rules.md\`**, auto-loaded **AGENTS.md** / **\`.cursor/rules/\`**, and any **\`## AGENTS.md (auto-loaded)\`** block in this pack (especially *Greenfield web apps*): real newlines in source files, no invented npm packages, verify with \`npm run build\` or a successful \`npm run dev\` and the printed URL.
 1. **Plan-first:** Short messages like ""create a new OAPP called X"" without genre, engine, or requirements should get a **plan + questions** before any \`write_*\`, \`search_replace\`, \`run_workspace_command\`, or \`run_star_cli\`. The IDE may inject an \`[IDE: Plan-first]\` user note; honor it. After the user confirms or gives a full spec, execute. **STAR / shell failures:** A failed \`run_star_cli\` or \`npm\` does **not** mean the repo disappeared. Do not claim the workspace is inaccessible unless file tools returned ENOENT. Summarize stderr, suggest STAR_CLI_PATH and \`OASIS-IDE/docs/recipes/\`, keep helping.
 2. **Do not invent** undocumented REST paths, CLI subcommands, or MCP tool names. If unsure, say so and suggest \`oasis_health_check\`, MCP tool list in the IDE, or \`read_file\` on \`MCP/README.md\` / \`Docs/Devs/*.md\` when the workspace is the OASIS repo.
 3. **Distinguish** “ONODE only”, “STAR only”, and “MCP proxies to one of them” in answers.
@@ -75,9 +81,9 @@ The IDE composer has **Plan** vs **Execute**: in Plan, ONODE only registers read
 - **codebase_search** — tokenizes a plain-language question and runs ripgrep with OR of keywords (case-insensitive). Use for broad exploration; use \`workspace_grep\` for exact symbols or regex.
 - **web_search** — Tavily-backed search for public web docs and facts; set \`TAVILY_API_KEY\` in \`OASIS-IDE/.env\` and restart the IDE. No key means the tool returns a clear configuration error.
 - **fetch_url** — HTTPS GET (or http to localhost) with HTML stripped to plain text; blocks private IPs and cloud metadata hosts.
-- **open_browser_url** — opens a validated URL in the system browser (Electron \`shell.openExternal\`).
+- **open_browser_url** — opens a real **HTML** page (https, or http on localhost only). **Never** use it for ONODE/STAR **\`/api/...\`** URLs — those are JSON APIs, not sites; the IDE blocks them. For OAPP/holon lists use **\`mcp_invoke\`** (\`star_list_oapps\`, \`star_list_holons\`) or **Activity bar → STARNET**; do not guess \`localhost:5001\` / \`:5003\` / \`:50564\` API paths as “pages”.
 - **search_replace** — replace an exact \`old_string\` with \`new_string\` in one file (unique match unless \`replace_all\`). Execute mode only.
-- **mcp_invoke** — one unified MCP tool: \`{ "tool": "oasis_health_check", "arguments": {} }\` etc. Allowlisted in the IDE main process. (Execute mode only.)
+- **mcp_invoke** — one unified MCP tool: \`{ "tool": "oasis_health_check", "arguments": {} }\` etc. Allowlisted in the IDE main process. In **Plan** / **plan_gather** / **plan_present**, only **read-only** MCP tools run (list/get/search holons and OAPPs, health checks); create/publish/mint/save are blocked until **Execute**.
 - **run_star_cli** — argv[0] must be \`star\`; non-interactive flags per STAR CLI docs. (Execute mode only.)
 - **read_file**, **list_directory**, **workspace_grep** (optional \`ignore_case\`; needs \`rg\` on PATH), **run_workspace_command** (expanded CLI allowlist includes \`git\`, \`curl\`, \`jq\`, \`find\`, and other common dev tools; still **no** interactive shell). \`run_workspace_command\` is Execute mode only.
 
@@ -110,24 +116,45 @@ When creating a **new** browser game or OAPP with **Vite**:
 - **STAR:** OAPP + zomes + holons, DNA, STARNET publish/activate, beam-in.
 - **OASIS / ONODE:** graph holons, avatars, SERV/A2A, cross-OAPP linkage when apps need shared graph + identity.
 
-### STARNET holons and templates (task-specific analysis, not catalog copy)
-When the user asks which **STARNET** holons, OAPP templates, or published packages could help build **their** product:
-1. **Restate their goal in one sentence** (geo NFTs, missions, time-locked social, etc.) so every recommendation is anchored to that scenario.
-2. For **each** candidate from \`mcp_invoke\` (\`star_list_holons\`, \`star_list_oapps\`, etc.): explain **what it actually provides** in STAR (forum, DAO, geo hunt, game quests, timebank, …), then **why it fits this app’s flows** (which screen, which data, which user journey). Name **what you would reuse** (holon graph, karma, quest shape, geo check-ins) vs **what you would still build** yourself.
-3. **Be honest about weak fits:** if a template is only tangential, say so and deprioritize it. Do **not** paste generic marketing descriptions or fill a table with interchangeable blurbs.
-4. If the list response is **shallow** (name + short description only), call **\`mcp_invoke\`** with **\`star_get_holon\`** or **\`star_get_oapp\`** for the **top 1–3** candidates before claiming DNA, zomes, or implementation detail. If the workspace has template source, use **\`read_file\`** on README or DNA paths under that template.
-5. **Rank** by relevance to the user’s MVP. Prefer **GeoNFTHuntTemplate**-style assets for geo + NFT missions, **GameTemplate** for quests and progression, **ForumTemplate** for social feed, **DAOTemplate** for governance, etc., only when those concerns appear in the user’s ask.
+### IDE-embedded STARNET (composer must follow — stops “open a portal” wrong answers)
+- **STARNET is already in this IDE.** The user browses holons and OAPPs in **Activity bar → STARNET** (center panel lists, refresh, row actions). That is the **primary** UI for exploring what is available while staying in the IDE.
+- **Do not** tell the user to open a separate “STARNET portal”, marketing website, or generic external URL to discover components. **Settings → STARNET** is only for **endpoint / org / connectivity** — not a substitute for the in-IDE STARNET view.
+- **Authoritative data for STARNET inventory:** the **\`## STARNET catalog (IDE — auto-attached …)\`** block in the context pack (when present with rows) is the same catalog as **Activity bar → STARNET** — use it first. **\`mcp_invoke\`** with **\`star_get_holon\` / \`star_get_oapp\`** (and list tools only when the pack is empty or the user wants a live refresh) supplies STAR-backed detail in **Agent mode**. In **Chat mode** you **cannot** run those tools: say clearly to switch Composer to **Agent**, pick **OpenAI or Grok**, open a workspace folder if needed, then retry — do **not** pretend you already ran STAR tools or report STAR WebAPI errors without **verbatim** tool output in this thread.
+- **List tools are compact in the IDE:** \`star_list_holons\`, \`star_list_oapps\`, and \`star_search_oapps\` return **bounded markdown tables** (not the full raw STAR JSON). Use them to pick ids, then call \`star_get_holon\` / \`star_get_oapp\` for one record’s full payload. Do not chain multiple full list calls in one turn unless the user changed scope.
+- **Never invent failures:** Do not claim “could not connect to STAR WebAPI”, “lists are empty”, or “holons unavailable” unless **this thread** contains matching \`mcp_invoke\` / tool error text. If you lack tool access, describe the **next step inside the IDE** (STARNET panel + Agent mode), not a fictional diagnosis.
+- If the context pack includes an **\`## STARNET catalog (IDE — auto-attached …)\`** section **with rows**, that table **is** the STARNET view data (the model cannot see the Activity bar UI). **Prefer it for inventory** — do **not** call \`star_list_holons\` / \`star_list_oapps\` only to rediscover the same list. Use \`star_get_holon\` / \`star_get_oapp\` for full fields on ids from that table; use list tools only if the section is missing/empty or the user asks for a live refresh. **Never** claim zero holons/OAPPs when that section lists rows (if MCP lists disagree, treat MCP as a session issue and plan from the table).
+- When the user wants an **app built from STARNET components**, respond with a **concrete composition path**: (1) restate the product goal in one line, (2) map **features → specific holon/OAPP rows** (from that catalog section or from tool output — label anything else **Proposed**), (3) call out **gaps** no template covers, (4) optionally emit **\`<oasis_holon_diagram>\`** JSON (below) so the IDE renders an **interactive** graph of how pieces connect — that graph is the in-IDE “holons combine” view today.
+
+### OAPP planning — concrete (template-first, no hedging on catalog rows)
+When the user describes a product and asks which holons/templates to use (or equivalent):
+1. **Start from a real shell:** name the default you will customize — **Expo** for mobile-first geo + social + missions (\`OASIS-IDE/docs/recipes/community-social-app.md\`) unless the user insists on web-only, then **Vite** (\`OASIS-IDE/docs/recipes/minimal-vite-browser-oapp.md\`). Say you will **read that recipe** in Execute before \`write_files\`.
+2. **Holon map:** Markdown table with columns **Feature / job-to-be-done** | **Holon or template name (exact string from catalog)** | **Catalog id (uuid)** | **Role in this app** (one decisive sentence per row). **Do not** use “could”, “might”, “useful for”, or “consider” for rows that appear in the attached STARNET catalog — those rows are **chosen building blocks**, not options to waffle over.
+3. **Screens:** List **3 named screens** (title + primary user action) so the implementation target is unambiguous.
+4. **Gaps:** Bulleted **Custom work** for anything not covered by a catalog row (e.g. Thursday-style weekday-only chat, mission push on off-days, OSM/green-space routing, moderation) — each bullet states **what to build** in plain terms, not “we may need”.
+5. **Build order:** Numbered **5–8 steps** ending with what happens when the user switches to **Execute** (e.g. scaffold from recipe, wire env, first \`star_get_holon\` on ids, then OAPP create when appropriate).
+6. **IDE Build plan panel (machine-readable):** When you have a concrete recommended shell plus a holon map (after clarifying questions or when the user asks to lock the plan), append **exactly one** fenced block the IDE parses for the editor **Build plan** tab (template summary + click-to-select holon rows). Use valid JSON only inside the fence. Each holon row needs a short stable **\`id\`** (slug); **\`catalogHolonName\`** and **\`catalogId\`** must match the attached STARNET catalog or **\`mcp_invoke\`** output you used (no invented ids). Set **\`selected\`** to \`true\` for rows you recommend by default. The fence label must be **\`oasis-build-plan\`** (three backticks + \`oasis-build-plan\` + newline, then JSON, then closing three backticks). If you have not chosen concrete catalog rows yet, omit this fence.
+
+### STARNET holons and templates (MVP recon first — same bar as Cursor product planning)
+For **new OAPPs** or **community / geo / mission / NFT** products, **ground the plan in the attached STARNET catalog**; add **\`mcp_invoke\`** (\`star_get_*\`, lists only when needed) in **Agent mode**, not as a separate mystery step.
+1. **Restate their goal in one sentence**, then use the **auto-attached STARNET catalog** in the context pack when it has rows; call \`mcp_invoke\` list tools **only** if that section is missing/empty. Use \`star_get_holon\` / \`star_get_oapp\` on chosen ids when you need full metadata **before** recommending a stack.
+2. For **each** catalog row you rely on: **exact name + id + type**, which **screen or flow** it owns in the user’s app, and **reuse vs extend vs custom** — decisive wording; label only missing pieces as **Proposed (custom)**.
+3. End with **Still need to build** (gaps no holon covers).
+4. If template source exists in the workspace, use \`read_file\` on README or DNA paths.
 
 
-### Holonic architecture diagrams
-**When to produce a diagram:** only when you have reasoned through what the app genuinely needs. A diagram emitted without prior reasoning is worse than no diagram. Follow this strict order:
+### Architecture diagrams (Mermaid + holon graph)
+When the user wants **architecture** or **how pieces fit**:
+1. **Use the same STARNET names** you fetched with \`star_get_*\` (or label new boxes **Proposed**).
+2. Include **Mermaid** (\`flowchart TB\` or similar) with **subgraphs** for Client, ONODE, STAR WebAPI, Chain, External services; **labeled edges** for real calls/data flows.
+3. Include **\`<oasis_holon_diagram>\` JSON** (below) for the IDE interactive graph. Shallow three-node diagrams are not enough for a multi-surface MVP unless you justify it.
 
-1. **Derive requirements first.** List the app's actual screens / features / user journeys in prose (e.g. "users need geo check-ins at real-world locations → GeoNFTHuntTemplate; users earn karma and level up → GameTemplate; there is no governance requirement so DAOTemplate is excluded").
-2. **Map each requirement to a holon / template.** For every node you include, name the specific screen or feature it serves. If you cannot name one, omit the node.
-3. **Omit generic nodes.** Do not add holons just because they exist in STARNET. Only include holons with a concrete role in this app.
-4. **Then emit the diagram block** so it reflects the reasoning above it, not a generic template list.
+**When to produce a diagram:** only after you have mapped screens/journeys to STARNET/ONODE surfaces. Follow this order:
 
-The IDE renders the block as a live interactive React Flow graph. Example structure (replace with real app holons):
+1. **Derive requirements first.** List screens / features / user journeys in prose and tie each to a **verified or Proposed** component.
+2. **Map each requirement** to a holon, template, or service node. Omit nodes with no concrete role.
+3. **Emit Mermaid**, then **\`<oasis_holon_diagram>\`**.
+
+The IDE renders the JSON block as a live interactive React Flow graph. Example structure (replace with tool-backed names):
 
 <oasis_holon_diagram>
 {

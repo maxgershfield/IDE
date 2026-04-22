@@ -8,9 +8,9 @@ This document defines what **full parity with a modern AI-first IDE** means for 
 
 | Area | Reference IDE behavior (OASIS_IDE target) | Status in OASIS IDE |
 |------|----------------------|---------------------|
-| **Agent loop** | Model emits **tool calls** → client **executes** → **tool results** → model continues until stop or max rounds | **Planned** — see Phase 1. Today: one-shot LLM text via `/api/ide/chat`. |
+| **Agent loop** | Model emits **tool calls** → client **executes** → **tool results** → model continues until stop or max rounds | **Shipped** (OpenAI/Grok + `runIdeAgentLoop`); see Phase 1 checkboxes. |
 | **Tools** | `read_file`, `list_dir`, `grep`, `run_terminal_cmd`, edits/diffs, optional web | **Started** — `AgentToolExecutor` (`read_file`, `list_directory`, `workspace_grep` / ripgrep); terminal/edits next. |
-| **Context** | Workspace root, selections, `@` / folder attach, optional index | **Partial** — workspace + referenced paths from Explorer. |
+| **Context** | Workspace root, selections, `@` / folder attach, optional index | **Partial** — workspace + referenced paths + active file + auto **AGENTS.md** / **`.cursor/rules`** + `.oasiside` rules + project memory (see `ideAgentInstructions.ts`). |
 | **Streaming** | Token stream + tool-call chunks | **Not started** |
 | **Edit UX** | Preview diff, Keep / Undo | **Placeholder** in Composer UI |
 
@@ -76,9 +76,11 @@ Implement in `AgentToolExecutor` (main process), with **path guard** (all paths 
 
 ### Phase 3 — Context engine
 
-- [ ] Editor selection + active file path in composer payload
-- [ ] Optional `.oasiside/rules.md` or `.OASIS_IDE/rules.md` injected into system prompt (bounded size; see Composer loader)
-- [ ] Optional lightweight index or `codebase_search` tool built on `rg` + `read_file`
+- [x] Active file path in agent payload (`ideAgentLoop` / Composer)
+- [x] `.oasiside/rules.md` or `.OASIS_IDE/rules.md` injected into context pack (bounded)
+- [x] Root + nested **AGENTS.md** (along path to active file) and **`.cursor/rules`** auto-loaded into context pack (bounded; `src/renderer/utils/ideAgentInstructions.ts`). Briefing: **`docs/IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md`**
+- [ ] Editor selection range in composer payload
+- [ ] Optional lightweight index or `codebase_search` tool built on `rg` + `read_file` (tool exists; background index UX still open)
 
 ---
 
@@ -122,9 +124,10 @@ Implement in `AgentToolExecutor` (main process), with **path guard** (all paths 
 
 ## References
 
+- **Intelligence + holonic + Cursor parity briefing:** `docs/IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md`
 - Workspace policy for agents: repo root `AGENTS.md` (root cause, no fake fallbacks)
 - Session handoff: `Docs/Devs/STAR_CLI_SessionHandoff.md` (if touching STAR/CLI)
 
 ---
 
-*Last updated: 2026-04-17 — Renamed from legacy parity doc; Agent turn API + Composer Agent mode + tool loop; see `IdeAgentController.cs`, `ideAgentLoop.ts`, `ChatInterface.tsx`.*
+*Last updated: 2026-04-22 — AGENTS.md + `.cursor/rules` auto-load in Composer context pack; see `ideAgentInstructions.ts` and `IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md`.*
