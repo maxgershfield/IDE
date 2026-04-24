@@ -1,0 +1,88 @@
+{
+  "id": "npc-with-voice",
+  "type": "mcp_invoke_sequence",
+  "description": "Create a STAR NPC holon and attach a live ElevenLabs conversational voice agent in one sequence. Demonstrates the STAR + ElevenLabs pipeline no other IDE has.",
+  "steps": [
+    {
+      "step": 1,
+      "tool": "elevenlabs_list_voices",
+      "description": "Browse available voice profiles to select one matching the NPC's personality before creating the agent.",
+      "arguments": {},
+      "notes": [
+        "Returns an array of { voice_id, name, labels } objects.",
+        "Filter by labels (e.g. 'deep', 'authoritative', 'raspy') to find a match.",
+        "Save the chosen voice_id for step 3."
+      ]
+    },
+    {
+      "step": 2,
+      "tool": "star_create_npc",
+      "description": "Register the NPC as a STAR holon linked to the logged-in Avatar.",
+      "arguments": {
+        "name": "{npcName}",
+        "description": "{npcBackstory}",
+        "role": "{npcRole}",
+        "personality": "{personalityTraits}"
+      },
+      "parameters": {
+        "{npcName}": "NPC display name (string)",
+        "{npcBackstory}": "Background, history, and context for AI generation (string)",
+        "{npcRole}": "In-game role, e.g. 'Corrupt Detective', 'Bar Owner', 'Street Fixer' (string)",
+        "{personalityTraits}": "Comma-separated personality traits used to tune dialogue and voice, e.g. 'intimidating, world-weary, clipped speech' (string)"
+      },
+      "notes": [
+        "Requires STAR WebAPI running and Avatar beam-in.",
+        "Returns { success: true, data: { id, name, ... } }.",
+        "Save the returned id as starHolonId for step 4."
+      ],
+      "example": {
+        "name": "Martinez",
+        "description": "A detective in his 40s who has seen too much. Works both sides of the law for the right price.",
+        "role": "Corrupt Detective",
+        "personality": "intimidating, world-weary, clipped speech, takes bribes"
+      }
+    },
+    {
+      "step": 3,
+      "tool": "elevenlabs_create_agent",
+      "description": "Create a live conversational ElevenLabs agent using the NPC's personality as the system prompt.",
+      "arguments": {
+        "name": "{npcName}",
+        "voice_id": "{voiceIdFromStep1}",
+        "system_prompt": "{systemPromptBuiltFromPersonality}"
+      },
+      "parameters": {
+        "{npcName}": "Must match the NPC name used in step 2",
+        "{voiceIdFromStep1}": "voice_id selected from elevenlabs_list_voices output",
+        "{systemPromptBuiltFromPersonality}": "In-character system prompt: 'You are {name}. {backstory}. Speak in {personality} style. Stay in character at all times.'"
+      },
+      "notes": [
+        "Requires ELEVENLABS_API_KEY set in the IDE main process env (Settings > Integrations).",
+        "Returns { agent_id, ... }.",
+        "Save agent_id alongside starHolonId in the workspace output file."
+      ]
+    },
+    {
+      "step": 4,
+      "tool": "write_file",
+      "description": "Persist the NPC's STAR holon ID and ElevenLabs agent_id to workspace so the game server can wire them in.",
+      "output_path": "npcs/{npcName.toLowerCase()}.json",
+      "output_shape": {
+        "name": "{npcName}",
+        "role": "{npcRole}",
+        "starHolonId": "{idFromStep2}",
+        "elevenLabsAgentId": "{agentIdFromStep3}",
+        "voiceId": "{voiceIdFromStep1}",
+        "createdAt": "{isoTimestamp}"
+      },
+      "notes": [
+        "This file is the contract between the IDE and the game server.",
+        "The server uses starHolonId to read personality/inventory via OASIS API.",
+        "The server uses elevenLabsAgentId to open a real-time voice session via ElevenLabs SDK."
+      ]
+    }
+  ],
+  "demo_flow_ref": "demo-flows.md#flow-1--create-an-npc-with-a-live-voice",
+  "agent_prompt_summary": "Use star_create_npc to register the NPC in STAR, then elevenlabs_create_agent to give them a voice. Save both IDs to npcs/{name}.json.",
+  "see_also": ["quest-chain.json", "nft-game-item.json"]
+}

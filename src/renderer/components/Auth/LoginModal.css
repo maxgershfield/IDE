@@ -1,0 +1,174 @@
+.login-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.login-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 340px;
+  max-width: 440px;
+  max-height: min(90vh, 640px);
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.login-modal-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  gap: 4px;
+}
+
+.login-modal-tab {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.login-modal-tab:hover {
+  color: var(--text-primary);
+}
+
+.login-modal-tab--active {
+  color: var(--accent, #569cd6);
+  border-bottom-color: var(--accent, #569cd6);
+  font-weight: 600;
+}
+
+.login-modal-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.login-modal-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.login-modal-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.login-modal-checkbox input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.login-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.login-modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.login-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+.login-modal-close:hover {
+  color: var(--text-primary);
+}
+
+.login-modal-form {
+  padding: 20px;
+}
+
+.login-modal-form label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.login-modal-form input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.login-modal-form input:focus {
+  outline: none;
+  border-color: var(--accent, #569cd6);
+}
+
+.login-modal-error {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #f14c4c;
+  background: rgba(241, 76, 76, 0.1);
+  border-radius: 4px;
+}
+
+.login-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.login-modal-actions button {
+  padding: 8px 16px;
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.login-modal-actions button[type='submit'] {
+  background: var(--accent, #569cd6);
+  border-color: var(--accent, #569cd6);
+  color: #fff;
+}
+
+.login-modal-actions button[type='submit']:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-modal-actions button:hover:not(:disabled) {
+  filter: brightness(1.1);
+}

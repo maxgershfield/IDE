@@ -1,0 +1,12 @@
+{
+  "id": "oapp-show",
+  "description": "Show full details of a single OAPP by name or OAPP id.",
+  "argv": ["star", "-n", "--json", "oapp", "show", "{name-or-id}"],
+  "parameters": {
+    "{name-or-id}": "OAPP name (string) or GUID id"
+  },
+  "notes": [
+    "Returns { success: true, data: { id, name, description, version, holons, zomes, ... } }.",
+    "Use the OAPP id from the data block when calling holon-create or zome operations."
+  ]
+}

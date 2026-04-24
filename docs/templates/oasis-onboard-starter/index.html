@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OASIS onboard (starter)</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>OASIS onboard</h1>
+        <p class="muted">
+          Avatar login, Solana wallet, NFT mint. Dev use: Vite proxy to ONODE
+          (see README).
+        </p>
+      </header>
+
+      <section class="card" id="login-section">
+        <h2>1. Authenticate</h2>
+        <form id="login-form">
+          <label>
+            Username
+            <input name="username" type="text" required autocomplete="username" />
+          </label>
+          <label>
+            Password
+            <input
+              name="password"
+              type="password"
+              required
+              autocomplete="current-password"
+            />
+          </label>
+          <button type="submit">Sign in</button>
+        </form>
+        <p id="login-error" class="error" hidden></p>
+      </section>
+
+      <section class="card" id="session-section" hidden>
+        <h2>Session</h2>
+        <p>
+          <strong>Avatar</strong> <code id="avatar-id"></code>
+        </p>
+        <p class="muted">
+          JWT is kept in <code>sessionStorage</code> (dev only). For production
+          use a BFF, not a long-lived client token.
+        </p>
+        <button type="button" id="logout-btn">Log out</button>
+      </section>
+
+      <section class="card" id="wallet-section" hidden>
+        <h2>2. Solana wallet</h2>
+        <p id="wallet-status" class="muted">Loading…</p>
+        <p><strong>Address</strong> <code id="wallet-address"></code></p>
+        <button type="button" id="ensure-wallet-btn">Create or refresh wallet</button>
+        <p id="wallet-error" class="error" hidden></p>
+      </section>
+
+      <section class="card" id="mint-section" hidden>
+        <h2>3. Mint test NFT (Solana SPL)</h2>
+        <form id="mint-form">
+          <label>
+            Title
+            <input name="title" type="text" value="OASIS starter" required />
+          </label>
+          <label>
+            Symbol
+            <input name="symbol" type="text" value="OST" maxlength="10" required />
+          </label>
+          <label>
+            JSON metadata URL
+            <input
+              name="jsonUrl"
+              type="url"
+              id="json-url"
+              required
+            />
+            <span class="hint"
+              >Must be fetchable by ONODE (use the bundled file below in dev, see
+              README).</span
+            >
+          </label>
+          <button type="submit">Mint (may take up to 2–3 min)</button>
+        </form>
+        <pre id="mint-output" class="out" hidden></pre>
+        <p id="mint-error" class="error" hidden></p>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

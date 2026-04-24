@@ -1,0 +1,244 @@
+.npc-voice-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding: 8px 10px 16px;
+  color: #cdd3de;
+  font-size: 12px;
+}
+
+/* ── Banner ──────────────────────────────────────────────────────────────── */
+.npc-banner {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.npc-banner-warn {
+  background: rgba(255, 200, 60, 0.12);
+  border: 1px solid rgba(255, 200, 60, 0.35);
+  color: #f0c040;
+}
+.npc-banner-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.npc-banner code {
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 10.5px;
+}
+
+/* ── Sections ────────────────────────────────────────────────────────────── */
+.npc-section {
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+}
+.npc-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+.npc-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.npc-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7e8a9a;
+  margin: 0 0 8px;
+}
+.npc-section-header .npc-section-title { margin-bottom: 0; }
+
+/* ── Voice Grid ──────────────────────────────────────────────────────────── */
+.npc-voice-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.npc-voice-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 6px;
+  padding: 7px 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background 0.12s, border-color 0.12s;
+  position: relative;
+}
+.npc-voice-card:hover { background: rgba(255,255,255,0.08); }
+.npc-voice-card.selected {
+  border-color: #4d8ef7;
+  background: rgba(77, 142, 247, 0.12);
+}
+.npc-voice-card-name {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #dde3ed;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 20px;
+}
+.npc-voice-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.npc-voice-tag {
+  font-size: 10px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: #8a96a8;
+  text-transform: capitalize;
+}
+.npc-play-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(77, 142, 247, 0.2);
+  border: 1px solid rgba(77, 142, 247, 0.4);
+  color: #4d8ef7;
+  font-size: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  transition: background 0.12s;
+}
+.npc-play-btn:hover { background: rgba(77, 142, 247, 0.35); }
+.npc-play-btn.playing {
+  background: rgba(77, 142, 247, 0.4);
+  color: #fff;
+}
+
+/* ── Form ────────────────────────────────────────────────────────────────── */
+.npc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.npc-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: #8a96a8;
+  font-weight: 500;
+}
+.npc-input,
+.npc-select,
+.npc-textarea {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  color: #cdd3de;
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  transition: border-color 0.12s;
+}
+.npc-input:focus,
+.npc-select:focus,
+.npc-textarea:focus {
+  border-color: #4d8ef7;
+}
+.npc-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238a96a8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+.npc-textarea { min-height: 60px; }
+
+.npc-selected-voice {
+  font-size: 11px;
+  color: #7e8a9a;
+  margin: 0;
+}
+.npc-selected-voice strong { color: #b0bdd0; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.npc-btn {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  color: #cdd3de;
+  font-size: 11.5px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+  font-family: inherit;
+}
+.npc-btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
+.npc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.npc-btn-sm { padding: 3px 7px; font-size: 11px; }
+.npc-btn-primary {
+  background: rgba(77, 142, 247, 0.2);
+  border-color: rgba(77, 142, 247, 0.5);
+  color: #82b4ff;
+  font-weight: 500;
+}
+.npc-btn-primary:hover:not(:disabled) { background: rgba(77, 142, 247, 0.32); }
+.npc-btn-danger {
+  background: rgba(220, 60, 60, 0.12);
+  border-color: rgba(220, 60, 60, 0.3);
+  color: #e07070;
+}
+.npc-btn-danger:hover { background: rgba(220, 60, 60, 0.22); }
+
+/* ── Created Agents List ─────────────────────────────────────────────────── */
+.npc-agents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.npc-agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+.npc-agent-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.npc-agent-row-info strong { font-size: 12px; color: #dde3ed; }
+.npc-agent-row-meta { font-size: 10.5px; color: #7e8a9a; }
+.npc-agent-id { font-size: 10px; color: #565e6e; font-family: monospace; }
+.npc-agent-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* ── Status messages ─────────────────────────────────────────────────────── */
+.npc-hint { color: #565e6e; font-size: 11.5px; margin: 4px 0; }
+.npc-error { color: #e07070; font-size: 11.5px; margin: 4px 0; }
+.npc-success { color: #6adc8a; font-size: 11.5px; margin: 4px 0; }

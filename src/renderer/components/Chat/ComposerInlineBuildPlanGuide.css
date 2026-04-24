@@ -1,0 +1,211 @@
+/* Build plan guide — embeds inside the Composer column */
+
+.composer-build-guide {
+  border-color: rgba(139, 211, 147, 0.35);
+}
+
+.composer-build-guide-header {
+  background: rgba(139, 211, 147, 0.06);
+}
+
+.composer-build-guide-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-build-guide-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: rgba(139, 211, 147, 0.15);
+  color: #8bd393;
+  flex-shrink: 0;
+}
+
+/* ── Intent phase ── */
+
+.composer-build-guide-intent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.composer-build-guide-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-build-guide-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 211, 147, 0.3);
+  background: rgba(139, 211, 147, 0.07);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.composer-build-guide-chip:hover {
+  background: rgba(139, 211, 147, 0.16);
+  border-color: rgba(139, 211, 147, 0.55);
+  color: var(--text-primary);
+}
+
+.composer-build-guide-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer-build-guide-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.composer-build-guide-textarea:focus {
+  outline: none;
+  border-color: rgba(139, 211, 147, 0.5);
+}
+
+.composer-build-guide-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.composer-build-guide-doc-badge {
+  font-size: 11px;
+  color: #8bd393;
+  flex: 1;
+}
+
+.composer-build-guide-doc-hint {
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.composer-build-guide-err {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-error, #fc8181);
+}
+
+/* ── Plan ready phase ── */
+
+.composer-build-guide-plan-ready {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.composer-build-guide-plan-label {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.composer-build-guide-plan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-build-guide-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.composer-build-guide-plan-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.composer-build-guide-plan-chip.is-primary {
+  background: rgba(139, 211, 147, 0.15);
+  border-color: rgba(139, 211, 147, 0.45);
+  color: #8bd393;
+  font-weight: 600;
+}
+
+.composer-build-guide-plan-chip.is-primary:hover {
+  background: rgba(139, 211, 147, 0.25);
+}
+
+.composer-build-guide-plan-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Status text ── */
+
+.composer-build-guide-status-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex: 1;
+  padding: 10px 12px;
+}
+
+/* ── Typing dots ── */
+
+.composer-build-guide-typing {
+  display: flex;
+  gap: 4px;
+  padding: 4px 4px 0;
+  align-items: center;
+}
+
+.composer-build-guide-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(139, 211, 147, 0.55);
+  animation: buildGuidePulse 1.2s ease-in-out infinite;
+}
+
+.composer-build-guide-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.composer-build-guide-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes buildGuidePulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50%       { opacity: 1;   transform: scale(1.1);  }
+}

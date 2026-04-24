@@ -1,0 +1,54 @@
+.non-electron-banner {
+  flex-shrink: 0;
+  background: #3d1f1f;
+  border-bottom: 1px solid #8b3a3a;
+  color: #f0d0d0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.non-electron-banner-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 14px;
+}
+
+.non-electron-banner-inner strong {
+  color: #fff;
+  white-space: nowrap;
+}
+
+.non-electron-banner-inner > span:not(.non-electron-banner-hint) {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.non-electron-banner-hint {
+  flex-basis: 100%;
+  opacity: 0.92;
+  font-size: 12px;
+}
+
+.non-electron-banner-hint code {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.non-electron-banner-dismiss {
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.non-electron-banner-dismiss:hover {
+  background: rgba(255, 255, 255, 0.14);
+}

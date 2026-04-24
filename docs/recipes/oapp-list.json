@@ -1,0 +1,25 @@
+{
+  "id": "oapp-list",
+  "description": "List all OAPPs for the currently beamed-in avatar.",
+  "argv": ["star", "-n", "--json", "oapp", "list"],
+  "notes": [
+    "Requires avatar beam-in. Combine with --username / --password flags or STAR_CLI_USERNAME/PASSWORD env vars.",
+    "Returns { success: true, data: [ { id, name, description, version, ... }, ... ] }.",
+    "Use 'oapp list installed' to show only installed OAPPs, 'oapp list published' for published ones."
+  ],
+  "variants": [
+    {
+      "label": "Installed OAPPs only",
+      "argv": ["star", "-n", "--json", "oapp", "list", "installed"]
+    },
+    {
+      "label": "Published OAPPs only",
+      "argv": ["star", "-n", "--json", "oapp", "list", "published"]
+    },
+    {
+      "label": "Search OAPPs by name",
+      "argv": ["star", "-n", "--json", "oapp", "search", "{query}"],
+      "parameters": { "{query}": "Search term (string)" }
+    }
+  ]
+}

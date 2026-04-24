@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IDE Pass lockups (NFT SKU variants)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /*
+      Edit variants in PASS_VARIANTS (script block): tier line, accent, brandfetch domain.
+      Brandfetch CDN: https://cdn.brandfetch.io/domain/{domain}?c={clientId}
+      Keep in sync with src/shared/entitlementSlotsCatalog.ts + docs/NFT_ENTITLEMENT_SLOTS_SPEC.md §6
+    */
+    :root {
+      /* Neutral near-black so logo PNG (black mat) matches card + cyan sheen */
+      --card-bg: #060607;
+      --card-fg: #e9ecf1;
+      --card-muted: rgba(233, 236, 241, 0.72);
+      --card-faint: rgba(233, 236, 241, 0.45);
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+      --sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+      --card-radius: 18px;
+      --pad-x: 18px;
+      --pad-y: 16px;
+      --tier-size: clamp(0.72rem, 2.1vw, 0.95rem);
+      --name-size: clamp(1.05rem, 3.2vw, 1.35rem);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 28px 16px 48px;
+      background: radial-gradient(1200px 800px at 50% 12%, #0f172a 0%, #020617 55%, #000 100%);
+      color: var(--card-fg);
+      font-family: var(--sans);
+    }
+
+    body.pass-embed-ide {
+      padding: 12px 10px 20px;
+    }
+
+    body.pass-embed-ide.pass-single-mode {
+      padding: 8px 6px 12px;
+    }
+
+    body.pass-embed-ide .page-head {
+      display: none;
+    }
+
+    .page-head {
+      max-width: 1200px;
+      margin: 0 auto 28px;
+      text-align: center;
+    }
+
+    .page-head h1 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0 0 10px;
+      color: #e2e8f0;
+    }
+
+    .page-head p {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      line-height: 1.55;
+      color: rgba(148, 163, 184, 0.95);
+      max-width: 52rem;
+      margin: 0 auto;
+    }
+
+    .pass-grid {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 28px 20px;
+      align-items: start;
+    }
+
+    /* Single-SKU mode (e.g. IDE sidebar iframe): one portrait pass, centered */
+    body.pass-single-mode .pass-grid {
+      grid-template-columns: 1fr;
+      max-width: 340px;
+      justify-items: center;
+    }
+
+    body.pass-single-mode .pass-wrap {
+      width: 100%;
+      max-width: 300px;
+    }
+
+    .pass-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    /* 3D: vertical-axis spin (Y), full front/back faces */
+    .pass-3d-scene {
+      width: 100%;
+      max-width: 320px;
+      perspective: 1100px;
+      perspective-origin: 50% 45%;
+    }
+
+    .pass-3d-track {
+      position: relative;
+      width: 100%;
+      transform-style: preserve-3d;
+      animation: pass-spin-y 16s linear infinite;
+      animation-delay: var(--spin-delay, 0s);
+      will-change: transform;
+    }
+
+    .pass-3d-face--front {
+      position: relative;
+      z-index: 1;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      transform: translateZ(3px);
+    }
+
+    .pass-3d-face--back {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      border-radius: var(--card-radius);
+      background: linear-gradient(165deg, #0f172a 0%, #030712 55%, #060607 100%);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      box-shadow:
+        inset 0 0 60px rgba(0, 0, 0, 0.65),
+        0 0 24px rgba(56, 189, 248, 0.12);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      transform: rotateY(180deg) translateZ(3px);
+    }
+
+    .pass-back-inner {
+      text-align: center;
+      width: 100%;
+    }
+
+    .pass-back-logo {
+      margin-bottom: 0.5rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .pass-back-sku {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      color: rgba(148, 163, 184, 0.95);
+      word-break: break-all;
+      margin-bottom: 1rem;
+    }
+
+    .pass-back-stripe {
+      height: 36px;
+      border-radius: 4px;
+      background: repeating-linear-gradient(
+        90deg,
+        #0f172a 0px,
+        #0f172a 4px,
+        #1e293b 4px,
+        #1e293b 8px
+      );
+      opacity: 0.9;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    .pass-3d-scene:hover .pass-3d-track {
+      animation-play-state: paused;
+    }
+
+    @keyframes pass-spin-y {
+      from {
+        transform: rotateY(0deg);
+      }
+      to {
+        transform: rotateY(360deg);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pass-3d-track {
+        animation: none;
+      }
+
+      .pass-3d-face--back {
+        display: none;
+      }
+
+      .pass-3d-face--front {
+        transform: none;
+      }
+    }
+
+    .sku-pill {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(148, 163, 184, 0.95);
+      margin-bottom: 10px;
+      text-align: center;
+      word-break: break-all;
+      max-width: 100%;
+    }
+
+    .lanyard-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: -5px;
+      z-index: 2;
+      transform: scale(0.88);
+      transform-origin: top center;
+    }
+
+    .strap {
+      width: 104px;
+      height: 12px;
+      border-radius: 6px;
+      background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.55) 0%,
+        rgba(255, 255, 255, 0.2) 45%,
+        rgba(255, 255, 255, 0.08) 100%
+      );
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      position: relative;
+    }
+
+    .strap::after {
+      content: "";
+      position: absolute;
+      inset: 2px 10px;
+      border-radius: 5px;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    }
+
+    .hole-punch {
+      width: 40px;
+      height: 22px;
+      margin-top: -2px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: radial-gradient(circle at 50% 30%, #1e293b 0%, #020617 70%);
+      box-shadow:
+        inset 0 1px 2px rgba(255, 255, 255, 0.12),
+        0 4px 14px rgba(0, 0, 0, 0.5);
+    }
+
+    .rivet {
+      width: 16px;
+      height: 16px;
+      margin-top: -10px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 25%, #f8fafc 0%, #94a3b8 45%, #475569 100%);
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.45),
+        inset 0 -1px 1px rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .pass-card {
+      --glow-outer: rgba(56, 189, 248, 0.42);
+      --glow-inner: rgba(125, 211, 252, 0.1);
+      --edge: rgba(147, 197, 253, 0.32);
+      --sheen-a: rgba(56, 189, 248, 0.08);
+      position: relative;
+      width: 100%;
+      max-width: 320px;
+      margin: 0 auto;
+      aspect-ratio: 3164 / 4348;
+      border-radius: var(--card-radius);
+      background: var(--card-bg);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.06),
+        0 0 32px var(--glow-outer),
+        0 0 96px color-mix(in srgb, var(--glow-outer) 25%, transparent),
+        inset 0 0 0 1px var(--edge),
+        inset 0 0 72px var(--glow-inner);
+      padding: calc(var(--pad-y) + 6px) var(--pad-x) var(--pad-y);
+      overflow: hidden;
+    }
+
+    .pass-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.06) 0%, transparent 42%),
+        linear-gradient(320deg, var(--sheen-a) 0%, transparent 55%);
+      mix-blend-mode: screen;
+      opacity: 0.82;
+    }
+
+    .grain {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      opacity: var(--grain-opacity, 0.065);
+      mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    }
+
+    .pass-inner {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .brand-row {
+      position: relative;
+      z-index: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin: -4px -6px 0.35rem;
+      padding: 10px 10px 12px;
+      flex-wrap: wrap;
+      border-radius: 14px;
+      /* Same gradient family as .pass-3d-face--back so screen-blended logo matches */
+      isolation: isolate;
+    }
+
+    .brand-row::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      z-index: 0;
+      pointer-events: none;
+      background: linear-gradient(165deg, #0f172a 0%, #030712 52%, rgba(6, 6, 7, 0.88) 100%);
+      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.1);
+    }
+
+    .brand-row > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* oasis-logo.png from oasisweb4.com-repo (resized for web) */
+    .oasis-logo {
+      display: block;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .oasis-logo-hero-wrap {
+      display: inline-flex;
+      line-height: 0;
+      filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.1));
+    }
+
+    .oasis-logo--hero {
+      height: 34px;
+      width: auto;
+      max-width: min(100%, 200px);
+      /* Blend only against .brand-row::before (not uneven card layers) */
+      mix-blend-mode: screen;
+    }
+
+    .oasis-logo--back {
+      width: min(92%, 200px);
+      height: auto;
+      margin: 0 auto;
+      opacity: 0.98;
+      mix-blend-mode: screen;
+    }
+
+    .brand-join {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--card-faint);
+      opacity: 0.85;
+    }
+
+    .partner-mark {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+      padding: 4px;
+    }
+
+    .tm {
+      font-family: var(--mono);
+      font-size: 8px;
+      letter-spacing: 0.02em;
+      color: var(--card-faint);
+      align-self: flex-start;
+      margin-top: 4px;
+    }
+
+    .tier {
+      text-align: center;
+      font-weight: 700;
+      font-size: var(--tier-size);
+      letter-spacing: 0.2em;
+      text-indent: 0.2em;
+      text-transform: uppercase;
+      color: #f1f5f9;
+      margin: 0.2rem 0 0.35rem;
+      line-height: 1.2;
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 10px;
+      font-family: var(--mono);
+      font-size: 7.5px;
+      line-height: 1.45;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--card-muted);
+    }
+
+    .meta-col p {
+      margin: 0;
+    }
+
+    .rule {
+      height: 1px;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(148, 163, 184, 0.4) 15%,
+        rgba(148, 163, 184, 0.4) 85%,
+        transparent
+      );
+      margin: 0.2rem 0 0.35rem;
+    }
+
+    .id-block {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.25rem;
+      padding: 0.1rem 0 0.35rem;
+      min-height: 0;
+    }
+
+    .handle {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--card-faint);
+    }
+
+    .display-name {
+      font-weight: 700;
+      font-size: var(--name-size);
+      letter-spacing: 0.03em;
+      line-height: 1.05;
+      text-transform: uppercase;
+      color: #f8fafc;
+      text-shadow:
+        0 0 1px rgba(255, 255, 255, 0.3),
+        0 2px 0 rgba(0, 0, 0, 0.85),
+        0 8px 18px rgba(0, 0, 0, 0.35);
+      filter: contrast(1.06);
+    }
+
+    .footer {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: end;
+      margin-top: auto;
+      padding-top: 0.35rem;
+    }
+
+    .qr {
+      width: 56px;
+      height: 56px;
+      border-radius: 4px;
+      background: #f8fafc;
+      padding: 4px;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+    }
+
+    .qr svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .footer-copy {
+      font-family: var(--mono);
+      font-size: 7.5px;
+      line-height: 1.45;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--card-muted);
+      text-align: right;
+    }
+
+    .footer-copy .ref {
+      margin-bottom: 0.25rem;
+      color: var(--card-fg);
+    }
+
+    .subbrand {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-top: 0.3rem;
+    }
+
+    .subbrand span {
+      font-family: var(--sans);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #e2e8f0;
+      line-height: 1.2;
+    }
+  </style>
+</head>
+<body>
+  <header class="page-head">
+    <h1>IDE pass lockups (catalog NFTs)</h1>
+    <p>
+      One card per SKU from <code>entitlementSlotsCatalog.ts</code>. Accents vary by category; chain and integration passes add a
+      <strong>Brandfetch</strong> mark next to the OASIS logo when a domain is set. Cards use CSS 3D and spin on the vertical axis;
+      hover a card to pause. When this page runs inside <strong>OASIS IDE</strong>, your logged-in avatar username fills the handle and
+      display name on every pass. Optional query overrides: <code>?displayName=…&amp;handle=…</code>.
+      Replace <code>BRANDFETCH_CLIENT</code> in the script if your CDN key changes.
+    </p>
+  </header>
+
+  <div id="pass-grid" class="pass-grid"></div>
+
+  <script>
+    (function () {
+      const BRANDFETCH_CLIENT = "1ida8ggQZDf64bgCqxt";
+      /** Same asset as oasisweb4.com-repo/oasis-logo.png (400px wide export in public/) */
+      const OASIS_LOGO = "/oasis-logo.png";
+
+      /** @param {string} domain e.g. solana.com */
+      function brandfetchUrl(domain) {
+        return "https://cdn.brandfetch.io/domain/" + encodeURIComponent(domain) + "?c=" + encodeURIComponent(BRANDFETCH_CLIENT);
+      }
+
+      /**
+       * Mirrors IDE catalog: subtle accent via CSS variables; optional Brandfetch domain for logo.
+       * brandDomain: null = no partner mark beside the OASIS logo.
+       */
+      const PASS_VARIANTS = [
+        {
+          skuId: "founder-annual",
+          tierLine: "Founder Annual",
+          displayName: "Founder Pass",
+          handle: "@founder.yearly",
+          refSuffix: "FA-01",
+          accent: { glow: "56, 189, 248", inner: "125, 211, 252", edge: "147, 197, 253", sheen: "56, 189, 248", grain: 0.065 },
+          brandDomain: null,
+          metaLeft: ["Pass / Annual", "IDE commercial tier"],
+          metaRight: ["Web / oasis.io", "docs.oasis.io"],
+          footerLine: "OASIS IDE / Founder program",
+        },
+        {
+          skuId: "founder-lifetime-ga",
+          tierLine: "Lifetime GA",
+          displayName: "Founder GA",
+          handle: "@founder.ga",
+          refSuffix: "FL-GA",
+          accent: { glow: "45, 212, 191", inner: "94, 234, 212", edge: "110, 231, 210", sheen: "45, 212, 191", grain: 0.07 },
+          brandDomain: null,
+          metaLeft: ["Entitlement / GA set", "Grandfathered launch"],
+          metaRight: ["Web / oasis.io", "status.oasis.io"],
+          footerLine: "OASIS IDE / GA baseline",
+        },
+        {
+          skuId: "solana-builder-pass",
+          tierLine: "Solana Builder",
+          displayName: "Builder",
+          handle: "@solana.builder",
+          refSuffix: "SOL-B",
+          accent: { glow: "167, 139, 250", inner: "196, 181, 253", edge: "192, 132, 252", sheen: "167, 139, 250", grain: 0.068 },
+          brandDomain: "solana.com",
+          metaLeft: ["Chain / Solana", "Mint + defaults"],
+          metaRight: ["Rpc / mainnet-beta", "MCP mint scope"],
+          footerLine: "Solana-scoped IDE actions",
+        },
+        {
+          skuId: "evm-core-pass",
+          tierLine: "EVM Core",
+          displayName: "EVM Tier A",
+          handle: "@evm.core",
+          refSuffix: "EVM-A",
+          accent: { glow: "129, 140, 248", inner: "165, 180, 252", edge: "129, 140, 248", sheen: "99, 102, 241", grain: 0.064 },
+          brandDomain: "ethereum.org",
+          metaLeft: ["Chains / Tier A", "Eth Base Arb Poly…"],
+          metaRight: ["Workflow / oasis_mint", "EVM MCP scope"],
+          footerLine: "EVM mint workflows (tier A)",
+        },
+        {
+          skuId: "geonft-studio-pass",
+          tierLine: "GeoNFT Studio",
+          displayName: "Geo Author",
+          handle: "@geo.studio",
+          refSuffix: "GEO-1",
+          accent: { glow: "52, 211, 153", inner: "110, 231, 183", edge: "52, 211, 153", sheen: "16, 185, 129", grain: 0.072 },
+          brandDomain: "mapbox.com",
+          metaLeft: ["Surface / map + geo", "Place & query"],
+          metaRight: ["Tools / oasis_geo_*", "Map-heavy recipes"],
+          footerLine: "Geo-anchored NFT authoring",
+        },
+        {
+          skuId: "starnet-publisher-pass",
+          tierLine: "STARNET Publish",
+          displayName: "Publisher",
+          handle: "@starnet.pub",
+          refSuffix: "SN-P",
+          accent: { glow: "244, 114, 182", inner: "251, 207, 232", edge: "244, 114, 182", sheen: "236, 72, 153", grain: 0.066 },
+          brandDomain: null,
+          metaLeft: ["Scope / STARNET", "OApps + activation"],
+          metaRight: ["Writes / star_publish", "star_activate_oapp"],
+          footerLine: "Publish & activate on STARNET",
+        },
+        {
+          skuId: "game-content-studio-pass",
+          tierLine: "Game Studio",
+          displayName: "Content Lead",
+          handle: "@game.studio",
+          refSuffix: "GS-01",
+          accent: { glow: "251, 191, 36", inner: "253, 224, 71", edge: "251, 191, 36", sheen: "245, 158, 11", grain: 0.069 },
+          brandDomain: null,
+          metaLeft: ["Holons / quest NPC item", "Mutating star_*"],
+          metaRight: ["Mode / write vs read", "Game recipes"],
+          footerLine: "Quest & game content writes",
+        },
+        {
+          skuId: "voice-studio-pass",
+          tierLine: "Voice Studio",
+          displayName: "Voice Lead",
+          handle: "@voice.studio",
+          refSuffix: "VOX-1",
+          accent: { glow: "248, 113, 113", inner: "252, 165, 165", edge: "248, 113, 113", sheen: "239, 68, 68", grain: 0.067 },
+          brandDomain: "elevenlabs.io",
+          metaLeft: ["Integration / ElevenLabs", "TTS + agents"],
+          metaRight: ["MCP / voice tools", "Tiered quotas"],
+          footerLine: "Voice tools via MCP",
+        },
+        {
+          skuId: "unity-bridge-pass",
+          tierLine: "Unity Bridge",
+          displayName: "Unity Dev",
+          handle: "@unity.bridge",
+          refSuffix: "UNY-1",
+          accent: { glow: "148, 163, 184", inner: "203, 213, 225", edge: "148, 163, 184", sheen: "100, 116, 139", grain: 0.063 },
+          brandDomain: "unity.com",
+          metaLeft: ["Bridge / Editor", "Scene + play mode"],
+          metaRight: ["Tools / unity_* MCP", "Components API"],
+          footerLine: "Unity Editor MCP bridge",
+        },
+        {
+          skuId: "partner-season-badge",
+          tierLine: "Partner Season",
+          displayName: "Season",
+          handle: "@partner.drop",
+          refSuffix: "SEA-1",
+          accent: { glow: "251, 191, 36", inner: "253, 230, 138", edge: "234, 179, 8", sheen: "202, 138, 4", grain: 0.075 },
+          brandDomain: null,
+          metaLeft: ["Badge / seasonal", "Cosmetic + perks"],
+          metaRight: ["Sku / optional", "Bundles TBD"],
+          footerLine: "Community & seasonal perks",
+        },
+      ];
+
+      /** Deterministic mini QR tweak from skuId */
+      function qrSvg(skuId) {
+        var h = 0;
+        for (var i = 0; i < skuId.length; i++) h = (h * 31 + skuId.charCodeAt(i)) >>> 0;
+        var o = h % 3;
+        var x1 = 5 + (o % 2);
+        var y1 = 9 + ((o + 1) % 2);
+        return (
+          '<svg viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">' +
+          '<rect width="21" height="21" fill="#0f172a"/>' +
+          '<g fill="#f8fafc">' +
+          '<rect x="1" y="1" width="7" height="7"/>' +
+          '<rect x="13" y="1" width="7" height="7"/>' +
+          '<rect x="1" y="13" width="7" height="7"/>' +
+          '<rect x="9" y="9" width="3" height="3"/>' +
+          '<rect x="13" y="13" width="2" height="2"/>' +
+          '<rect x="17" y="17" width="2" height="2"/>' +
+          '<rect x="17" y="13" width="2" height="2"/>' +
+          '<rect x="13" y="17" width="2" height="2"/>' +
+          '<rect x="' +
+          x1 +
+          '" y="' +
+          y1 +
+          '" width="1" height="1"/>' +
+          "</g></svg>"
+        );
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function oasisHeroImg() {
+        return (
+          '<span class="oasis-logo-hero-wrap">' +
+          '<img class="oasis-logo oasis-logo--hero" src="' +
+          OASIS_LOGO +
+          '" alt="OASIS" width="200" height="44" decoding="async" />' +
+          "</span>"
+        );
+      }
+
+      function oasisBackImg() {
+        return (
+          '<img class="oasis-logo oasis-logo--back" src="' +
+          OASIS_LOGO +
+          '" alt="OASIS" width="200" height="44" decoding="async" />'
+        );
+      }
+
+      /** Filled from Electron auth, URL params, or postMessage (parent IDE iframe). */
+      var passIdentity = { displayName: null, handle: null };
+
+      function formatDisplayNameFromUsername(username) {
+        var u = String(username).replace(/^@/, "");
+        return u
+          .split(/[._\\s-]+/)
+          .filter(function (x) {
+            return x.length > 0;
+          })
+          .map(function (p) {
+            return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+          })
+          .join(" ");
+      }
+
+      async function resolvePassUser() {
+        passIdentity = { displayName: null, handle: null };
+        try {
+          if (window.electronAPI && typeof window.electronAPI.authGetStatus === "function") {
+            var s = await window.electronAPI.authGetStatus();
+            if (s && s.loggedIn && s.username) {
+              passIdentity.displayName = formatDisplayNameFromUsername(s.username);
+              passIdentity.handle = "@" + String(s.username).replace(/^@/, "");
+            }
+          }
+        } catch (e) {}
+
+        var p = new URLSearchParams(window.location.search);
+        var urlDn = p.get("displayName");
+        var urlH = p.get("handle");
+        if (urlDn) passIdentity.displayName = urlDn;
+        if (urlH) passIdentity.handle = urlH;
+      }
+
+      function buildPassGrid() {
+        var grid = document.getElementById("pass-grid");
+        if (!grid) return;
+        grid.innerHTML = "";
+
+        var variants = getVariantsForPage();
+        variants.forEach(function (v, i) {
+        var displayName = passIdentity.displayName || v.displayName;
+        var handle = passIdentity.handle || v.handle;
+        var a = v.accent;
+
+        var cardStyle =
+          "--glow-outer: rgba(" +
+          a.glow +
+          ", 0.44); --glow-inner: rgba(" +
+          a.inner +
+          ", 0.11); --edge: rgba(" +
+          a.edge +
+          ", 0.34); --sheen-a: rgba(" +
+          a.sheen +
+          ", 0.09); --grain-opacity: " +
+          a.grain +
+          ";";
+
+        var partnerHtml = "";
+        if (v.brandDomain) {
+          partnerHtml =
+            '<span class="brand-join" aria-hidden="true">+</span>' +
+            '<img class="partner-mark" src="' +
+            brandfetchUrl(v.brandDomain) +
+            '" alt="" width="40" height="40" loading="lazy" />';
+        }
+
+        var wrap = document.createElement("div");
+        wrap.className = "pass-wrap";
+        var spinDelay = i * 0.45;
+        wrap.innerHTML =
+          '<div class="sku-pill">' +
+          escapeHtml(v.skuId) +
+          "</div>" +
+          '<div class="pass-3d-scene">' +
+          '<div class="pass-3d-track" style="--spin-delay: ' +
+          spinDelay +
+          's">' +
+          '<div class="pass-3d-face pass-3d-face--front">' +
+          '<div class="lanyard-stack" aria-hidden="true">' +
+          '<div class="strap"></div><div class="hole-punch"></div><div class="rivet"></div></div>' +
+          '<article class="pass-card" style="' +
+          cardStyle +
+          '" aria-label="' +
+          escapeHtml(v.tierLine + " pass") +
+          '">' +
+          '<div class="grain" aria-hidden="true"></div>' +
+          '<div class="pass-inner">' +
+          '<div class="brand-row">' +
+          oasisHeroImg() +
+          partnerHtml +
+          '<span class="tm">TM</span></div>' +
+          '<h2 class="tier">' +
+          escapeHtml(v.tierLine) +
+          "</h2>" +
+          '<div class="meta-row">' +
+          '<div class="meta-col">' +
+          "<p>" +
+          escapeHtml(v.metaLeft[0]) +
+          "</p><p>" +
+          escapeHtml(v.metaLeft[1]) +
+          "</p></div>" +
+          '<div class="meta-col" style="text-align:right">' +
+          "<p>" +
+          escapeHtml(v.metaRight[0]) +
+          "</p><p>" +
+          escapeHtml(v.metaRight[1]) +
+          "</p></div></div>" +
+          '<div class="rule" aria-hidden="true"></div>' +
+          '<div class="id-block">' +
+          '<div class="handle">' +
+          escapeHtml(handle) +
+          "</div>" +
+          '<div class="display-name">' +
+          escapeHtml(displayName) +
+          "</div></div>" +
+          '<div class="footer">' +
+          '<div class="qr" aria-hidden="true">' +
+          qrSvg(v.skuId) +
+          "</div>" +
+          '<div class="footer-copy">' +
+          '<div class="ref">Reference ID / ' +
+          escapeHtml(v.refSuffix) +
+          "</div>" +
+          "<div>" +
+          escapeHtml(v.footerLine) +
+          "</div>" +
+          '<div class="subbrand">' +
+          "<span>OASIS IDE Pass</span></div></div></div></div></article></div>" +
+          '<div class="pass-3d-face pass-3d-face--back" aria-hidden="true">' +
+          '<div class="pass-back-inner">' +
+          '<div class="pass-back-logo">' +
+          oasisBackImg() +
+          "</div>" +
+          '<div class="pass-back-sku">' +
+          escapeHtml(v.skuId) +
+          "</div>" +
+          '<div class="pass-back-stripe"></div></div></div></div>';
+
+        grid.appendChild(wrap);
+      });
+      }
+
+      function getVariantsForPage() {
+        var sku = new URLSearchParams(window.location.search).get("skuId");
+        if (!sku || !String(sku).trim()) return PASS_VARIANTS;
+        var want = String(sku).trim();
+        var out = PASS_VARIANTS.filter(function (v) {
+          return v.skuId === want;
+        });
+        return out.length ? out : PASS_VARIANTS;
+      }
+
+      async function initPassPage() {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get("embed") === "1") {
+          document.body.classList.add("pass-embed-ide");
+        }
+        if (params.get("skuId") && String(params.get("skuId")).trim()) {
+          document.body.classList.add("pass-single-mode");
+        }
+        await resolvePassUser();
+        buildPassGrid();
+      }
+
+      window.addEventListener("message", function (ev) {
+        var d = ev.data;
+        if (!d || d.type !== "oasis-pass-identity") return;
+        passIdentity = {
+          displayName: d.displayName ? String(d.displayName) : null,
+          handle: d.handle ? String(d.handle) : null,
+        };
+        buildPassGrid();
+      });
+
+      void initPassPage();
+    })();
+  </script>
+</body>
+</html>

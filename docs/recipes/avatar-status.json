@@ -1,0 +1,65 @@
+{
+  "id": "avatar-status",
+  "type": "mcp_invoke_sequence",
+  "description": "Check the logged-in Avatar's identity, karma, wallet, and holons created in the current workspace session. Shows that OASIS IDE keeps a living, permanent record of everything you build — not just files in a folder.",
+  "notes": [
+    "This is a read-only sequence. No mutations.",
+    "It is safe to run at any time — call it as a 'health check + orientation' at the start of a session.",
+    "The oasis_search_holons step scopes to holons tagged with oasis.ide.* metadata, which covers everything the IDE Composer creates (NPC holons, quest holons, chat sessions, etc.)."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "tool": "oasis_health_check",
+      "description": "Confirm ONODE is reachable before making identity queries.",
+      "arguments": {},
+      "notes": [
+        "Returns { healthy: true } or an error.",
+        "If this fails, ONODE is not running. Check Settings > Integrations and verify OASIS_API_URL."
+      ]
+    },
+    {
+      "step": 2,
+      "tool": "oasis_get_avatar_detail",
+      "description": "Retrieve the logged-in Avatar's full profile: level, karma, wallet addresses, username, join date.",
+      "arguments": {},
+      "notes": [
+        "Uses the JWT from the current IDE session — no credentials needed.",
+        "Returns { id, username, level, karmaScore, wallets: [...], createdDate, ... }.",
+        "If this returns 401, the session has expired — re-login in Settings > Avatar."
+      ]
+    },
+    {
+      "step": 3,
+      "tool": "oasis_search_holons",
+      "description": "Find all holons created by this Avatar in the current workspace session today.",
+      "arguments": {
+        "metadataKey": "oasis.ide",
+        "createdAfter": "{todayIsoDate}"
+      },
+      "parameters": {
+        "{todayIsoDate}": "ISO date string for today's date at midnight UTC, e.g. '2026-04-15T00:00:00Z'"
+      },
+      "notes": [
+        "Returns an array of holons: [{ id, name, createdDate, metadata, ... }].",
+        "Covers chat session holons, NPC holons (from npc-with-voice flows), quest holons (from quest-chain flows), and any other holons the agent created.",
+        "Broaden the filter by removing createdAfter to see all-time history for this Avatar.",
+        "If the array is empty, no holons have been created from this IDE session yet — that is expected for a fresh workspace."
+      ]
+    },
+    {
+      "step": 4,
+      "description": "Compose a human-readable summary from steps 2 and 3 output.",
+      "output_format": "Avatar summary card: username, level, karma score, wallet count, holons created today (count + names), and a one-sentence interpretation of what the session has produced.",
+      "notes": [
+        "This step is for the agent to summarise — no tool call needed.",
+        "Example output: 'You are StellarCreator (Level 12, Karma 847). You have 2 wallets. Today you created 4 holons: Martinez NPC, Meridian Job quest arc, Meridian Plasma Rifle item, and 1 chat session.'"
+      ]
+    }
+  ],
+  "use_as_session_opener": true,
+  "session_opener_prompt": "Show me my current OASIS Avatar status. Use oasis_get_avatar_detail to get my level, karma score, and wallet addresses. Then use oasis_search_holons to find holons I have created in this workspace today (metadata key 'oasis.ide'). Summarise: who I am, what I have built today, and what my karma score is.",
+  "demo_flow_ref": "demo-flows.md#flow-5--check-your-avatar-status",
+  "agent_prompt_summary": "Call oasis_get_avatar_detail for identity + karma, then oasis_search_holons with metadataKey 'oasis.ide' and today's date to show what has been built this session.",
+  "see_also": ["npc-with-voice.json", "quest-chain.json", "nft-game-item.json", "oapp-starnet-publish.json"]
+}

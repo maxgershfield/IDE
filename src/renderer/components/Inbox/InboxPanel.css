@@ -1,0 +1,329 @@
+.inbox-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  border-left: 1px solid var(--border);
+}
+
+.inbox-panel--embedded {
+  border-left: none;
+  background: var(--composer-surface, #181818);
+}
+
+.inbox-panel-header--embedded {
+  justify-content: flex-end;
+  padding: 6px 8px;
+}
+
+.inbox-header-spacer {
+  flex: 1;
+}
+
+.inbox-panel-header {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.inbox-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.inbox-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 3px 5px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.inbox-action-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.inbox-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes inbox-spin { to { transform: rotate(360deg); } }
+.inbox-spin { animation: inbox-spin 0.8s linear infinite; }
+
+.inbox-panel-content {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.inbox-panel-empty {
+  padding: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.inbox-error {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #f14c4c;
+  background: rgba(241, 76, 76, 0.1);
+}
+
+.inbox-error--fetch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inbox-error-retry {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid #f14c4c;
+  color: #f14c4c;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.inbox-error-retry:hover { background: rgba(241, 76, 76, 0.15); }
+
+/* Compose pane */
+.inbox-compose {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inbox-compose-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.inbox-compose-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.inbox-compose-input,
+.inbox-compose-textarea,
+.inbox-compose-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.inbox-compose-input:focus,
+.inbox-compose-textarea:focus,
+.inbox-compose-select:focus {
+  outline: none;
+  border-color: var(--accent, #569cd6);
+}
+
+.inbox-compose-textarea { resize: vertical; }
+
+.inbox-compose-select-wrap {
+  position: relative;
+}
+
+.inbox-compose-select {
+  appearance: none;
+  padding-right: 22px;
+  cursor: pointer;
+}
+
+.inbox-compose-select-icon {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-secondary);
+}
+
+.inbox-compose-send {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  background: var(--accent, #569cd6);
+  color: #fff;
+}
+
+.inbox-compose-send:hover:not(:disabled) { filter: brightness(1.1); }
+
+.inbox-compose-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.inbox-list-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.inbox-list-item:hover,
+.inbox-list-item.selected {
+  background: var(--bg-tertiary);
+}
+
+.inbox-item-from {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.inbox-item-method {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent, #569cd6);
+  margin-bottom: 2px;
+}
+
+.inbox-item-snippet {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-item-time {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.inbox-detail {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+  background: var(--bg-primary);
+}
+
+.inbox-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.inbox-detail-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+.inbox-detail-method {
+  font-size: 10px;
+  color: var(--accent, #569cd6);
+  margin-bottom: 4px;
+}
+
+.inbox-detail-body {
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 8px 0;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.inbox-detail-reply textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  resize: vertical;
+  margin-bottom: 6px;
+}
+
+.inbox-detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.inbox-detail-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.inbox-detail-actions button:hover:not(:disabled) {
+  background: var(--bg-secondary);
+}
+
+.inbox-detail-actions button:first-child {
+  background: var(--accent, #569cd6);
+  border-color: var(--accent, #569cd6);
+  color: #fff;
+}
+
+.inbox-detail-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

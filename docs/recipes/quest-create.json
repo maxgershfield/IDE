@@ -1,0 +1,29 @@
+{
+  "id": "quest-create",
+  "description": "Create a new quest in non-interactive / scripted mode.",
+  "argv": [
+    "star", "-n", "--json", "-y",
+    "quest", "create",
+    "--name", "{name}",
+    "--description", "{description}"
+  ],
+  "parameters": {
+    "{name}": "Quest name (string)",
+    "{description}": "Quest description / objective summary (string)"
+  },
+  "notes": [
+    "Requires avatar beam-in.",
+    "-y auto-confirms any remaining wizard prompts.",
+    "Returns { success: true, data: { id, name, missionId, ... } }.",
+    "Save the returned quest id — use it to associate holons, NPCs, or rewards via mcp_invoke."
+  ],
+  "example": {
+    "description": "Create an intro quest for a metaverse game",
+    "argv": [
+      "star", "-n", "--json", "-y",
+      "quest", "create",
+      "--name", "The First Harvest",
+      "--description", "Guide new players through planting their first crop and earning time credits"
+    ]
+  }
+}

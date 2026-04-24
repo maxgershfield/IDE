@@ -1,0 +1,102 @@
+{
+  "id": "nft-game-item",
+  "type": "mcp_invoke_sequence",
+  "description": "Mint an NFT on a supported chain and link it to a STAR inventory item holon so it is equippable across any OASIS-connected game. One prompt turns a concept into an on-chain asset with a cross-game identity.",
+  "supported_chains": ["solana", "ethereum", "base", "polygon"],
+  "notes": [
+    "Use oasis_workflow_mint_solana_nft for Solana (simplest flow — no chain argument needed).",
+    "Use oasis_workflow_mint_nft for other chains — pass chain: 'ethereum' | 'base' | 'polygon' etc.",
+    "Do not claim on-chain success unless IsError is false AND a real transaction id or token address appears in the response. A holon id alone is not proof of an on-chain mint.",
+    "For devnet/testnet testing, ensure the Avatar wallet is funded with test tokens before minting."
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "tool": "oasis_workflow_mint_solana_nft",
+      "description": "Mint the NFT on Solana. Returns tx ID, token address, and explorer link.",
+      "arguments": {
+        "name": "{itemName}",
+        "symbol": "{itemSymbol}",
+        "description": "{itemDescription}",
+        "imageUrl": "{imageUrl}"
+      },
+      "parameters": {
+        "{itemName}": "Display name of the item, e.g. 'Meridian Plasma Rifle' (string)",
+        "{itemSymbol}": "Short token symbol, e.g. 'MPR' (string, max ~10 chars, no spaces)",
+        "{itemDescription}": "Lore and stats description for the item metadata (string)",
+        "{imageUrl}": "Public URL to the item art (string). For AI-generated art use oasis_create_nft first, then pass its imageUrl here."
+      },
+      "notes": [
+        "Returns { success: true, data: { mintTxId, tokenAddress, explorerUrl, ... } }.",
+        "Save mintTxId and tokenAddress for step 2.",
+        "For non-Solana chains substitute oasis_workflow_mint_nft and add 'chain' argument."
+      ],
+      "example": {
+        "name": "Meridian Plasma Rifle",
+        "symbol": "MPR",
+        "description": "A legendary energy weapon awarded to players who complete The Meridian Job quest arc. Fires concentrated plasma bolts. Equippable across all OASIS-connected experiences. Supply: 1.",
+        "imageUrl": "https://arweave.net/placeholder-meridian-rifle"
+      }
+    },
+    {
+      "step": 2,
+      "tool": "star_create_item",
+      "description": "Register the item as a STAR inventory item holon, linking the NFT token address so OASIS knows the on-chain ownership.",
+      "arguments": {
+        "name": "{itemName}",
+        "description": "{itemDescription}",
+        "rarity": "{rarity}",
+        "nftTokenAddress": "{tokenAddressFromStep1}",
+        "chain": "solana",
+        "questId": "{questIdIfApplicable}"
+      },
+      "parameters": {
+        "{itemName}": "Must match the NFT name from step 1",
+        "{rarity}": "One of: common, uncommon, rare, epic, legendary",
+        "{tokenAddressFromStep1}": "tokenAddress from oasis_workflow_mint_solana_nft response",
+        "{questIdIfApplicable}": "STAR quest holon id if this item is a quest reward (from quest-chain.json). Omit if not quest-linked."
+      },
+      "notes": [
+        "Requires STAR WebAPI running.",
+        "Returns { success: true, data: { id, name, nftTokenAddress, ... } }.",
+        "Save the returned id as starItemHolonId.",
+        "Once registered, OASIS-connected games can query the item via the avatar inventory API."
+      ],
+      "example": {
+        "name": "Meridian Plasma Rifle",
+        "description": "Legendary reward for The Meridian Job arc. Plasma-tipped, single-owner, cross-game equippable.",
+        "rarity": "legendary",
+        "chain": "solana"
+      }
+    },
+    {
+      "step": 3,
+      "tool": "write_file",
+      "description": "Save the full item record to workspace.",
+      "output_path": "items/{itemName.kebab-case}.json",
+      "output_shape": {
+        "name": "{itemName}",
+        "symbol": "{itemSymbol}",
+        "rarity": "{rarity}",
+        "chain": "solana",
+        "mintTxId": "{mintTxIdFromStep1}",
+        "tokenAddress": "{tokenAddressFromStep1}",
+        "explorerUrl": "{explorerUrlFromStep1}",
+        "starItemHolonId": "{idFromStep2}",
+        "questRewardFor": "{questIdIfApplicable}",
+        "createdAt": "{isoTimestamp}"
+      }
+    }
+  ],
+  "ai_art_variant": {
+    "description": "If you need AI-generated art rather than an existing image URL, call oasis_create_nft first (uses Glif under the hood) to generate the art and get an imageUrl, then proceed from step 1.",
+    "tool": "oasis_create_nft",
+    "notes": [
+      "oasis_create_nft returns an imageUrl you can pass directly to oasis_workflow_mint_solana_nft.",
+      "This adds one step but removes the need to host art externally."
+    ]
+  },
+  "demo_flow_ref": "demo-flows.md#flow-4--mint-a-cross-game-inventory-item-as-an-nft",
+  "agent_prompt_summary": "Use oasis_workflow_mint_solana_nft to mint the NFT (returns tokenAddress + explorerUrl), then star_create_item with the tokenAddress to register it as an inventory holon. Save both IDs to items/{name}.json.",
+  "see_also": ["quest-chain.json", "npc-with-voice.json", "avatar-status.json"]
+}

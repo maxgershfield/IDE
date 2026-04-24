@@ -1,0 +1,348 @@
+/**
+ * OASIS game UI shell — portable overlay for WebGL / canvas games.
+ * Layering: #oasis-game-viewport (0) → effects (1–2) → #oasis-game-hud (3).
+ * Themes: [data-oasis-ui-theme="oasis"] | tokyo-night | ember
+ */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@500;700&display=swap');
+
+:root {
+  --oui-font: 'JetBrains Mono', ui-monospace, monospace;
+  --oui-display: 'Outfit', system-ui, sans-serif;
+  --oui-void: #070a10;
+  --oui-panel: rgba(8, 14, 24, 0.88);
+  --oui-border: rgba(94, 234, 212, 0.28);
+  --oui-glow: rgba(45, 212, 191, 0.12);
+  --oui-text: #e2e8f0;
+  --oui-dim: rgba(226, 232, 240, 0.55);
+  --oui-accent: #2dd4bf;
+  --oui-accent2: #f472b6;
+  --oui-warn: #fbbf24;
+  --oui-bar-h: 48px;
+}
+
+[data-oasis-ui-theme='tokyo-night'] {
+  --oui-void: #0a0612;
+  --oui-panel: rgba(12, 8, 22, 0.9);
+  --oui-border: rgba(244, 114, 182, 0.35);
+  --oui-glow: rgba(168, 85, 247, 0.14);
+  --oui-accent: #e879f9;
+  --oui-accent2: #38bdf8;
+}
+
+[data-oasis-ui-theme='ember'] {
+  --oui-void: #0c0806;
+  --oui-panel: rgba(18, 10, 8, 0.9);
+  --oui-border: rgba(251, 146, 60, 0.35);
+  --oui-glow: rgba(234, 88, 12, 0.12);
+  --oui-accent: #fb923c;
+  --oui-accent2: #fcd34d;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html.oasis-game-ui,
+html.oasis-game-ui body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--oui-void);
+  color: var(--oui-text);
+  font-family: var(--oui-font);
+  font-size: 13px;
+}
+
+#oasis-game-viewport {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+#oasis-game-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 35%,
+    rgba(7, 10, 16, 0.45) 72%,
+    rgba(4, 6, 12, 0.88) 100%
+  );
+}
+
+#oasis-game-scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.35;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.05) 2px,
+    rgba(0, 0, 0, 0.05) 4px
+  );
+}
+
+#oasis-game-hud {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+#oasis-game-hud > * {
+  pointer-events: auto;
+}
+
+.oui-top-bar {
+  height: var(--oui-bar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  gap: 0.75rem;
+  background: var(--oui-panel);
+  border-bottom: 1px solid var(--oui-border);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 24px var(--oui-glow);
+}
+
+.oui-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.oui-title {
+  font-family: var(--oui-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--oui-accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.oui-sub {
+  font-size: 0.55rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--oui-dim);
+}
+
+.oui-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.oui-btn {
+  font-family: var(--oui-font);
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.32rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid var(--oui-border);
+  background: rgba(45, 212, 191, 0.08);
+  color: var(--oui-accent);
+  cursor: pointer;
+}
+
+.oui-btn:hover {
+  background: rgba(45, 212, 191, 0.16);
+}
+
+[data-oasis-ui-theme='tokyo-night'] .oui-btn {
+  background: rgba(232, 121, 249, 0.1);
+  color: var(--oui-accent);
+}
+
+.oui-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 220px) 1fr minmax(0, 200px);
+  gap: 0.5rem;
+  padding: 0.5rem;
+  pointer-events: none;
+}
+
+.oui-grid > * {
+  pointer-events: auto;
+}
+
+.oui-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--oui-border) transparent;
+}
+
+.oui-center-spacer {
+  pointer-events: none !important;
+}
+
+.oui-panel {
+  background: var(--oui-panel);
+  border: 1px solid var(--oui-border);
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 0 20px var(--oui-glow);
+}
+
+.oui-panel-h {
+  font-family: var(--oui-display);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--oui-accent2);
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.oui-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  font-size: 0.62rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.oui-stat:last-child {
+  border-bottom: none;
+}
+
+.oui-stat span:first-child {
+  color: var(--oui-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.55rem;
+}
+
+.oui-stat strong {
+  color: var(--oui-text);
+  font-weight: 600;
+}
+
+.oui-quest {
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--oui-text);
+}
+
+.oui-quest small {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.55rem;
+  color: var(--oui-dim);
+  letter-spacing: 0.06em;
+}
+
+.oui-toasts {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: center;
+  pointer-events: none;
+}
+
+.oui-toast {
+  pointer-events: auto;
+  max-width: min(90vw, 420px);
+  padding: 0.45rem 0.85rem;
+  background: var(--oui-panel);
+  border: 1px solid var(--oui-border);
+  border-radius: 6px;
+  font-size: 0.62rem;
+  color: var(--oui-text);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  animation: oui-toast-in 0.28s ease;
+}
+
+@keyframes oui-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.oui-hotbar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem 0.6rem;
+  pointer-events: none;
+}
+
+.oui-hotbar-inner {
+  pointer-events: auto;
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--oui-panel);
+  border: 1px solid var(--oui-border);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+}
+
+.oui-slot {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.55rem;
+  color: var(--oui-dim);
+}
+
+@media (max-width: 720px) {
+  .oui-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .oui-col--left,
+  .oui-col--right {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .oui-panel {
+    min-width: 160px;
+  }
+  .oui-center-spacer {
+    display: none;
+  }
+}

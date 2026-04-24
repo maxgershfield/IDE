@@ -1,0 +1,127 @@
+.mcp-tool-call-card {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.mcp-tool-call-card--running {
+  border-color: rgba(99, 179, 237, 0.45);
+}
+
+.mcp-tool-call-card--success {
+  border-color: rgba(104, 211, 145, 0.35);
+}
+
+.mcp-tool-call-card--error {
+  border-color: rgba(244, 135, 113, 0.45);
+}
+
+.mcp-tool-call-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+}
+
+.mcp-tool-call-card__badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 122, 204, 0.15);
+}
+
+.mcp-tool-call-card__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.mcp-tool-call-card__status {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mcp-tool-call-card__status--running {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #63b3ed;
+}
+
+.mcp-tool-call-card__spin {
+  animation: mcp-spin 0.9s linear infinite;
+}
+
+@keyframes mcp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mcp-tool-call-card__status--ok {
+  color: #68d391;
+}
+
+.mcp-tool-call-card__status--err {
+  color: #f48771;
+}
+
+.mcp-tool-call-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.mcp-tool-call-card__toggle:hover {
+  color: var(--text-primary);
+}
+
+.mcp-tool-call-card__args,
+.mcp-tool-call-card__result {
+  padding: 0 10px 8px;
+}
+
+.mcp-tool-call-card__pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mcp-tool-call-card__pre--result {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.mcp-tool-call-card__error-msg {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: #f48771;
+  line-height: 1.4;
+}

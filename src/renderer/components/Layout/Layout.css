@@ -1,0 +1,121 @@
+.layout {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-primary);
+}
+
+/* The outer PanelGroup div must fill the layout container */
+.layout > div {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ─── Left column ─────────────────────────────────────────────────────────── */
+
+/* Flex row: narrow activity bar strip + resizable panels to its right */
+.layout-left-col {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The panel stack portion (everything right of the activity bar) */
+.layout-left-panels {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The vertical PanelGroup inside .layout-left-panels */
+.layout-left-panels > div {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ─── Editor area (top of vertical split) ─────────────────────────────────── */
+
+.layout-editor-area {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The horizontal PanelGroup inside the editor area */
+.layout-editor-area > div {
+  flex: 1;
+  min-height: 0;
+}
+
+.layout-center-merged {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Terminal area (bottom of vertical split) ────────────────────────────── */
+
+.layout-terminal-area {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+
+.layout-terminal-area > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ─── Right column: full-height chat ──────────────────────────────────────── */
+
+.layout-right-col {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.layout-right-col > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ─── Resize handles ──────────────────────────────────────────────────────── */
+
+.layout-resize-handle {
+  background: var(--border);
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.layout-resize-handle:hover,
+.layout-resize-handle[data-resize-handle-active] {
+  background: var(--accent, #569cd6);
+}
+
+.layout-resize-handle-h {
+  width: 4px;
+  min-width: 4px;
+  cursor: col-resize;
+}
+
+.layout-resize-handle-v {
+  height: 4px;
+  min-height: 4px;
+  cursor: row-resize;
+}

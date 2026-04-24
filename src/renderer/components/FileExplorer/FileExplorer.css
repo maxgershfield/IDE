@@ -1,0 +1,310 @@
+.file-explorer {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.file-explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fe-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fe-header-title {
+  /* inherits panel-header font — no extra styling needed */
+}
+
+.fe-header-user {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 110px;
+}
+
+.file-explorer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.open-folder-button {
+  padding: 3px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+}
+
+.open-folder-button:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 13px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-secondary);
+}
+
+.icon-button:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* Workspace section header — matches common IDE "PROJECT >" row */
+.fe-workspace-section {
+  padding: 4px 10px 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid transparent;
+}
+
+.fe-workspace-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Scrollable tree area */
+.file-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 0 4px;
+}
+
+.file-tree {
+  padding: 0;
+}
+
+.file-tree-item {
+  user-select: none;
+}
+
+.file-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px 1px 0;
+  cursor: pointer;
+  border-radius: 0;
+  font-size: 13px;
+  height: 22px;
+  min-height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.file-tree-node:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.file-tree-node.folder {
+  font-weight: 400;
+}
+
+.file-tree-node.file[draggable='true'] {
+  cursor: grab;
+}
+
+.file-tree-node.file[draggable='true']:active {
+  cursor: grabbing;
+}
+
+/* Chevron area */
+.fe-chevron-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-width: 16px;
+  flex-shrink: 0;
+}
+
+.fe-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary);
+}
+
+.fe-chevron-spacer {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+}
+
+/* Folder icon */
+.fe-icon-folder {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* File type badge */
+.fe-file-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  font-size: 6px;
+  font-weight: 800;
+  border-radius: 3px;
+  border: 1px solid;
+  letter-spacing: -0.2px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1;
+}
+
+/* Longer labels get even smaller text */
+.fe-file-icon-text {
+  font-size: 5px;
+  letter-spacing: -0.5px;
+}
+
+.file-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+/* Indent guide line for children */
+.file-tree-children {
+  position: relative;
+}
+
+.file-tree-children::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+/* Empty state */
+.empty-state {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state .hint {
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.empty-state .open-folder-button {
+  margin-top: 12px;
+}
+
+/* Context menu */
+.file-explorer-ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 200px;
+  padding: 4px 0;
+  background: #252526;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+.file-explorer-ctx-item {
+  display: block;
+  width: 100%;
+  padding: 5px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-explorer-ctx-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.file-explorer-ctx-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+
+/* Footer */
+.file-explorer-footer {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.file-explorer-identity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+
+.file-explorer-footer .footer-btn {
+  padding: 3px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+}
+
+.file-explorer-footer .footer-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}

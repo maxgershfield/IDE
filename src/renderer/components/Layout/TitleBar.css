@@ -1,0 +1,235 @@
+.title-bar {
+  height: 38px;
+  min-height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  background: #141414;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+
+  /* The entire bar is a drag handle; interactive children must opt out. */
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/*
+ * On macOS (hiddenInset) the traffic lights sit in the first ~72 px.
+ * On other platforms there are no native controls, just a small margin.
+ */
+html[data-platform='darwin'] .title-bar-traffic-zone {
+  width: 76px;
+  min-width: 76px;
+  flex-shrink: 0;
+}
+html:not([data-platform='darwin']) .title-bar-traffic-zone {
+  width: 12px;
+  min-width: 12px;
+  flex-shrink: 0;
+}
+
+/* Fills remaining space so the label stays centred */
+.title-bar-spacer {
+  flex: 1;
+}
+
+/* Open OASIS Web Portal (browser) */
+.title-bar-portal-btn {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  margin-right: 4px;
+  background: transparent;
+  border: 1px solid rgba(78, 201, 176, 0.25);
+  border-radius: 5px;
+  color: rgba(120, 200, 180, 0.85);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.title-bar-portal-btn:hover {
+  color: #a8e8d8;
+  background: rgba(78, 201, 176, 0.1);
+  border-color: rgba(78, 201, 176, 0.45);
+}
+
+.title-bar-portal-label {
+  line-height: 1;
+}
+
+/* Settings button — top-right, must opt out of window drag region */
+.title-bar-settings-btn {
+  -webkit-app-region: no-drag;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: rgba(204, 204, 204, 0.45);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.12s, background 0.12s;
+}
+
+.title-bar-settings-btn:hover {
+  color: rgba(204, 204, 204, 0.9);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Centred app name — purely decorative */
+.title-bar-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  color: rgba(204, 204, 204, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ─── Avatar / login zone ──────────────────────────────────────────────────── */
+
+.title-bar-avatar-zone {
+  -webkit-app-region: no-drag;
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+/* Logged-in avatar button */
+.title-bar-avatar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.title-bar-avatar-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.title-bar-avatar-orb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #007acc 0%, #4ec9b0 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+
+.title-bar-avatar-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(204, 204, 204, 0.75);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Log-in button (not logged in) */
+.title-bar-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  background: rgba(0, 122, 204, 0.15);
+  border: 1px solid rgba(0, 122, 204, 0.35);
+  border-radius: 4px;
+  color: #569cd6;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.title-bar-login-btn:hover {
+  background: rgba(0, 122, 204, 0.25);
+  border-color: rgba(0, 122, 204, 0.5);
+  color: #79b8e8;
+}
+
+/* Dropdown menu */
+.title-bar-avatar-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 160px;
+  background: #1c1c1c;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 2000;
+  overflow: hidden;
+  animation: tb-menu-in 0.1s ease;
+}
+
+@keyframes tb-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.title-bar-avatar-menu-user {
+  padding: 8px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title-bar-avatar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+}
+
+.title-bar-avatar-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
