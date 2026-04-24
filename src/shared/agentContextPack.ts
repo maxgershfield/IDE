@@ -121,15 +121,36 @@ When creating a **new** browser game or OAPP with **Vite**:
 
 ### Holonic composition — wiring holons together
 
-Holons are lego bricks. Wire them explicitly — connections do not form automatically.
+**CRITICAL — follow these rules exactly or the IDE visual will not update:**
 
-**Pattern:** Create → Connect → Verify
-1. \`holon_*_create(…, parentHolonId?)\` — pass \`parentHolonId\` when there's a natural parent
-2. \`holon_connect({ parentId, childId, relationLabel? })\` — registers the formal OASIS graph edge (sets \`ParentHolonId\` so \`load-holons-for-parent\` can traverse it)
-3. \`holon_get_graph({ rootHolonId })\` → emit result as \`<oasis_holon_diagram>\` (**always ground diagrams from live data, not memory**)
+**Rule 1 — Complete multi-step holon sequences in ONE turn, no pausing.**
+If the user says "create X, link it to Y, show me the graph" — do all of it now:
+call \`holon_*_create\`, then \`holon_connect\`, then \`holon_get_graph\`, then emit \`<oasis_holon_diagram>\`.
+Do **not** stop after the first tool call to summarise or ask confirmation.
 
-\`holon_session_graph()\` returns all holons created this session as \`{nodes, edges}\` — call it to orient yourself at the start of a turn.
+**Rule 2 — Always emit `<oasis_holon_diagram>` JSON — NEVER plain Mermaid for holon relationships.**
+The IDE renders a live React Flow graph **only** from the XML tag + JSON form:
+\`\`\`
+<oasis_holon_diagram>
+{ "nodes": [...], "edges": [...] }
+</oasis_holon_diagram>
+\`\`\`
+Mermaid (\`\`\`graph TD\`\`\`) or prose ("A → B") does NOT render as an interactive graph in the IDE.
+When the user asks to "show the graph" or "visualise" holons, you **must** emit this tag with valid JSON.
 
+**Rule 3 — Ground diagrams from `holon_get_graph`, not from memory.**
+After any create + connect sequence, call \`holon_get_graph({ rootHolonId: <root id> })\`.
+Use its \`nodes\` and \`edges\` output as the \`<oasis_holon_diagram>\` payload directly.
+The Canvas panel in the IDE updates automatically from real tool-call results.
+
+**Composition pattern (all in one turn):**
+1. \`holon_venue_create({ name: "Chain Ramen", ... })\` → gets \`venueId\` from result
+2. \`holon_menuitem_create({ name: "...", venueHolonId: venueId, parentHolonId: venueId })\` → gets \`itemId\`
+3. \`holon_connect({ parentId: venueId, childId: itemId, relationLabel: "serves" })\`
+4. \`holon_get_graph({ rootHolonId: venueId })\` → copy its nodes/edges
+5. Emit \`<oasis_holon_diagram>\` with those nodes/edges — do **not** write Mermaid
+
+\`holon_session_graph()\` returns all holons created this session as \`{nodes, edges}\`.
 If the context pack includes \`## Session holons (built this conversation)\`, use those IDs — do not re-create holons already built.
 
 ### IDE-embedded STARNET (composer must follow — stops “open a portal” wrong answers)
@@ -158,17 +179,20 @@ For **new OAPPs** or **community / geo / mission / NFT** products, **ground the 
 4. If template source exists in the workspace, use \`read_file\` on README or DNA paths.
 
 
-### Architecture diagrams (Mermaid + holon graph)
-When the user wants **architecture** or **how pieces fit**:
-1. **Use the same STARNET names** you fetched with \`star_get_*\` (or label new boxes **Proposed**).
-2. Include **Mermaid** (\`flowchart TB\` or similar) with **subgraphs** for Client, ONODE, STAR WebAPI, Chain, External services; **labeled edges** for real calls/data flows.
-3. Include **\`<oasis_holon_diagram>\` JSON** (below) for the IDE interactive graph. Shallow three-node diagrams are not enough for a multi-surface MVP unless you justify it.
+### Architecture diagrams — IMPORTANT: two formats, different use cases
 
-**When to produce a diagram:** only after you have mapped screens/journeys to STARNET/ONODE surfaces. Follow this order:
+**For holon relationships and composition** (user asks "show graph", "visualise", "how are holons connected", or after create/connect sequences):
+- **ALWAYS use \`<oasis_holon_diagram>\`** JSON — the IDE renders this as a **live interactive React Flow graph**.
+- **NEVER use Mermaid \`graph TD\` or \`flowchart\`** for holon graphs — those just render as a code block, not an interactive graph. The user cannot click, pan, or inspect nodes.
+- Use the \`nodes\` / \`edges\` output from \`holon_get_graph\` directly. Do not invent the graph from memory.
 
-1. **Derive requirements first.** List screens / features / user journeys in prose and tie each to a **verified or Proposed** component.
-2. **Map each requirement** to a holon, template, or service node. Omit nodes with no concrete role.
-3. **Emit Mermaid**, then **\`<oasis_holon_diagram>\`**.
+**For system architecture** (how services connect, which APIs call what):
+- Use Mermaid (\`flowchart TB\` or similar) with subgraphs for Client, ONODE, STAR WebAPI, Chain, External services.
+
+**When to produce the holon diagram:**
+1. After any \`holon_*_create\` + \`holon_connect\` sequence — always.
+2. When the user asks "show me the graph", "visualise", or "what does the composition look like".
+3. Use \`holon_get_graph({ rootHolonId })\` output as the payload — never fabricate node ids or edge labels.
 
 The IDE renders the JSON block as a live interactive React Flow graph. Example structure (replace with tool-backed names):
 
@@ -244,11 +268,16 @@ Vite: \`"type": "module"\`, pin real npm packages, set dev **port** in \`vite.co
 ### STARNET in this turn
 A separate block may say **STARNET (search-first)** with no table. **Do not** claim the catalog is empty because no table is here — call \`mcp_invoke\` \`star_list_holons\` / \`star_list_oapps\` or use **Activity bar → STARNET**. For one row, \`star_get_holon\` / \`star_get_oapp\`. Do not send users to external marketing STARNET sites.
 
-### Holon wiring (lego)
-Create → \`holon_connect\` (parent/child) → \`holon_get_graph\` to ground \`<oasis_holon_diagram>\`. \`holon_session_graph\` = session state. Reuse ids from \`## Session holons\` if present.
+### Holon wiring — CRITICAL RULES (all in one turn, no pausing)
+1. Create holons with \`holon_*_create\`, then **immediately** call \`holon_connect({ parentId, childId })\` in the same turn — do not stop to ask confirmation.
+2. After connect, call \`holon_get_graph({ rootHolonId })\` to read back the real edge data.
+3. Emit **\`<oasis_holon_diagram>\`** JSON with the graph output — **NOT** Mermaid \`graph TD\`. Only the XML tag form renders as a live graph in the IDE.
+4. Reuse ids from \`## Session holons\` block if present; call \`holon_session_graph()\` to check session state.
 
 ### Diagrams
-**Mermaid** for architecture. **\`<oasis_holon_diagram>\` JSON** with \`nodes\` + \`edges\` (see full pack in repo for field shapes). **Type** = \`oapp\` | \`template\` | \`core\` | \`service\` | \`custom\`.
+For **holon relationships**: always \`<oasis_holon_diagram>{nodes,edges}</oasis_holon_diagram>\` — Mermaid renders as a code block, not a live graph.
+For **architecture / system flows**: Mermaid (\`flowchart TB\`).
+Node **type** = \`oapp\` | \`template\` | \`core\` | \`service\` | \`custom\`.
 
 ### Mint (short)
 \`oasis_workflow_mint_nft\` with \`chain\` for simple mints. Proof = real tx id / address from tool output, not only holon ids.
