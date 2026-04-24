@@ -24,6 +24,7 @@ import { NonElectronBanner } from './components/Layout/NonElectronBanner';
 import { GameDevProvider } from './contexts/GameDevContext';
 import { EditorTabProvider } from './contexts/EditorTabContext';
 import { OappBuildPlanProvider } from './contexts/OappBuildPlanContext';
+import { HolonicCanvasProvider } from './contexts/HolonicCanvasContext';
 import { ActivityBar, ActivityView } from './components/Layout/ActivityBar';
 import { TitleBar } from './components/Layout/TitleBar';
 import { FirstRunWelcomeBanner } from './components/Layout/FirstRunWelcomeBanner';
@@ -313,6 +314,7 @@ function AppInner() {
                   <ProjectMemoryProvider>
                   <IdeChatProvider>
                     <OappBuildPlanProvider>
+                    <HolonicCanvasProvider>
                     <StarnetCatalogProvider>
                     <StarnetCatalogLoaderMount />
                     <div className="app-shell-workspace">
@@ -359,6 +361,7 @@ function AppInner() {
                       <SettingsModal />
                     </div>
                     </StarnetCatalogProvider>
+                    </HolonicCanvasProvider>
                     </OappBuildPlanProvider>
                   </IdeChatProvider>
                   </ProjectMemoryProvider>

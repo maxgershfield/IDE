@@ -59,6 +59,7 @@ import { buildHolonAnnotatedWorkspaceNote } from '../../utils/holonWorkspaceAnno
 import { useWorkspaceHolonScan } from '../../hooks/useWorkspaceHolonScan';
 import { useWorkspaceIndex } from '../../contexts/WorkspaceIndexContext';
 import { useOappBuildPlan } from '../../contexts/OappBuildPlanContext';
+import { useHolonicCanvas } from '../../contexts/HolonicCanvasContext';
 import { buildOnChainAgentContextNote } from '../../constants/onChainQuickPrompts';
 import {
   buildPathScopedContextNote,
@@ -347,6 +348,78 @@ const LOCAL_VS_STARNET_ROUTING_NOTE =
   '• **STARNET (global registry)** — The next section lists **published** holon and OAPP **ids** in STAR. Use that for **composition, publish, and id lookup**, *not* as a substitute for listing repo directories.\n' +
   'If the user’s question is about the **open workspace**, lead with the local sections; cite STARNET rows only if they also ask about published components or installable templates.';
 
+/**
+ * Scan the message thread for holon_*_create / holon_*_send / holon_*_add tool results
+ * and build a markdown table that tells the agent what holons were created this session,
+ * their IDs, types, and what they reference. This closes the biggest LLM blindspot:
+ * without it, the agent has no memory of what it built in prior turns.
+ */
+function buildSessionHolonsNote(messages: Array<{ toolCalls?: Array<{ tool: string; result: any }> }>): string | null {
+  const CREATE_PATTERNS = /^holon_.*?(create|send|add|mint_record|register|define|save_schema|checkin|submit|enroll)$/;
+  interface SessionRow {
+    id: string;
+    name: string;
+    holonType: string;
+    connectedTo: string;
+  }
+  const rows: SessionRow[] = [];
+  const seenIds = new Set<string>();
+
+  for (const msg of messages) {
+    if (!msg.toolCalls) continue;
+    for (const tc of msg.toolCalls) {
+      if (!CREATE_PATTERNS.test(tc.tool)) continue;
+      const res = tc.result;
+      if (!res) continue;
+      // Try to find holon result in common response shapes
+      const holon = res?.result ?? res?.karmaHolon?.result ?? res;
+      if (!holon?.id || holon.id === '00000000-0000-0000-0000-000000000000') continue;
+      if (seenIds.has(holon.id)) continue;
+      seenIds.add(holon.id);
+
+      const meta: Record<string, any> = holon.metaData ?? {};
+      const holonType: string = meta.holonType ?? tc.tool.replace(/^holon_/, '').replace(/_create$/, '');
+      const name: string = holon.name ?? meta.username ?? meta.title ?? meta.key ?? holonType;
+      const parentId: string | undefined = holon.parentHolonId || meta.parentHolonId;
+
+      // Collect FK references (any key ending in HolonId)
+      const refs: string[] = [];
+      if (parentId && parentId !== '00000000-0000-0000-0000-000000000000') {
+        refs.push(`parentId: ${parentId.slice(0, 8)}…`);
+      }
+      for (const [key, val] of Object.entries(meta)) {
+        if ((key.endsWith('HolonId') || key.endsWith('holonId')) && key !== 'parentHolonId') {
+          if (typeof val === 'string' && val.match(/^[0-9a-f-]{36}$/i)) {
+            refs.push(`${key}: ${val.slice(0, 8)}…`);
+          }
+        }
+      }
+
+      rows.push({
+        id: holon.id.slice(0, 8) + '…',
+        name: String(name).slice(0, 40),
+        holonType,
+        connectedTo: refs.length > 0 ? refs.join(', ') : '(root)',
+      });
+    }
+  }
+
+  if (rows.length === 0) return null;
+
+  const table = [
+    '| id | name | type | connected to |',
+    '|---|---|---|---|',
+    ...rows.map(r => `| ${r.id} | ${r.name} | ${r.holonType} | ${r.connectedTo} |`),
+  ].join('\n');
+
+  return (
+    '## Session holons (built this conversation)\n' +
+    'These holons were created or connected during this session. Use their full IDs (expand the truncated prefix from context) when calling holon_connect or referencing them in new holons.\n\n' +
+    table + '\n\n' +
+    '> Call `holon_session_graph()` to get the full graph JSON, or `holon_get_graph(rootHolonId)` to verify connections in STARNET.'
+  );
+}
+
 function buildIdeComposerContextPack(opts: {
   workspaceRules: string | null;
   /** Root + nested AGENTS.md and `.cursor/rules` (bounded); see `docs/IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md` */
@@ -363,6 +436,8 @@ function buildIdeComposerContextPack(opts: {
   relevantHolonsNote?: string | null;
   /** Pre-read README / package / listing for a path the user asked about */
   pathFocusNote?: string | null;
+  /** Holons created during this session, extracted from thread tool results */
+  sessionHolonsNote?: string | null;
 }): string {
   const hasLocalHolonContext =
     Boolean(opts.workspaceTreeNote?.trim()) ||
@@ -395,6 +470,9 @@ function buildIdeComposerContextPack(opts: {
       parts.push(LOCAL_VS_STARNET_ROUTING_NOTE);
     }
     parts.push(opts.starnetNote.trim());
+  }
+  if (opts.sessionHolonsNote?.trim()) {
+    parts.push(opts.sessionHolonsNote.trim());
   }
   if (opts.onChainNote?.trim()) {
     parts.push(`## On-chain defaults (IDE)\n${opts.onChainNote.trim()}`);
@@ -527,6 +605,50 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const ideRunIdRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const messagesRef = useRef<Message[]>(messages);
+
+  // Sync session holons into the HolonicCanvas panel whenever messages change.
+  useEffect(() => {
+    const CREATE_PATTERNS = /^holon_.*?(create|send|add|mint_record|register|define|save_schema|checkin|submit|enroll)$/;
+    const canvasNodes: import('../../contexts/HolonicCanvasContext').CanvasHolonNode[] = [];
+    const canvasEdges: import('../../contexts/HolonicCanvasContext').CanvasEdge[] = [];
+    const seenIds = new Set<string>();
+
+    for (const msg of messages) {
+      if (!msg.toolCalls) continue;
+      for (const tc of msg.toolCalls) {
+        if (!CREATE_PATTERNS.test(tc.tool)) continue;
+        const res = tc.result;
+        if (!res) continue;
+        const holon = res?.result ?? res?.karmaHolon?.result ?? res;
+        if (!holon?.id || holon.id === '00000000-0000-0000-0000-000000000000') continue;
+        if (seenIds.has(holon.id)) continue;
+        seenIds.add(holon.id);
+        const meta: Record<string, unknown> = holon.metaData ?? {};
+        const holonType = String(meta.holonType ?? tc.tool.replace(/^holon_/, '').replace(/_create$/, ''));
+        const label = String(holon.name ?? meta.username ?? meta.title ?? meta.key ?? holonType).slice(0, 40);
+        // Collect FK references
+        const refs: string[] = [];
+        const parentId: string | undefined = (holon.parentHolonId || meta.parentHolonId) as string | undefined;
+        if (parentId && parentId !== '00000000-0000-0000-0000-000000000000') {
+          refs.push(`parentId: ${parentId}`);
+          canvasEdges.push({ source: parentId, target: holon.id, label: 'contains' });
+        }
+        for (const [key, val] of Object.entries(meta)) {
+          if ((key.endsWith('HolonId') || key.endsWith('holonId')) && key !== 'parentHolonId') {
+            if (typeof val === 'string' && val.match(/^[0-9a-f-]{36}$/i)) {
+              canvasEdges.push({
+                source: val,
+                target: holon.id,
+                label: key.replace(/HolonId$/, '').replace(/holonId$/, ''),
+              });
+            }
+          }
+        }
+        canvasNodes.push({ id: holon.id, label, holonType, metaData: meta });
+      }
+    }
+    setCanvasGraph(canvasNodes, canvasEdges);
+  }, [messages, setCanvasGraph]);
   const [rootHolonId, setRootHolonId] = useState<string | null>(null);
   const rootHolonIdRef = useRef<string | null>(null);
   const [input, setInput] = useState('');
@@ -600,6 +722,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   } = useEditorTab();
   const { applyPayload, planningDocPath, planningDocContent } = useOappBuildPlan();
   const { status: indexStatus, searchHolons } = useWorkspaceIndex();
+  const { setCanvasGraph, addCanvasEdge } = useHolonicCanvas();
 
   const planningContextNote = useMemo(() => {
     if (!planningDocContent?.trim()) return null;
@@ -691,6 +814,18 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     };
     window.addEventListener(OASIS_OPEN_ONBOARD_GUIDE, onOpenOasisOnboard);
     return () => window.removeEventListener(OASIS_OPEN_ONBOARD_GUIDE, onOpenOasisOnboard);
+  }, []);
+
+  // Listen for "Export diagram" from HolonicCanvas panel — inserts diagram into chat input
+  useEffect(() => {
+    const onInsertDiagram = (e: Event) => {
+      const detail = (e as CustomEvent<{ diagramJson: string }>).detail;
+      if (!detail?.diagramJson) return;
+      const tag = `\n<oasis_holon_diagram>\n${detail.diagramJson}\n</oasis_holon_diagram>`;
+      setInput((prev) => (prev.trim() ? `${prev}\n${tag}` : tag.trim()));
+    };
+    window.addEventListener('oasis-insert-diagram', onInsertDiagram);
+    return () => window.removeEventListener('oasis-insert-diagram', onInsertDiagram);
   }, []);
 
   const syncComposerTextareaHeight = useCallback(() => {
@@ -1458,6 +1593,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           pathFocusNote,
           workspaceTreeNote,
           relevantHolonsNote,
+          sessionHolonsNote: buildSessionHolonsNote(threadBefore),
         });
         const agentLoopBase = {
           userText: currentInput,
@@ -1568,6 +1704,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             pathFocusNote,
             workspaceTreeNote,
             relevantHolonsNote: agentHolonsNote,
+            sessionHolonsNote: buildSessionHolonsNote(threadBefore),
           })
         );
         if (!result.error && (result.content || (result.toolCalls && result.toolCalls.length > 0))) {

@@ -3,7 +3,7 @@
  * Keep in sync with MCP tool behaviour in `MCP/src/tools/oasisTools.ts` + `starTools.ts`.
  * ONODE caps total size (see IdeAgentController / IdeChatController MaxContextPackChars).
  */
-export const AGENT_CONTEXT_PACK_VERSION = '1.11.9';
+export const AGENT_CONTEXT_PACK_VERSION = '1.12.0';
 
 export function getAgentContextPack(): string {
   return `## OASIS IDE context pack (v${AGENT_CONTEXT_PACK_VERSION})
@@ -115,6 +115,41 @@ When creating a **new** browser game or OAPP with **Vite**:
 ### Holonic mental model
 - **STAR:** OAPP + zomes + holons, DNA, STARNET publish/activate, beam-in.
 - **OASIS / ONODE:** graph holons, avatars, SERV/A2A, cross-OAPP linkage when apps need shared graph + identity.
+
+### Holonic composition — how to wire holons together (mandatory reading before any multi-holon build)
+
+Holons are lego bricks. A "food delivery app" is a composition of VenueHolon → MenuItemHolon → CartHolon → DeliveryOrderHolon. The agent must **explicitly wire these connections** using the tools below — they do not connect automatically.
+
+**Three-step composition pattern:**
+1. **Create** — call \`holon_*_create\` for each holon, passing \`parentHolonId\` when there is a natural parent (e.g. \`holon_menuitem_create({ venueHolonId: "...", parentHolonId: venueId })\`). Each create handler accepts \`parentHolonId\` and records it in the session graph.
+2. **Connect** — call \`holon_connect({ parentId, childId, relationLabel? })\` after creation to register the formal OASIS graph edge (sets \`ParentHolonId\` on the child so \`load-holons-for-parent\` can traverse it). Use this for any relationship not set at create time.
+3. **Verify** — call \`holon_get_graph({ rootHolonId, maxDepth: 2 })\` to read back the real graph from STARNET and confirm edges are correct. Emit the result as \`<oasis_holon_diagram>\` so the user sees a **grounded** (not guessed) diagram.
+
+**Graph tools in \`mcp_invoke\`:**
+| Tool | When to use |
+|---|---|
+| \`holon_connect\` | Wire parent→child after create, or connect any two holons explicitly |
+| \`holon_get_graph\` | Read back the real OASIS graph from STARNET (use as basis for any diagram) |
+| \`holon_session_graph\` | Get all holons created/connected this MCP session as \`{nodes, edges}\` — use at the start of a turn to orient yourself |
+
+**How holons reference each other today (two mechanisms):**
+- **Formal graph edges:** \`ParentHolonId\` on the child holon (set via \`holon_connect\` or \`parentHolonId\` arg at create). Traversable by \`load-holons-for-parent\`.
+- **Typed FK metaData keys:** \`venueHolonId\`, \`courseHolonId\`, \`themeHolonId\` etc. stored in \`metaData\`. These are visible to the agent but are **not** traversed by the OASIS graph layer unless \`holon_connect\` is also called. Always call \`holon_connect\` in addition to setting the FK field.
+
+**Session context — always check before planning:**
+If the context pack includes \`## Session holons (built this conversation)\`, that table lists every holon created in this thread with truncated IDs and their connections. **Use these IDs** when calling \`holon_connect\` or adding child holons — do not re-create holons you already built. If the table is absent or you need the full ID, call \`holon_session_graph()\`.
+
+**Diagram grounding rule:** Never emit \`<oasis_holon_diagram>\` from memory alone after a composition sequence. Always call \`holon_get_graph\` first and use its \`{nodes, edges}\` output as the diagram payload. This ensures the diagram reflects real STARNET state, not the agent's assumption.
+
+**Composition example (food delivery app):**
+\`\`\`
+1. holon_venue_create({ name: "Chain Ramen", ... })         → venueId
+2. holon_menuitem_create({ venueHolonId: venueId, ... })    → menuItemId
+3. holon_connect({ parentId: venueId, childId: menuItemId, relationLabel: "serves" })
+4. holon_cart_create({ avatarId, venueHolonId: venueId })   → cartId
+5. holon_connect({ parentId: venueId, childId: cartId, relationLabel: "cart-for" })
+6. holon_get_graph({ rootHolonId: venueId })                → emit as <oasis_holon_diagram>
+\`\`\`
 
 ### IDE-embedded STARNET (composer must follow — stops “open a portal” wrong answers)
 - **STARNET is already in this IDE.** The user browses holons and OAPPs in **Activity bar → STARNET** (center panel lists, refresh, row actions). That is the **primary** UI for exploring what is available while staying in the IDE.
