@@ -36,3 +36,6 @@ yarn-error.log*
 # Electron
 out/
 app/
+
+# Local packaging (do not commit)
+release.zip

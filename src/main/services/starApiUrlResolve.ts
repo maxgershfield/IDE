@@ -1,16 +1,22 @@
 /**
  * Resolves STAR WebAPI base URL for the IDE and MCP child process.
  *
- * Precedence:
- *   1. STAR_API_URL environment variable (explicit)
- *   2. First reachable candidate: URL from STAR WebAPI launchSettings.json (repo-relative), then common dev ports
- *   3. Fallback http://127.0.0.1:50564
+ * Precedence (must match renderer `getStarApiUrl` in `starApiService.ts`):
+ *   1. Settings disk: starnetEndpointOverride (Integrations > STARNET), when non-empty
+ *   2. STAR_API_URL environment variable (shell / OASIS-IDE/.env)
+ *   3. First reachable candidate: URL from STAR WebAPI launchSettings.json (repo-relative), then common dev ports
+ *   4. Fallback http://127.0.0.1:50564
+ *
+ * Rationale: a stale `STAR_API_URL=http://127.0.0.1:50564` in `.env.example`-style files must not
+ * override the user's STARNET endpoint in Settings — otherwise the STARNET tab loads holons from
+ * the correct host while the MCP child still hits localhost and returns ECONNREFUSED.
  */
 import fs from 'fs';
 import http from 'http';
 import https from 'https';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { normalizeStarApiBaseUrl } from '../../shared/starApiBaseUrl.js';
 
 export const FALLBACK_STAR_API_URL = 'http://127.0.0.1:50564';
 
@@ -18,6 +24,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let cachedResolved: string | null = null;
+
+/** Clear cached URL so the next resolve can re-read env, settings, or probe (e.g. after Settings change). */
+export function resetStarApiCache(): void {
+  cachedResolved = null;
+}
 
 function tryReadLaunchSettingsStarUrl(): string | null {
   const candidates = [
@@ -87,15 +98,25 @@ function probeHealth(baseUrl: string, timeoutMs: number): Promise<boolean> {
 }
 
 /**
- * Call once during app startup (before MCP starts). Caches the result for sync readers.
+ * Call once during app startup (before MCP starts), and after Settings updates to STARNET endpoint.
+ * Caches the result for sync readers.
+ *
+ * @param settingsStarnetOverride optional trimmed value from disk (starnetEndpointOverride)
  */
-export async function resolveStarApiBaseUrl(): Promise<string> {
+export async function resolveStarApiBaseUrl(settingsStarnetOverride?: string): Promise<string> {
   if (cachedResolved) {
     return cachedResolved;
   }
+
+  const fromSettings = settingsStarnetOverride?.trim();
+  if (fromSettings) {
+    cachedResolved = normalizeStarApiBaseUrl(fromSettings);
+    return cachedResolved;
+  }
+
   const envUrl = process.env.STAR_API_URL?.trim();
   if (envUrl) {
-    cachedResolved = envUrl.replace(/\/$/, '');
+    cachedResolved = normalizeStarApiBaseUrl(envUrl);
     return cachedResolved;
   }
 
@@ -113,13 +134,14 @@ export async function resolveStarApiBaseUrl(): Promise<string> {
   push('http://127.0.0.1:5001');
 
   for (const base of candidates) {
-    if (await probeHealth(base, 1200)) {
-      cachedResolved = base;
+    const normalized = normalizeStarApiBaseUrl(base);
+    if (await probeHealth(normalized, 1200)) {
+      cachedResolved = normalized;
       return cachedResolved;
     }
   }
 
-  cachedResolved = fromLaunch ?? FALLBACK_STAR_API_URL;
+  cachedResolved = normalizeStarApiBaseUrl(fromLaunch ?? FALLBACK_STAR_API_URL);
   return cachedResolved;
 }
 

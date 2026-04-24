@@ -126,8 +126,9 @@ export const OASISToolsPanel: React.FC<{ embedded?: boolean }> = ({ embedded = f
           <div className="oasis-tools-empty">
             <p>No MCP tools loaded.</p>
             <p className="oasis-tools-empty-hint">
-              Set <code>OASIS_MCP_SERVER_PATH</code> to the built OASIS unified MCP server, then restart
-              the IDE. See README.md.
+              Default is hosted MCP. If startup failed, check the console for <code>[MCP]</code> errors,
+              or use local MCP: <code>OASIS_MCP_TRANSPORT=stdio</code> and{' '}
+              <code>OASIS_MCP_SERVER_PATH</code> to <code>MCP/dist/src/index.js</code>, then restart.
             </p>
           </div>
         ) : (

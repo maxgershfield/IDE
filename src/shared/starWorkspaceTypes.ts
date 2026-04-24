@@ -14,11 +14,29 @@ export interface StarWorkspaceConfig {
   /** Human-readable project name. */
   name: string;
 
+  /** Longer description (OAPP pitch, IDE builder, etc.). */
+  description?: string;
+
   /** Which game/world engine this project uses. Drives agent context injection. */
   gameEngine?: GameEngine;
 
   /** STARNET OAPP project id (set after first `star publish`). */
   oasisProjectId?: string;
+
+  /**
+   * OAPP holon id returned by STAR create — used by IDE **Publish OAPP** alongside `oasisProjectId`.
+   * Prefer keeping both in sync when the IDE registers the OAPP.
+   */
+  oappId?: string;
+
+  /** Template / holon ids the user chose in the STARNET builder (hint for agents). */
+  selectedStarnetHolonIds?: string[];
+
+  /** Short classification for agent context (e.g. metaverse-rp-server, oapp). */
+  projectType?: string;
+
+  /** ISO timestamp when the IDE ran **Create OAPP in this folder**. */
+  ideOappCreatedAt?: string;
 
   /** OASIS avatar / publisher id linked to this project. */
   oasisPublisherId?: string;

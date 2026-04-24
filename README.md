@@ -23,13 +23,19 @@ The IDE talks to OASIS over HTTP and (optionally) runs the OASIS MCP server loca
 | Variable | What it does | Example |
 |----------|----------------|---------|
 | **OASIS_API_URL** | Base URL of the OASIS API (auth, chat, agents, health). | `http://127.0.0.1:5003` (local) or a staging/production URL |
-| **OASIS_MCP_SERVER_PATH** | *(Optional)* Full path to the OASIS MCP server entry file. Only needed if you want the 100+ MCP tools in the IDE. See [MCP setup](#mcp-tools-optional) below. | `/path/to/MCP/dist/src/index.js` |
+| **OASIS_MCP_TRANSPORT** | If unset: **stdio** when `../MCP/dist/src/index.js` exists (monorepo), else **hosted** MCP. `http` / `remote` forces hosted; `stdio` forces local. | `export OASIS_MCP_TRANSPORT=http` to use hosted MCP even with a local `MCP` build |
+| **OASIS_MCP_REMOTE_URL** | Hosted MCP Streamable HTTP URL. Only used when `OASIS_MCP_TRANSPORT` is not `stdio`. | Default: `https://mcp.oasisweb4.one/mcp` |
+| **OASIS_MCP_SERVER_PATH** | *(stdio only)* Full path to `MCP/dist/src/index.js` if not using the default monorepo-relative path. | `/path/to/MCP/dist/src/index.js` |
 
 Example (macOS/Linux):
 
 ```bash
 export OASIS_API_URL=http://127.0.0.1:5003
-# Optional, for MCP tools (see below):
+# Default in monorepo: local stdio MCP when MCP/dist is built (STAR_* matches Settings → STARNET).
+# Force hosted MCP:
+# export OASIS_MCP_TRANSPORT=http
+# Force local MCP when path is non-standard:
+# export OASIS_MCP_TRANSPORT=stdio
 # export OASIS_MCP_SERVER_PATH=/absolute/path/to/MCP/dist/src/index.js
 ```
 
@@ -64,25 +70,22 @@ npm run rebuild:terminal
 
 If something’s unclear or you’re blocked, reach out to Max (or the team) — we can add more docs or pair on setup.
 
+### Sharing with testers (beta / demos)
+
+See **[docs/EXTERNAL_TESTERS.md](docs/EXTERNAL_TESTERS.md)** for the shortest path to a working remote setup, what breaks without API keys, and packaged-app gotchas.
+
 ---
 
 ## MCP tools (optional)
 
-The IDE can start the **OASIS Unified MCP Server** so you get 100+ tools (create wallet, mint NFT, health check, etc.) from the chat and panels. This repo does **not** include the MCP server; you point to it with **OASIS_MCP_SERVER_PATH**.
+The IDE connects to the **same** OASIS unified MCP tool surface as Cursor: either **hosted** (default, zero install) or a **local** stdio server from your machine.
 
-**Option A — You have the OASIS monorepo (or just the MCP folder):**
+**Default — Hosted MCP (recommended):**  
+The IDE uses Streamable HTTP to `https://mcp.oasisweb4.one/mcp` (override with `OASIS_MCP_REMOTE_URL`). After you log in, the IDE passes your JWT as `Authorization: Bearer …` so authenticated tools work. No `MCP` folder or `npm run build` in the monorepo is required.
 
-1. In that repo: `cd MCP && npm install && npm run build`
-2. Set the path to the built file, e.g.  
-   `export OASIS_MCP_SERVER_PATH=/path/to/OASIS/MCP/dist/src/index.js`
+**Local stdio (advanced):** set `OASIS_MCP_TRANSPORT=stdio`, build the `MCP` package in the OASIS repo (`cd MCP && npm install && npm run build`), and optionally set **OASIS_MCP_SERVER_PATH** to `…/MCP/dist/src/index.js` if not using the default path next to this repo.
 
-**Option B — MCP is published as a package:**
-
-1. Install it in this repo (e.g. `npm install @oasis-unified/mcp-server` if/when published).
-2. Set `OASIS_MCP_SERVER_PATH` to the package’s entry, e.g.  
-   `node_modules/@oasis-unified/mcp-server/dist/index.js` (full absolute path).
-
-If **OASIS_MCP_SERVER_PATH** is not set, the IDE still runs; only the MCP tools won’t be available until you configure it.
+If MCP fails to start, the IDE still runs; chat panels may show fewer tools until MCP is reachable.
 
 ---
 

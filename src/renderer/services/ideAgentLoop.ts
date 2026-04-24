@@ -156,6 +156,98 @@ function truncate(s: string, max: number): string {
  * Sparse "create OAPP / game" prompts: plan and gather context first (OASIS_IDE-style plan mode),
  * instead of immediately running STAR, npm, or write_*.
  */
+/** User is starting an in-IDE STARNET / holon / OAPP build — show a Cursor-style kickoff line. */
+export function userMessageLooksLikeStarnetOappBuild(userText: string): boolean {
+  const t = userText.toLowerCase();
+  if (/\bstarnet\b/.test(t)) {
+    return /\b(oapp|holon|component|build|create|make|app|compose|using|from|catalog)\b/.test(t);
+  }
+  if (/\bholon(s)?\b/.test(t) && /\b(oapp|build|app|starnet|compose)\b/.test(t)) return true;
+  if (/\boapp\b/.test(t) && /\b(build|create|make|holon|starnet|using)\b/.test(t)) return true;
+  return false;
+}
+
+function starnetWorkflowKickoffLine(userText: string): string | null {
+  if (!userMessageLooksLikeStarnetOappBuild(userText)) return null;
+  return (
+    '**STARNET** — Lining up OAPP and holon details from the IDE. ' +
+    'The catalog in context is size-limited; the reply will use STAR lookups for the right ids when needed.'
+  );
+}
+
+/**
+ * One friendly line for the user — no raw tool API names (Cursor-style).
+ * Technical detail is still in the final reply if needed; this is “progress vibe” only.
+ */
+function toolCallBatchIntro(
+  toolCalls: Array<{ name: string; argumentsJson?: string | null }>
+): string {
+  const allMcp = toolCalls.length > 0 && toolCalls.every((tc) => tc.name === 'mcp_invoke');
+  const innerStarCount = toolCalls.filter((tc) => {
+    if (tc.name !== 'mcp_invoke') return false;
+    try {
+      const a = JSON.parse(tc.argumentsJson ?? '{}') as { tool?: string };
+      return typeof a.tool === 'string' && a.tool.startsWith('star_');
+    } catch {
+      return false;
+    }
+  }).length;
+  if (allMcp && innerStarCount === toolCalls.length) {
+    return 'Checking STAR / STARNET from the workspace… (catalog and ids may appear in the reply.)';
+  }
+
+  const kind = (n: string) => {
+    if (n === 'read_file' || n === 'fetch_url') return 'read';
+    if (n === 'list_directory') return 'list';
+    if (n === 'write_file' || n === 'write_files' || n === 'search_replace') return 'write';
+    if (n === 'run_workspace_command' || n === 'run_star_cli') return 'command';
+    if (n === 'mcp_invoke') return 'mcp';
+    if (n === 'web_search' || n === 'open_browser_url') return 'web';
+    if (
+      n === 'workspace_grep' ||
+      n === 'codebase_search' ||
+      n === 'semantic_search'
+    ) {
+      return 'search';
+    }
+    return 'other';
+  };
+  const kinds = new Set(toolCalls.map((tc) => kind(tc.name)));
+  const n = toolCalls.length;
+  if (n === 1) {
+    const a = toolCalls[0]!.name;
+    if (a === 'read_file' || a === 'list_directory') {
+      return 'Skimming a folder in the project…';
+    }
+    if (a === 'workspace_grep' || a === 'codebase_search' || a === 'semantic_search') {
+      return 'Searching the codebase…';
+    }
+    if (a === 'write_file' || a === 'write_files' || a === 'search_replace') {
+      return 'Applying a change in the project…';
+    }
+    if (a === 'run_workspace_command' || a === 'run_star_cli') {
+      return 'Running a command in the project…';
+    }
+    if (a === 'mcp_invoke') return 'Using an integrated OASIS / external tool…';
+    if (a === 'web_search') return 'Checking the web…';
+    return 'One more project step…';
+  }
+
+  const hasRead = kinds.has('read');
+  const hasList = kinds.has('list');
+  const hasSearch = kinds.has('search');
+  if (hasRead && hasList && (hasSearch || n <= 3)) {
+    return 'Scanning a few project paths (files and folders) — almost there…';
+  }
+  if (hasRead && hasList) {
+    return 'Reading and listing a few project paths…';
+  }
+  if (kinds.has('write') || kinds.has('command')) {
+    return 'Updating the project — following up in a moment…';
+  }
+  return 'Working through a few project checks in parallel — hang tight…';
+}
+
 export function shouldUsePlanModeFirst(userText: string): boolean {
   const t = userText.trim();
   if (t.length > 4000) return false;
@@ -163,6 +255,8 @@ export function shouldUsePlanModeFirst(userText: string): boolean {
   const oappOrGame =
     /\boapp\b/i.test(t) ||
     /\bstarnet\b.*\b(app|oapp)\b/i.test(t) ||
+    /\b(from|using|with)\s+starnet\b/i.test(t) ||
+    /\bstarnet\s+components?\b/i.test(t) ||
     /\bnew\s+(world|game)\b/i.test(t) ||
     /\bgame\s+called\b/i.test(t) ||
     /\b(community|social|consumer)\s+app\b/i.test(t) ||
@@ -180,21 +274,52 @@ export function shouldUsePlanModeFirst(userText: string): boolean {
 function groundTruthUserAppendix(): string {
   return (
     `[IDE: Ground-truth rules]\n` +
-    `Only treat as **fact** what **tools** or \`[Tool results from this assistant turn]\` in this thread show. ` +
-    `Label **plans** and **assumptions** explicitly. ` +
-    `Do not assert files, imports, or holon ids exist without \`read_file\`, \`list_directory\`, \`workspace_grep\`, or \`mcp_invoke\`. ` +
+    `Treat as **fact** what **tools**, \`[Tool results from this assistant turn]\`, or the appended **\`## STARNET catalog (IDE — auto-attached …)\`** table (id + name + type rows) in this request show. ` +
+    `Label other ideas **Proposed** or **Assumption**. ` +
+    `Do not assert files, imports, or symbols exist without \`read_file\`, \`list_directory\`, or \`workspace_grep\`. ` +
     `Do not claim integration, auth, or a green build without matching tool output.`
   );
 }
 
-function planningModeUserAppendix(gameDevMode: boolean): string {
+/** Rich product + STARNET / holon questions deserve a template-first, non-hedged answer. */
+function userMessageWantsConcreteStarnetProductPlan(userText: string): boolean {
+  const t = userText.toLowerCase();
+  if (t.length < 48) return false;
+  const domain =
+    /\b(holon|holons|oapp|starnet|component|template|catalog)\b/.test(t) ||
+    /\b(community|social|geo|geolocation|mission|nft|timelock|location|coordinate|park|outdoor|thursday)\b/.test(
+      t
+    );
+  const intent =
+    /\b(identify|which|map|recommend|pick|choose|select|build|design|plan|architecture|description|similar|like)\b/.test(
+      t
+    );
+  return domain && intent;
+}
+
+function concreteStarnetProductPlanAppendix(): string {
+  return (
+    `[IDE: Concrete OAPP / STARNET answer — required for this message]\n` +
+    `1. **Holon picks:** Use **only** rows from the appended **\`## STARNET catalog (IDE — auto-attached …)\`** table (exact **name + id + type**). For each chosen row, write one decisive sentence: **what user-visible behavior it owns** in *this* app (banned vague phrases for those rows: "could", "might", "useful for", "consider", "may help").\n` +
+    `2. **Template / shell:** State the **default starter** you will customize: **Expo** mobile app → follow \`OASIS-IDE/docs/recipes/community-social-app.md\` when geo + social + missions; **web-only** → \`OASIS-IDE/docs/recipes/minimal-vite-browser-oapp.md\`. Name **3 concrete screens** (title + primary user action each).\n` +
+    `3. **Structure the reply** with headings: **A. MVP one-liner** · **B. Holon map** (markdown table: Job-to-be-done / feature | Holon name | Catalog id | Role in app) · **C. Custom / gap work** (timelocks, push on off-days, park polygons, moderation — each bullet explicit) · **D. Build order** (numbered 5–8 steps; last step says what **Execute** mode will do next).\n` +
+    `4. **Do not** invent holon names that are **not** in the catalog table unless clearly tagged **Proposed (not in catalog — custom code)** with why.\n`
+  );
+}
+
+function planningModeUserAppendix(gameDevMode: boolean, mentionsStarnet: boolean): string {
   const quick = gameDevMode
     ? 'If Game Dev mode is on, mention the **Quick actions** strip (New World, New Quest, NPCs, Lore, etc.) where it saves time.'
+    : '';
+  const starnetUx = mentionsStarnet
+    ? `\n**STARNET is inside this IDE:** Point the user to **Activity bar → STARNET** to see lists; **do not** send them to an external STARNET “portal” or website to browse holons/OAPPs. For live ids after browsing, use read-only \`mcp_invoke\` (\`star_list_holons\`, \`star_list_oapps\`, \`star_get_holon\`) in **Agent mode** — never claim STAR connection or list failures without pasting actual tool output.\n` +
+      `**Catalog list tools return compact tables** in this IDE (bounded rows). After the first list, use \`star_get_holon\` / \`star_get_oapp\` for full JSON on specific ids — do not repeat full \`star_list_*\` calls unless the user changed scope.\n`
     : '';
   return (
     `[IDE: Plan-first for this user message]\n` +
     `This looks like a **high-level** create-OAPP / new-game request with little product context.\n` +
-    `**Do not** call \`write_file\`, \`write_files\`, \`run_workspace_command\`, or \`run_star_cli\` in **this** turn. Avoid \`mcp_invoke\` for creating OAPPs, quests, NPCs, mints, or publish flows until the user confirms the plan (read-only checks such as \`oasis_health_check\` are fine).\n` +
+    `**Do not** call \`write_file\`, \`write_files\`, \`run_workspace_command\`, or \`run_star_cli\` in **this** turn.\n` +
+    `**STARNET inventory:** If the context pack already includes **\`## STARNET catalog (IDE — auto-attached …)\`** with holon/OAPP **rows**, use that as the catalog — **do not** call \`star_list_holons\` / \`star_list_oapps\` just to rediscover the same list (wastes context and may disagree with JWT). Use \`oasis_health_check\` if useful, then \`star_get_holon\` / \`star_get_oapp\` on **ids from that table** when you need full fields. Only use list tools if the catalog section is missing/empty or the user asks for a live refresh. Do **not** call create/publish/mint/save MCP tools until the user confirms (Execute mode).\n` +
     `**Do** use **read-only** tools first (\`list_directory\`, \`read_file\`, \`workspace_grep\`) to ground the answer in this repo (recipes, docs), then reply with a **numbered plan**, explicit **defaults**, and **at most one** blocking question only if you truly cannot proceed. ` +
     `Do not describe **verified progress** or file contents you did not read; distinguish **Verified (tools)** from **Plan**.\n` +
     `End with **clickable reply chips**: append **only** this block at the **very end** (no text after it). The **first** label should be **Proceed with this plan** when you have a sensible default; add 2–4 concrete alternatives (scope, engine, template), not vague "what next?" prompts.\n` +
@@ -202,7 +327,8 @@ function planningModeUserAppendix(gameDevMode: boolean): string {
     `["Proceed with this plan","Narrow scope to MVP","Swap default stack","Not sure — pick best default"]\n` +
     `</oasis_plan_replies>\n` +
     `${quick}\n` +
-    `If the user message is actually a long detailed spec (many requirements, paths, tech choices), **ignore** this block and proceed with execution as usual.`
+    `If the user message is actually a long detailed spec (many requirements, paths, tech choices), **ignore** this block and proceed with execution as usual.` +
+    starnetUx
   );
 }
 
@@ -258,8 +384,19 @@ function augmentIdeAgentUserMessage(
     );
   }
 
-  if (shouldUsePlanModeFirst(userText) && !skipSparsePlanInject) {
-    parts.push(planningModeUserAppendix(Boolean(gameDevMode)));
+  const planFirst = shouldUsePlanModeFirst(userText) && !skipSparsePlanInject;
+  if (planFirst) {
+    parts.push(planningModeUserAppendix(Boolean(gameDevMode), /\bstarnet\b/i.test(t)));
+  } else if (/\bstarnet\b/i.test(t)) {
+    parts.push(
+      `[IDE: STARNET UX]\n` +
+        `Browse holons and OAPPs in **Activity bar → STARNET** (built into this IDE). Do not send the user to an external STARNET “portal” or website for catalog exploration.\n` +
+        `\`star_list_holons\` / \`star_list_oapps\` tool output is a **compact table** in this IDE — use \`star_get_holon\` / \`star_get_oapp\` for full JSON on chosen ids.`
+    );
+  }
+
+  if (userMessageWantsConcreteStarnetProductPlan(t)) {
+    parts.push(concreteStarnetProductPlanAppendix());
   }
 
   return parts.join('\n\n');
@@ -292,9 +429,7 @@ export function formatToolProgressLine(name: string, argumentsJson: string): str
       return starArgs.length > 0 ? `STAR ${starArgs.join(' ')}` : 'Running STAR CLI';
     }
     if (name === 'mcp_invoke' && typeof args.tool === 'string') {
-      const inner =
-        args.arguments != null ? truncate(JSON.stringify(args.arguments), 80) : '';
-      return inner ? `${args.tool} (${inner})` : args.tool;
+      return args.tool;
     }
     if (name === 'web_search' && typeof args.query === 'string') {
       return `Web search: ${truncate(args.query.replace(/\s+/g, ' ').trim(), 72)}`;
@@ -408,10 +543,7 @@ export function narrateBeforeTool(name: string, argumentsJson: string): string {
       }
       case 'mcp_invoke': {
         const tool = typeof args.tool === 'string' ? args.tool : 'unknown';
-        const inner = args.arguments != null
-          ? truncate(JSON.stringify(args.arguments).replace(/[{}"]/g, '').slice(0, 80), 80)
-          : '';
-        return inner ? `→ ${tool}(${inner})` : `→ ${tool}()`;
+        return `→ ${tool}()`;
       }
       case 'web_search': {
         const q = typeof args.query === 'string' ? args.query.replace(/\s+/g, ' ').trim() : '';
@@ -444,6 +576,22 @@ export function narrateBeforeTool(name: string, argumentsJson: string): string {
   return `${name}…`;
 }
 
+/** For read-only tools, skip “before” so the feed is one line per action (less noise). */
+function shouldEmitBeforeToolNarration(name: string): boolean {
+  if (
+    name === 'read_file' ||
+    name === 'list_directory' ||
+    name === 'workspace_grep' ||
+    name === 'codebase_search' ||
+    name === 'semantic_search' ||
+    name === 'fetch_url' ||
+    name === 'mcp_invoke'
+  ) {
+    return false;
+  }
+  return true;
+}
+
 /** OASIS_IDE-style result annotation after a tool finishes. Includes a meaningful snippet. */
 export function narrateAfterTool(
   name: string,
@@ -451,63 +599,81 @@ export function narrateAfterTool(
   detail: string,
   activityMeta?: AgentActivityMeta | null
 ): string {
+  if (ok && name === 'list_directory') {
+    const n = detail.split('\n').filter((l) => l.trim().length > 0).length;
+    if (n === 0) return '✓ That folder is empty (or we could not list it).';
+    return `✓ Listed ${n} file${n === 1 ? '' : 's'} and folders.`;
+  }
   if (ok && activityMeta) {
     const stats = formatActivityMetaLine(activityMeta);
-    if (stats) return `← ${stats}`;
+    if (stats) return `✓ ${stats}`;
   }
   if (ok && (name === 'write_file' || name === 'write_files') && /discarded/i.test(detail)) {
     return `← discarded (no files written)`;
   }
   if (!ok) {
     const msg = truncate(detail.replace(/\s+/g, ' ').trim(), 160);
-    return msg ? `← error: ${msg}` : `← failed`;
+    return msg ? `✗ ${msg}` : '✗ Stopped on this step';
   }
   if (name === 'read_file') {
-    const firstLine = detail.split('\n').find((l) => l.trim().length > 20) ?? '';
-    const snip = firstLine ? truncate(firstLine.trim(), 110) : `${detail.length} chars`;
-    return `← ${snip}`;
+    const firstLine = detail.split('\n').find((l) => l.trim().length > 8) ?? '';
+    const snip = firstLine
+      ? truncate(
+          firstLine
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/^[#*>\s-]+/g, '')
+            .replace(/\*\*/g, '')
+            .trim(),
+          88
+        )
+      : '';
+    if (snip) {
+      return `✓ File read — preview: “${snip}”${detail.length > 4000 ? ' …' : ''}`;
+    }
+    return `✓ Read file (${Math.min(detail.length, 999_999)} characters in memory)`;
   }
   if (name === 'workspace_grep') {
     const lines = detail.split('\n').filter((l) => l.trim().length > 0);
-    return lines.length === 0 ? '← no matches' : `← ${lines.length} match${lines.length === 1 ? '' : 'es'}`;
+    return lines.length === 0 ? '✓ No matches' : `✓ ${lines.length} match${lines.length === 1 ? '' : 'es'}`;
   }
   if (name === 'web_search') {
     const head = detail.split('\n').find((l) => l.trim().length > 0) ?? '';
-    return head ? `← ${truncate(head.trim(), 120)}` : '← done';
+    return head ? `✓ ${truncate(head.trim(), 100)}` : '✓ Done';
   }
   if (name === 'fetch_url') {
-    return `← ${detail.length} characters`;
+    return `✓ Fetched page (${detail.length} characters)`;
   }
   if (name === 'codebase_search') {
     const lines = detail.split('\n').filter((l) => l.trim().length > 0);
-    return lines.length === 0 ? '← no hits' : `← ${lines.length} line${lines.length === 1 ? '' : 's'}`;
+    return lines.length === 0 ? '✓ No hits' : `✓ ${lines.length} reference${lines.length === 1 ? '' : 's'}`;
   }
   if (name === 'open_browser_url') {
-    return `← opened`;
+    return '✓ Opened in browser';
   }
   if (name === 'search_replace') {
-    return `← ${truncate(detail.replace(/\s+/g, ' ').trim(), 140)}`;
+    return `✓ ${truncate(detail.replace(/\s+/g, ' ').trim(), 100)}`;
   }
   if (name === 'semantic_search') {
-    return `← ${detail.length} characters`;
+    return `✓ Index results received (${detail.length} characters)`;
   }
   if (name === 'write_file' || name === 'write_files') {
-    return `← written`;
+    return '✓ File write finished';
   }
   if (name === 'run_workspace_command' || name === 'run_star_cli') {
     const codeMatch = detail.match(/exit_code:\s*(\d+)/);
     const code = codeMatch ? `exit ${codeMatch[1]}` : '';
     const lastLine = detail.split('\n').filter((l) => l.trim().length > 5).pop() ?? '';
-    const snip = truncate(lastLine.trim(), 120);
-    return code && snip ? `← ${snip} (${code})` : code ? `← ${code}` : snip ? `← ${snip}` : '← done';
+    const snip = truncate(lastLine.trim(), 100);
+    return code && snip ? `✓ ${snip} · ${code}` : code ? `✓ ${code}` : snip ? `✓ ${snip}` : '✓ Command finished';
   }
   if (name === 'mcp_invoke') {
     const compact = detail.replace(/\s+/g, ' ').trim();
-    if (compact.length > 300) return `← ${compact.length} chars`;
-    return compact ? `← ${truncate(compact, 220)}` : '← ok';
+    if (compact.length > 280) return '✓ Tool returned (output ready for the final answer)';
+    return compact ? `✓ ${truncate(compact, 180)}` : '✓ Ok';
   }
-  const snip = truncate(detail.replace(/\s+/g, ' ').trim(), 180);
-  return snip ? `← ${snip}` : '← done';
+  const snip = truncate(detail.replace(/\s+/g, ' ').trim(), 150);
+  return snip ? `✓ ${snip}` : '✓ Done';
 }
 
 
@@ -544,6 +710,7 @@ export interface IdeAgentLoopDeps {
     toolCallId: string;
     name: string;
     argumentsJson: string;
+    executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
   }) => Promise<
     | {
         ok: true;
@@ -644,9 +811,12 @@ export async function runIdeAgentLoop(
       return emptyOutcome({ error: 'Stopped.', cancelled: true });
     }
 
-    emitText(
-      `Thinking… (step ${round + 1}/${maxRounds}, ${chain.length} messages in context)`
-    );
+    if (round === 0) {
+      const kick = starnetWorkflowKickoffLine(options.userText);
+      if (kick) emitText(kick);
+    } else if (round === 6) {
+      emitText('This workspace is big — still gathering context, thanks for your patience…');
+    }
 
     const res = await deps.agentTurn(
       {
@@ -671,12 +841,12 @@ export async function runIdeAgentLoop(
     }
 
     if (res.kind === 'message') {
-      emitText('Model is done with tool calls — writing final response.');
+      emitText('Composing the reply for you…');
       const text = res.content ?? '';
       if (text.trim().length > 40) {
-        emitText(`→ ${truncate(text, 200)}`);
+        emitText(`(Draft) ${truncate(text, 200)}…`);
       } else if (text.trim().length > 0) {
-        emitText(`→ ${truncate(text.trim(), 120)}`);
+        emitText(`(Draft) ${truncate(text.trim(), 120)}`);
       }
       return {
         finalText: text,
@@ -694,16 +864,11 @@ export async function runIdeAgentLoop(
         argumentsJson: tc.argumentsJson ?? '{}'
       }));
 
-      const names = res.toolCalls.map((tc) => tc.name).join(', ');
-      emitText(
-        res.toolCalls.length === 1
-          ? `The model wants to run one action next (${names}). Each step appears below as it runs.`
-          : `The model wants to run ${res.toolCalls.length} actions in order: ${names}. They run one after another so you can follow along.`
-      );
+      emitText(toolCallBatchIntro(res.toolCalls));
 
       const sideText = (res.content ?? '').trim();
-      if (sideText.length > 40) {
-        emitText(`Short note from the model before those actions: ${truncate(sideText, 180)}`);
+      if (sideText.length > 50) {
+        emitText(`(Planning note) ${truncate(sideText, 140)}`);
       }
 
       chain.push({
@@ -712,37 +877,19 @@ export async function runIdeAgentLoop(
         toolCalls: assistantToolCalls
       });
 
-      let batchReads = 0;
-      let batchSearches = 0;
-      let batchLists = 0;
-      for (const tc of res.toolCalls) {
-        if (tc.name === 'read_file') batchReads += 1;
-        else if (
-          tc.name === 'workspace_grep' ||
-          tc.name === 'codebase_search' ||
-          tc.name === 'semantic_search'
-        ) {
-          batchSearches += 1;
-        } else if (tc.name === 'list_directory') batchLists += 1;
-      }
-      if (batchReads + batchSearches + batchLists > 0) {
-        const bits: string[] = [];
-        if (batchReads) bits.push(`${batchReads} file${batchReads === 1 ? '' : 's'}`);
-        if (batchSearches) bits.push(`${batchSearches} search${batchSearches === 1 ? '' : 'es'}`);
-        if (batchLists) bits.push(`${batchLists} folder${batchLists === 1 ? '' : 's'}`);
-        emitText(`Explored ${bits.join(', ')}.`);
-      }
-
       for (const tc of res.toolCalls) {
         if (deps.isCancelled?.()) {
           return emptyOutcome({ error: 'Stopped.', cancelled: true });
         }
         const argsJson = tc.argumentsJson ?? '{}';
-        emitText(narrateBeforeTool(tc.name, argsJson));
+        if (shouldEmitBeforeToolNarration(tc.name)) {
+          emitText(narrateBeforeTool(tc.name, argsJson));
+        }
         const ex = await deps.agentExecuteTool({
           toolCallId: tc.id,
           name: tc.name,
-          argumentsJson: argsJson
+          argumentsJson: argsJson,
+          executionMode: options.executionMode ?? 'execute'
         });
         if (!ex.ok) {
           emitText(narrateAfterTool(tc.name, false, ex.error));
@@ -822,7 +969,7 @@ export async function runIdeAgentGatherPresentSequence(
 
   rest.onActivityFeedItem?.({
     kind: 'text',
-    text: '[Deep plan] Pass 1: scanning repo with read-only searches to ground the plan in real files…'
+    text: 'Deep plan — first pass: scanning the repo in read-only mode to anchor the plan in real files…'
   });
 
   const gather = await runIdeAgentLoop(deps, {
@@ -840,7 +987,7 @@ export async function runIdeAgentGatherPresentSequence(
 
   rest.onActivityFeedItem?.({
     kind: 'text',
-    text: '[Deep plan] Pass 2: composing plan from gathered evidence…'
+    text: 'Deep plan — second pass: turning what we found into a clear, actionable plan…'
   });
 
   const present = await runIdeAgentLoop(deps, {
@@ -862,7 +1009,7 @@ export async function runIdeAgentGatherPresentSequence(
       ...gather.activityLog,
       {
         kind: 'text',
-        text: '── Between passes: building the visible plan from what we gathered ──'
+        text: 'Shifting to the final plan you’ll read in the next messages…'
       },
       ...present.activityLog
     ],

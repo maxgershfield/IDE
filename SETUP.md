@@ -20,7 +20,7 @@
    npm install
    ```
 
-3. **Build OASIS MCP Server (if not already built):**
+3. **Build OASIS MCP Server (only if you use local MCP):** By default the IDE uses **hosted** MCP (`https://mcp.oasisweb4.one/mcp`). For a local stdio server, set `OASIS_MCP_TRANSPORT=stdio`, then:
    ```bash
    cd ../MCP
    npm install
@@ -97,12 +97,9 @@ npm run package:linux
 
 ### OASIS MCP Server
 
-The IDE automatically starts the OASIS MCP server located at:
-```
-../../MCP/dist/index.js
-```
+**Default:** connects to **hosted** MCP via Streamable HTTP (`OASIS_MCP_REMOTE_URL`, default `https://mcp.oasisweb4.one/mcp`). After login, your JWT is sent to MCP.
 
-Make sure this path is correct or update `MCPServerManager.ts`.
+**Local:** set `OASIS_MCP_TRANSPORT=stdio` and ensure the built entry exists (monorepo default: `../MCP/dist/src/index.js`), or set `OASIS_MCP_SERVER_PATH`.
 
 ### OASIS API
 
@@ -112,7 +109,8 @@ Set via environment variable:
 ```bash
 export OASIS_API_URL=http://your-oasis-api-url
 
-# If the IDE is run from outside the OASIS monorepo (e.g. external repo), point to the MCP server:
+# Local MCP only (stdio):
+# export OASIS_MCP_TRANSPORT=stdio
 # export OASIS_MCP_SERVER_PATH=/path/to/MCP/dist/src/index.js
 ```
 
@@ -182,9 +180,7 @@ Full steps, **what it enables**, and Chat vs Agent notes: **[docs/LOCAL_LLM_AND_
 If the IDE lives in a **separate repo** (e.g. for collaboration), it can still use OASIS:
 
 - **OASIS API**: Set `OASIS_API_URL` to your OASIS API (local `http://127.0.0.1:5003`, staging, or production). All auth, chat, agents, and health go over HTTP.
-- **OASIS MCP**: Set `OASIS_MCP_SERVER_PATH` to the **absolute path** of the MCP server entry file (`.../MCP/dist/src/index.js`). Options:
-  - Clone the OASIS monorepo (or just the MCP folder) somewhere and build it; point `OASIS_MCP_SERVER_PATH` at `.../MCP/dist/src/index.js`.
-  - If `@oasis-unified/mcp-server` is published to npm, install it and set `OASIS_MCP_SERVER_PATH` to `node_modules/@oasis-unified/mcp-server/dist/index.js` (or the path the package uses for its bin).
+- **OASIS MCP**: Default is hosted (no path). For stdio, set `OASIS_MCP_TRANSPORT=stdio` and `OASIS_MCP_SERVER_PATH` to `.../MCP/dist/src/index.js`, or install `@oasis-unified/mcp-server` when published and point the path at its entry.
 
 No other monorepo code is required; the IDE has no workspace package dependencies.
 
@@ -192,9 +188,9 @@ No other monorepo code is required; the IDE has no workspace package dependencie
 
 ### MCP Server Not Starting
 
-1. Check that the MCP entry file exists (monorepo: `../MCP/dist/src/index.js`; or path in `OASIS_MCP_SERVER_PATH`)
-2. Verify MCP server is built: `cd ../MCP && npm run build`
-3. Check console for errors
+1. If using **hosted** (default): check network and `OASIS_MCP_REMOTE_URL`; ensure login so JWT is sent if tools require auth.
+2. If using **stdio**: confirm the entry file exists (`../MCP/dist/src/index.js` or `OASIS_MCP_SERVER_PATH`) and run `cd ../MCP && npm run build`.
+3. Check the main process console for `[MCP]` errors.
 
 ### OASIS API Connection Issues
 

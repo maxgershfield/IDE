@@ -1,0 +1,17 @@
+{
+  "name": "oasis-onboard-starter",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal browser app: OASIS avatar auth, Solana wallet, NFT mint (dev, via Vite proxy to ONODE)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8"
+  }
+}

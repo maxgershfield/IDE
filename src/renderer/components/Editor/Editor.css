@@ -82,6 +82,14 @@
   width: 100%;
 }
 
+.editor-build-plan-slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 /* Preview button — pinned to the right of the tab bar */
 .editor-tab-btn--preview {
   margin-left: auto;

@@ -6,10 +6,11 @@ import type {
   AgentToolExecutionResult
 } from '../../shared/agentTurnTypes.js';
 import { buildSimpleDiffPreview } from '../../shared/diffPreview.js';
-import { isAgentMcpToolAllowed } from './agentMcpAllowlist.js';
+import { isAgentMcpToolAllowed, isAgentMcpToolPlanReadOnly } from './agentMcpAllowlist.js';
 import type { FileSystemService } from './FileSystemService.js';
 import type { SemanticSearchService } from './SemanticSearchService.js';
 import { formatMcpToolResult } from './mcpToolResultFormat.js';
+import { compactAgentMcpToolResult } from './mcpStarListCompaction.js';
 
 const READ_MAX_BYTES = 512 * 1024;
 
@@ -19,6 +20,11 @@ function lineCountUtf8(s: string): number {
 }
 
 const DIFF_PREVIEW_MAX_BYTES = 384 * 1024;
+
+function isPlanAgentExecutionMode(mode?: string): boolean {
+  const m = (mode ?? 'execute').toLowerCase();
+  return m === 'plan' || m === 'plan_gather' || m === 'plan_present';
+}
 
 function maybeDiffPreview(oldText: string, newText: string): string | null {
   if (oldText.length + newText.length > DIFF_PREVIEW_MAX_BYTES) return null;
@@ -139,7 +145,12 @@ export class AgentToolExecutor {
     return path.normalize(path.join(root, userPath));
   }
 
-  async execute(toolCallId: string, name: string, argsJson: string): Promise<AgentToolExecutionResult> {
+  async execute(
+    toolCallId: string,
+    name: string,
+    argsJson: string,
+    meta?: { executionMode?: string }
+  ): Promise<AgentToolExecutionResult> {
     let args: Record<string, unknown>;
     try {
       args = JSON.parse(argsJson) as Record<string, unknown>;
@@ -172,7 +183,7 @@ export class AgentToolExecutor {
         case 'write_files':
           return await this.writeFiles(toolCallId, args);
         case 'mcp_invoke':
-          return await this.mcpInvoke(toolCallId, args);
+          return await this.mcpInvoke(toolCallId, args, meta);
         case 'run_star_cli':
           return await this.runStarCli(toolCallId, args);
         case 'web_search':
@@ -399,6 +410,10 @@ export class AgentToolExecutor {
     const validated = validateAgentFetchUrl(urlStr);
     if (!validated.ok) {
       return { toolCallId, content: validated.error, isError: true };
+    }
+    const apiReject = rejectOpenBrowserIfJsonApiUrl(validated.url);
+    if (apiReject) {
+      return { toolCallId, content: apiReject, isError: true };
     }
     const fn = this.deps.openExternalUrl;
     if (!fn) {
@@ -888,7 +903,8 @@ export class AgentToolExecutor {
 
   private async mcpInvoke(
     toolCallId: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    meta?: { executionMode?: string }
   ): Promise<AgentToolExecutionResult> {
     const tool = typeof args.tool === 'string' ? args.tool.trim() : '';
     if (!tool) {
@@ -902,6 +918,15 @@ export class AgentToolExecutor {
       return {
         toolCallId,
         content: `MCP tool not allowed for agent: ${tool}. Use an allowlisted oasis_* or star_* tool.`,
+        isError: true
+      };
+    }
+    if (isPlanAgentExecutionMode(meta?.executionMode) && !isAgentMcpToolPlanReadOnly(tool)) {
+      return {
+        toolCallId,
+        content:
+          `Plan mode allows only read-only MCP discovery (e.g. star_list_holons, star_get_holon, star_list_oapps, star_get_oapp, oasis_health_check). ` +
+          `"${tool}" needs Execute mode. Switch to Execute after the plan is agreed, or use a read-only list/get tool.`,
         isError: true
       };
     }
@@ -919,7 +944,7 @@ export class AgentToolExecutor {
         : {};
     try {
       const result = await fn(tool, rawArgs);
-      const text = formatMcpToolResult(result);
+      const text = compactAgentMcpToolResult(tool, formatMcpToolResult(result));
       const r = result as { isError?: boolean };
       return { toolCallId, content: text, isError: Boolean(r?.isError) };
     } catch (e) {
@@ -1335,6 +1360,22 @@ function htmlToLoosePlainText(html: string): string {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * ONODE/STAR WebAPI routes live under /api/... and return JSON. Opening them in a browser
+ * shows raw JSON or an empty view and trains bad habits (guessed ports like :5001).
+ */
+function rejectOpenBrowserIfJsonApiUrl(u: URL): string | null {
+  const p = u.pathname || '';
+  if (p === '/api' || p.toLowerCase().startsWith('/api/')) {
+    return (
+      'open_browser_url blocked: /api/... URLs are JSON REST endpoints (ONODE, STAR, etc.), not HTML pages. ' +
+      'Use mcp_invoke for data (e.g. star_list_oapps, star_list_holons, oasis_health_check) or tell the user to open Activity bar → STARNET. ' +
+      'Do not guess localhost ports for API lists.'
+    );
+  }
+  return null;
 }
 
 /** Block SSRF to private nets, link-local, CGNAT, and cloud metadata endpoints. */

@@ -144,19 +144,127 @@ export const IntegrationsSection: React.FC = () => {
           <div className="settings-row-info">
             <div className="settings-row-label">API Endpoint Override</div>
             <div className="settings-row-desc">
-              Custom OASIS API URL. Leave blank to use the default (OASIS_API_URL env or built-in).
+              ONODE base URL (paths use <code style={{ fontSize: 11 }}>/api/...</code>). If{' '}
+              <code style={{ fontSize: 11 }}>OASIS_API_URL</code> is set in{' '}
+              <code style={{ fontSize: 11 }}>.env</code>, it wins over this field. Leave blank for local{' '}
+              <code style={{ fontSize: 11 }}>127.0.0.1:5003</code> when env is unset.
             </div>
           </div>
-          <div className="settings-row-control" style={{ width: 240 }}>
+          <div className="settings-row-control" style={{ width: 280 }}>
             <input
               type="text"
               className="settings-input"
-              placeholder="https://api.oasis.ac"
+              placeholder="https://api.oasisweb4.one"
               value={settings.oasisApiEndpoint}
               onChange={(e) => updateSettings({ oasisApiEndpoint: e.target.value })}
             />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+              <button
+                type="button"
+                className="settings-btn settings-btn-secondary"
+                onClick={() => updateSettings({ oasisApiEndpoint: 'http://127.0.0.1:5003' })}
+              >
+                Local
+              </button>
+              <button
+                type="button"
+                className="settings-btn settings-btn-secondary"
+                onClick={() => updateSettings({ oasisApiEndpoint: 'https://api.oasisweb4.one' })}
+              >
+                Remote api.oasisweb4.one
+              </button>
+              <button
+                type="button"
+                className="settings-btn settings-btn-secondary"
+                onClick={() => updateSettings({ oasisApiEndpoint: '' })}
+              >
+                Clear
+              </button>
+            </div>
           </div>
         </div>
+      </div>
+
+      <p className="settings-section-heading">OASIS Web Portal</p>
+      <div className="settings-group">
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">Portal URL</div>
+            <div className="settings-row-desc">
+              Where the browser opens for &quot;Open portal&quot; (wallets, NFTs, stats). Use the same
+              environment you deploy the portal to, for example <code style={{ fontSize: 11 }}>/portal/</code> on
+              oasisweb4.one.
+            </div>
+          </div>
+          <div className="settings-row-control" style={{ width: 300 }}>
+            <input
+              type="text"
+              className="settings-input"
+              placeholder="https://oasisweb4.one/portal/"
+              value={settings.portalBaseUrl}
+              onChange={(e) => updateSettings({ portalBaseUrl: e.target.value })}
+            />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+              <button
+                type="button"
+                className="settings-btn settings-btn-secondary"
+                onClick={() => updateSettings({ portalBaseUrl: 'https://oasisweb4.one/portal/' })}
+              >
+                Production
+              </button>
+              <button
+                type="button"
+                className="settings-btn settings-btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                onClick={() => {
+                  const b = (settings.portalBaseUrl || 'https://oasisweb4.one/portal/').replace(/\/?$/, '/');
+                  void window.electronAPI?.openUrl?.(b);
+                }}
+              >
+                <ExternalLink size={12} />
+                Open in browser
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">Notify when portal data changes</div>
+            <div className="settings-row-desc">
+              Periodically checks A2A inbox and STAR NFT list (same APIs the portal uses). Shows a short
+              alert in the IDE if new messages or NFTs appear. Uses your STARNET endpoint from the STARNET
+              settings tab.
+            </div>
+          </div>
+          <div className="settings-row-control">
+            <Toggle
+              checked={settings.portalActivityNotify}
+              onChange={(v) => updateSettings({ portalActivityNotify: v })}
+            />
+          </div>
+        </div>
+        {settings.portalActivityNotify ? (
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <div className="settings-row-label">Poll interval (seconds)</div>
+              <div className="settings-row-desc">How often to check for new activity. Minimum 30.</div>
+            </div>
+            <div className="settings-row-control">
+              <input
+                type="number"
+                className="settings-input"
+                style={{ maxWidth: 100 }}
+                min={30}
+                max={3600}
+                value={settings.portalActivityPollSec}
+                onChange={(e) => {
+                  const n = Math.min(3600, Math.max(30, Math.floor(Number(e.target.value) || 120)));
+                  updateSettings({ portalActivityPollSec: n });
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <p className="settings-section-heading">Browser</p>

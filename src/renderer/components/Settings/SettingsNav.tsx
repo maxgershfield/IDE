@@ -13,6 +13,7 @@ import {
   Gamepad2,
   Database,
   Link2,
+  Hexagon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -32,6 +33,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   { id: 'integrations',  label: 'Integrations',         Icon: Plug,      group: 'ide' },
   { id: 'rules',         label: 'Rules & Skills',       Icon: BookOpen,  group: 'ide' },
   { id: 'mcp',           label: 'Tools & MCPs',         Icon: Wrench,    group: 'ide' },
+  { id: 'indexing',      label: 'Indexing & Holons',    Icon: Hexagon,   group: 'ide' },
   // OASIS-specific
   { id: 'avatar',        label: 'OASIS Avatar',         Icon: User,      group: 'oasis' },
   { id: 'starnet',       label: 'STARNET',              Icon: Globe,     group: 'oasis' },

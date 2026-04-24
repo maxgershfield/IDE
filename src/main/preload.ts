@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWorkspacePath: () => ipcRenderer.invoke('fs:get-workspace-path'),
   setWorkspacePath: (dir: string) => ipcRenderer.invoke('fs:set-workspace', dir),
   listTree: (dir?: string) => ipcRenderer.invoke('fs:list-tree', dir),
+  listRootLevel: () => ipcRenderer.invoke('fs:list-root-level'),
+  listDirShallow: (absPath: string) => ipcRenderer.invoke('fs:list-dir-shallow', absPath),
   readFile: (path: string) => ipcRenderer.invoke('fs:read-file', path),
   writeFile: (path: string, content: string) =>
     ipcRenderer.invoke('fs:write-file', path, content),
@@ -37,8 +39,45 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('templates:list-meta'),
   applyContentTemplate: (templateId: string, destDir: string, variables: Record<string, string>) =>
     ipcRenderer.invoke('templates:apply-content', templateId, destDir, variables),
+  copyOasisOnboardStarter: (parentDir: string, folderName: string) =>
+    ipcRenderer.invoke('templates:copy-oasis-onboard-starter', parentDir, folderName) as Promise<
+      | { ok: true; projectPath: string; folderName: string }
+      | { ok: false; error: string }
+    >,
+  applyOasisOnboardBranding: (projectPath: string, description: string) =>
+    ipcRenderer.invoke('templates:apply-oasis-onboard-branding', projectPath, description) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
+  bootstrapOasisOnboardStarter: (parentDir: string) =>
+    ipcRenderer.invoke('templates:bootstrap-oasis-onboard-starter', parentDir) as Promise<
+      | {
+          ok: true;
+          projectPath: string;
+          folderName: string;
+          npmInstallOk: boolean;
+          npmInstallLog: string;
+        }
+      | { ok: false; error: string }
+    >,
+  npmInstallInProject: (projectPath: string) =>
+    ipcRenderer.invoke('templates:npm-install-in-project', projectPath) as Promise<
+      | { ok: true; npmOk: boolean; log: string; exitCode: number | null }
+      | { ok: false; error: string }
+    >,
   openUrl: (url: string) => ipcRenderer.invoke('shell:open-url', url),
   checkPort: (port: number) => ipcRenderer.invoke('check-port', port),
+  /** A2A inbox + STAR NFT list counts; same sources the OASIS Portal uses for parity. */
+  pollPortalActivity: () =>
+    ipcRenderer.invoke('portal:poll-activity') as Promise<
+      | {
+          ok: true;
+          a2aMessageCount: number;
+          nftCount: number | null;
+          a2aError?: string;
+          starError?: string;
+        }
+      | { ok: false; error: string }
+    >,
 
   // ElevenLabs NPC Voice Studio
   elevenlabsListVoices: () =>
@@ -58,8 +97,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   stopStaticPreview: () => ipcRenderer.invoke('ide:preview-stop'),
 
-  agentExecuteTool: (payload: { toolCallId: string; name: string; argumentsJson: string }) =>
-    ipcRenderer.invoke('agent:execute-tool', payload),
+  agentExecuteTool: (payload: {
+    toolCallId: string;
+    name: string;
+    argumentsJson: string;
+    executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
+  }) => ipcRenderer.invoke('agent:execute-tool', payload),
 
   agentTurn: (
     body: {
@@ -85,6 +128,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Auth
   authLogin: (username: string, password: string) =>
     ipcRenderer.invoke('auth:login', username, password),
+  authRegister: (payload: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    username: string;
+    password: string;
+    confirmPassword: string;
+  }) => ipcRenderer.invoke('auth:register', payload),
   authLogout: () => ipcRenderer.invoke('auth:logout'),
   authGetStatus: () => ipcRenderer.invoke('auth:getStatus'),
   authGetToken: () => ipcRenderer.invoke('auth:getToken') as Promise<string | null>,
@@ -170,6 +221,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: unknown, task: unknown) => callback(task);
     ipcRenderer.on('telegram:task', handler);
     return () => ipcRenderer.removeListener('telegram:task', handler);
+  },
+
+  // Holonic codebase index
+  holonicIndexLoadStatus: (workspaceRoot: string) =>
+    ipcRenderer.invoke('holon-index:load-status', workspaceRoot),
+  holonicIndexStatus: () => ipcRenderer.invoke('holon-index:status'),
+  holonicIndexBuild: (workspaceRoot: string) =>
+    ipcRenderer.invoke('holon-index:build', workspaceRoot),
+  holonicIndexCancel: () => ipcRenderer.invoke('holon-index:cancel'),
+  holonicIndexDelete: (workspaceRoot: string) =>
+    ipcRenderer.invoke('holon-index:delete', workspaceRoot),
+  holonicIndexSearch: (workspaceRoot: string, query: string, limit?: number) =>
+    ipcRenderer.invoke('holon-index:search', workspaceRoot, query, limit),
+  onHolonicIndexProgress: (callback: (status: unknown) => void) => {
+    const handler = (_: unknown, status: unknown) => callback(status);
+    ipcRenderer.on('holon-index:progress', handler);
+    return () => ipcRenderer.removeListener('holon-index:progress', handler);
   },
 
   // Window

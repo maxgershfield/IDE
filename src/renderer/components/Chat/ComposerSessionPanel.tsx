@@ -1,17 +1,15 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { useMCP } from '../../contexts/MCPContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { useWorkspace } from '../../contexts/WorkspaceContext';
+import { useWorkspace, type TreeNode } from '../../contexts/WorkspaceContext';
 import { useIdeChat } from '../../contexts/IdeChatContext';
 import { AIAssistant } from '../../services/AIAssistant';
 import {
   IDE_CHAT_DEFAULT_MODEL_ID,
   IDE_CHAT_MODELS,
   IDE_CHAT_MODEL_STORAGE_KEY,
-  IDE_COMPOSER_MODE_STORAGE_KEY,
   getIdeChatModelById,
-  type AgentExecutionModeId,
-  type ComposerModeId
+  type AgentExecutionModeId
 } from '../../constants/ideChatModels';
 import { getAgentContextPack } from '../../../shared/agentContextPack';
 import { getGameDevContextPack } from '../../constants/gameDevPrompt';
@@ -26,7 +24,6 @@ import {
 } from '../../services/ideAgentLoop';
 import { countWorkspaceFiles } from '../../utils/countWorkspaceFiles';
 import { wantsBrowserPreviewAction, resolvePreviewFolderPath } from '../../utils/previewIntent';
-import { wantsWorkspaceExecutionIntent } from '../../utils/workspaceExecutionIntent';
 import {
   ASSISTANT_STREAM_MIN_LENGTH,
   nextRevealIncrement
@@ -48,6 +45,9 @@ import {
   type OnChainWorkflowMode
 } from '../OnChain/ComposerInlineOnChainWorkflow';
 import { ComposerInlineGameWorkflow } from './ComposerInlineGameWorkflow';
+import { ComposerInlineOasisOnboardGuide } from './ComposerInlineOasisOnboardGuide';
+import { ComposerInlineBuildPlanGuide } from './ComposerInlineBuildPlanGuide';
+import { OASIS_OPEN_ONBOARD_GUIDE } from '../../utils/activityViewBridge';
 import type { GameQuickActionId } from '../../constants/gameQuickActions';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import { useProjectMemory } from '../../contexts/ProjectMemoryContext';
@@ -55,8 +55,16 @@ import { loadWorkspaceRulesText } from '../../utils/workspaceRules';
 import { loadIdeAgentInstructions } from '../../utils/ideAgentInstructions';
 import { extractLastOasisBuildPlan, stripOasisBuildPlanFences } from '../../utils/parseOasisBuildPlan';
 import { buildPlanningDocContextNote } from '../../utils/buildPlanningDocContextNote';
+import { buildHolonAnnotatedWorkspaceNote } from '../../utils/holonWorkspaceAnnotation';
+import { useWorkspaceHolonScan } from '../../hooks/useWorkspaceHolonScan';
+import { useWorkspaceIndex } from '../../contexts/WorkspaceIndexContext';
 import { useOappBuildPlan } from '../../contexts/OappBuildPlanContext';
 import { buildOnChainAgentContextNote } from '../../constants/onChainQuickPrompts';
+import {
+  buildPathScopedContextNote,
+  rootDirNamesFromTree,
+  tryResolveWorkspacePathFocus,
+} from '../../utils/pathScopedContext';
 import {
   PROJECT_MEMORY_SUMMARIZE_SYSTEM,
   buildComposerTranscriptForSummary,
@@ -72,7 +80,6 @@ const CHAT_STORAGE_V2_PREFIX = 'oasis-ide-chat-v2-';
 const CHAT_ROOT_HOLON_PREFIX = 'oasis-ide-chat-rootid-';
 /** Two-step Plan (gather repo, then user-facing plan). Default on; user can turn off. */
 const IDE_DEEP_PLAN_TWO_STEP_KEY = 'oasis-ide-deep-plan-two-step';
-const CHAT_WORKSPACE_HINT_DISMISS_KEY = 'oasis-ide-dismiss-chat-workspace-hint';
 /** Legacy key (avatar only — no workspace); migrated when v2 is empty */
 const CHAT_STORAGE_LEGACY_PREFIX = 'oasis-ide-chat-';
 
@@ -155,13 +162,12 @@ const INITIAL_MESSAGE: Message = {
   role: 'assistant',
   content:
     'Hi, I\'m the OASIS IDE assistant.\n\n' +
-    '**Chat** / **Agent** / **Game Dev** (mode selector below):\n' +
-    '- **Agent**: OpenAI or Grok + a workspace folder open. Use **Plan** for read-only exploration and a chip handoff, or **Execute** for writes, STAR, npm, and MCP.\n' +
-    '- **Game Dev**: Same tool loop as Agent, but with metaverse game developer context pre-loaded — OASIS quests, NPCs, GeoNFTs, ElevenLabs voice, Three.js/Hyperfy/Babylon/Unity/Roblox templates.\n' +
-    '- **Chat**: One-shot text through ONODE or a local API key. No workspace tools.\n\n' +
-    'With a folder open, **Agent** mode auto-includes **AGENTS.md** (root and nested toward the open file), **`.cursor/rules`**, and your **`.oasiside` / `.OASIS_IDE` rules** in the context pack sent to the model.\n\n' +
-    'In **Agent** mode, **paste images** (Ctrl/Cmd+V) into the composer to ask about screenshots, diagrams, or logos. Uses vision-capable models (for example GPT-4o) via ONODE.\n\n' +
-    'Tip: switch to **Game Dev** when building metaverse worlds. **+** opens another tab with its own history.',
+    '**Agent** and **Game Dev** (Activity bar or Game Dev toggle in the right panel):\n' +
+    '- **Agent**: OpenAI or Grok with a **workspace folder** open. Use **Plan** for read-only exploration and a chip handoff, or **Execute** for writes, STAR, npm, and MCP.\n' +
+    '- **Game Dev**: Same tool loop as Agent, with metaverse game context pre-loaded (quests, NPCs, GeoNFTs, ElevenLabs voice, engine templates).\n\n' +
+    'With a folder open, the model auto-includes **AGENTS.md** (root and nested toward the open file), **`.cursor/rules`**, and **`.oasiside` / `.OASIS_IDE` rules** in the context pack sent to the model.\n\n' +
+    '**Paste images** (Ctrl/Cmd+V) into the composer to ask about screenshots, diagrams, or logos. Use vision-capable models (for example GPT-4o) via ONODE when available.\n\n' +
+    '**+** opens another tab with its own history.',
   timestamp: Date.now()
 };
 
@@ -333,6 +339,14 @@ function buildLocalIdeContextPrefix(
   return block;
 }
 
+
+/** Inserted when both local holon context and a STARNET block are present — prevents the model from answering “what’s in the repo?” from the global catalog. */
+const LOCAL_VS_STARNET_ROUTING_NOTE =
+  '## How to answer “holons in this workspace / this repo”\n\n' +
+  '• **This project (on disk)** — The **Local workspace (on disk)** and **Relevant local holons** sections describe **folders and the holonic index** for the open path.\n' +
+  '• **STARNET (global registry)** — The next section lists **published** holon and OAPP **ids** in STAR. Use that for **composition, publish, and id lookup**, *not* as a substitute for listing repo directories.\n' +
+  'If the user’s question is about the **open workspace**, lead with the local sections; cite STARNET rows only if they also ask about published components or installable templates.';
+
 function buildIdeComposerContextPack(opts: {
   workspaceRules: string | null;
   /** Root + nested AGENTS.md and `.cursor/rules` (bounded); see `docs/IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md` */
@@ -343,7 +357,17 @@ function buildIdeComposerContextPack(opts: {
   starnetNote?: string | null;
   /** Full planning index markdown (Build plan tab); injected every agent turn */
   planningDocNote?: string | null;
+  /** Pre-read workspace tree (from WorkspaceContext) — injected once to reduce list_directory round-trips */
+  workspaceTreeNote?: string | null;
+  /** Top holons from the semantic index, matched to the current user query */
+  relevantHolonsNote?: string | null;
+  /** Pre-read README / package / listing for a path the user asked about */
+  pathFocusNote?: string | null;
 }): string {
+  const hasLocalHolonContext =
+    Boolean(opts.workspaceTreeNote?.trim()) ||
+    Boolean(opts.relevantHolonsNote?.trim()) ||
+    Boolean(opts.pathFocusNote?.trim());
   const parts: string[] = [];
   if (opts.workspaceRules?.trim()) {
     parts.push(`## Workspace rules (.oasiside or .OASIS_IDE)\n${opts.workspaceRules.trim()}`);
@@ -354,10 +378,22 @@ function buildIdeComposerContextPack(opts: {
   if (opts.projectMemoryText.trim()) {
     parts.push(`## Project memory (workspace notes)\n${opts.projectMemoryText.trim()}`);
   }
+  if (opts.pathFocusNote?.trim()) {
+    parts.push(opts.pathFocusNote.trim());
+  }
+  if (opts.workspaceTreeNote?.trim()) {
+    parts.push(opts.workspaceTreeNote.trim());
+  }
+  if (opts.relevantHolonsNote?.trim()) {
+    parts.push(opts.relevantHolonsNote.trim());
+  }
   if (opts.planningDocNote?.trim()) {
     parts.push(opts.planningDocNote.trim());
   }
   if (opts.starnetNote?.trim()) {
+    if (hasLocalHolonContext) {
+      parts.push(LOCAL_VS_STARNET_ROUTING_NOTE);
+    }
     parts.push(opts.starnetNote.trim());
   }
   if (opts.onChainNote?.trim()) {
@@ -452,6 +488,20 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     settings.onChainSolanaCluster
   );
   const { workspacePath, tree, refreshTree, starWorkspaceConfig, openFilePath } = useWorkspace();
+
+  /**
+   * Shallow (depth-2) root listing used exclusively for holonic annotation.
+   * This is fetched via a dedicated IPC call that does NOT recursively scan
+   * the entire workspace, making it safe for huge monorepos (174k+ files).
+   */
+  const [rootLevelTree, setRootLevelTree] = useState<TreeNode[]>([]);
+  useEffect(() => {
+    if (!workspacePath || !window.electronAPI?.listRootLevel) return;
+    window.electronAPI.listRootLevel().then((nodes: TreeNode[]) => {
+      setRootLevelTree(nodes ?? []);
+    }).catch(() => setRootLevelTree([]));
+  }, [workspacePath]);
+
   const {
     sessions,
     removeReference,
@@ -515,18 +565,16 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     }
     return IDE_CHAT_DEFAULT_MODEL_ID;
   });
-  const [composerMode, setComposerMode] = useState<ComposerModeId>(() => {
-    try {
-      const s = localStorage.getItem(IDE_COMPOSER_MODE_STORAGE_KEY);
-      if (s === 'agent' || s === 'chat') return s;
-    } catch {
-      /* ignore */
-    }
-    return 'agent';
-  });
-  const showOnChainPalette = composerMode === 'agent' || isGameDevMode;
   const [onChainWorkflow, setOnChainWorkflow] = useState<OnChainWorkflowMode | null>(null);
   const [gameQuickWorkflow, setGameQuickWorkflow] = useState<GameQuickActionId | null>(null);
+  const [oasisOnboardGuide, setOasisOnboardGuide] = useState<{ open: boolean; key: number }>({
+    open: false,
+    key: 0
+  });
+  const [buildPlanGuide, setBuildPlanGuide] = useState<{ open: boolean; key: number }>({
+    open: false,
+    key: 0
+  });
   const [agentExecutionMode, setAgentExecutionMode] = useState<AgentExecutionModeId>('execute');
   const [deepPlanTwoStep, setDeepPlanTwoStep] = useState(() => {
     try {
@@ -543,14 +591,6 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const [workspaceRules, setWorkspaceRules] = useState<string | null>(null);
   /** AGENTS.md (nested) + `.cursor/rules`; refreshed with workspace and active editor file. */
   const [agentAutoloadInstructions, setAgentAutoloadInstructions] = useState<string | null>(null);
-  const [dismissChatWorkspaceHint, setDismissChatWorkspaceHint] = useState(() => {
-    try {
-      return localStorage.getItem(CHAT_WORKSPACE_HINT_DISMISS_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-
   const {
     registerSubmitHandler,
     pendingComposerText,
@@ -559,11 +599,36 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     openBuildPlanPane
   } = useEditorTab();
   const { applyPayload, planningDocPath, planningDocContent } = useOappBuildPlan();
+  const { status: indexStatus, searchHolons } = useWorkspaceIndex();
 
   const planningContextNote = useMemo(() => {
     if (!planningDocContent?.trim()) return null;
     return buildPlanningDocContextNote(planningDocPath ?? null, planningDocContent);
   }, [planningDocPath, planningDocContent]);
+
+  /**
+   * Tier 2: background file-content scan.
+   * Uses rootLevelTree (depth-2 shallow listing) — safe for huge monorepos.
+   */
+  const holonScanResult = useWorkspaceHolonScan(workspacePath, rootLevelTree);
+
+  /**
+   * Holonically-annotated workspace context note.
+   * Uses the shallow rootLevelTree so the annotation always covers every
+   * top-level directory — even in a 174k-file monorepo where the full
+   * recursive tree load would time out or be truncated.
+   */
+  const workspaceTreeNote = useMemo<string | null>(() => {
+    if (!workspacePath || rootLevelTree.length === 0) return null;
+    return buildHolonAnnotatedWorkspaceNote({
+      tree: rootLevelTree,
+      workspacePath,
+      starWorkspaceConfig: starWorkspaceConfig ?? null,
+      holonCatalogRows: starnetCatalogSnapshot?.holonCatalogRows ?? [],
+      oapps: starnetCatalogSnapshot?.oapps ?? [],
+      scanResult: holonScanResult,
+    });
+  }, [workspacePath, rootLevelTree, starWorkspaceConfig, starnetCatalogSnapshot, holonScanResult]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -616,6 +681,17 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       setGameQuickWorkflow(null);
     }
   }, [isGameDevMode]);
+
+  useEffect(() => {
+    const onOpenOasisOnboard = () => {
+      setOnChainWorkflow(null);
+      setGameQuickWorkflow(null);
+      setBuildPlanGuide((o) => ({ ...o, open: false }));
+      setOasisOnboardGuide((o) => ({ open: true, key: o.key + 1 }));
+    };
+    window.addEventListener(OASIS_OPEN_ONBOARD_GUIDE, onOpenOasisOnboard);
+    return () => window.removeEventListener(OASIS_OPEN_ONBOARD_GUIDE, onOpenOasisOnboard);
+  }, []);
 
   const syncComposerTextareaHeight = useCallback(() => {
     const el = composerTextareaRef.current;
@@ -721,14 +797,6 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       /* ignore */
     }
   }, [selectedModelId]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(IDE_COMPOSER_MODE_STORAGE_KEY, composerMode);
-    } catch {
-      /* ignore */
-    }
-  }, [composerMode]);
 
   useEffect(() => {
     try {
@@ -994,17 +1062,20 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, agentActivityFeed.length, assistantReveal?.visible, visible]);
 
+  // Activity feed is in the main composer scroller (no inner scroll) — nudge the latest row into view.
   useEffect(() => {
     if (!loading) return;
     const el = agentActivityFeedRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    const last = el.lastElementChild;
+    if (last instanceof HTMLElement) {
+      last.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   }, [agentActivityFeed, loading]);
 
   const modelMeta = getIdeChatModelById(selectedModelId);
   const electronApi = getElectronAPI();
   const agentToolLoopReady =
-    composerMode === 'agent' &&
     !!workspacePath &&
     (modelMeta?.provider === 'openai' || modelMeta?.provider === 'xai') &&
     !!electronApi?.agentTurn &&
@@ -1169,44 +1240,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     setLoading(true);
 
     const modelForSend = getIdeChatModelById(selectedModelId);
-    if (
-      composerMode === 'chat' &&
-      workspacePath &&
-      wantsWorkspaceExecutionIntent(currentInput) &&
-      modelForSend?.provider !== 'openai' &&
-      modelForSend?.provider !== 'xai'
-    ) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content:
-            'That looks like a **run / install / build** request. **Agent** mode with **OpenAI** or **Grok** can execute workspace tools; the current model is text-only here. Switch model + Composer to **Agent**, then send again.',
-          timestamp: Date.now(),
-          error: true
-        }
-      ]);
-      setLoading(false);
-      ideRunIdRef.current = null;
-      return;
-    }
-
-    let effectiveComposerMode: ComposerModeId = composerMode;
-    if (
-      composerMode === 'chat' &&
-      workspacePath &&
-      wantsWorkspaceExecutionIntent(currentInput) &&
-      (modelForSend?.provider === 'openai' || modelForSend?.provider === 'xai')
-    ) {
-      effectiveComposerMode = 'agent';
-      setComposerMode('agent');
-    }
     const isGameMode = isGameDevMode;
 
     const planFirstThisSend = shouldUsePlanModeFirst(currentInput);
     const apiForMode = getElectronAPI();
     const agentLoopWillUseOpenAiTools =
-      effectiveComposerMode === 'agent' &&
       !!workspacePath &&
       (modelForSend?.provider === 'openai' || modelForSend?.provider === 'xai') &&
       !!apiForMode?.agentTurn &&
@@ -1298,12 +1336,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
       const modelMeta = getIdeChatModelById(selectedModelId);
       if (
-        effectiveComposerMode === 'agent' &&
         (modelMeta?.provider === 'openai' || modelMeta?.provider === 'xai') &&
         !workspacePath
       ) {
         pushAssistantMessage(
-          'Agent mode needs a workspace folder open so local tools can read files. Use Open folder in the Explorer, then try again.',
+          'A workspace folder must be open so local tools can read files. Use Open folder in the Explorer, then try again.',
           undefined,
           true
         );
@@ -1311,7 +1348,6 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       }
 
       const useAgentToolLoop =
-        effectiveComposerMode === 'agent' &&
         !!workspacePath &&
         (modelMeta?.provider === 'openai' || modelMeta?.provider === 'xai') &&
         !!api?.agentTurn &&
@@ -1319,13 +1355,50 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
       if (sendImageDataUrls.length > 0 && !useAgentToolLoop) {
         pushAssistantMessage(
-          '**Images** are only sent to the model in **Agent** mode with **OpenAI** or **Grok**, and a workspace folder open. Switch Composer to Agent, pick GPT-4o or Grok, open a folder, then send again.',
+          '**Images** are only sent to the model with **OpenAI** or **Grok** and a workspace folder open. Pick GPT-4o or Grok, use Open folder in the Explorer, then send again.',
           undefined,
           true
         );
         setLoading(false);
         ideRunIdRef.current = null;
         return;
+      }
+
+      /* Pre-read a named subfolder (README, package.json, one-level list) so answers are not guesswork */
+      let pathFocusNote: string | null = null;
+      let refPathsForTurn = referencedPaths;
+      let resolvedPathForIndex: string | null = null;
+      if (workspacePath?.trim() && api.readFile) {
+        const known = rootDirNamesFromTree(rootLevelTree);
+        resolvedPathForIndex = tryResolveWorkspacePathFocus(
+          workspacePath,
+          currentInput,
+          known
+        );
+        if (resolvedPathForIndex) {
+          try {
+            pathFocusNote = await buildPathScopedContextNote(resolvedPathForIndex, {
+              readFile: (p) => api.readFile(p).catch(() => null),
+              listDirShallow: api.listDirShallow
+                ? async (p: string) => {
+                    const nodes = await api.listDirShallow(p);
+                    return (nodes ?? []).map(
+                      (n: { name: string; isDirectory: boolean; path: string }) => ({
+                      name: n.name,
+                      isDirectory: n.isDirectory,
+                      path: n.path,
+                    })
+                    );
+                  }
+                : undefined,
+            });
+          } catch {
+            /* path bundle is optional */
+          }
+          if (!refPathsForTurn.includes(resolvedPathForIndex)) {
+            refPathsForTurn = [...refPathsForTurn, resolvedPathForIndex];
+          }
+        }
       }
 
       if (useAgentToolLoop) {
@@ -1340,6 +1413,40 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         const basePack = isGameMode
           ? getGameDevContextPack(starWorkspaceConfig?.gameEngine)
           : getAgentContextPack();
+
+        /* Search the holonic index for holons relevant to this specific message */
+        let relevantHolonsNote: string | null = null;
+        if (indexStatus.phase === 'ready' && currentInput.trim()) {
+          try {
+            const lastSeg =
+              resolvedPathForIndex
+                ?.split('/')
+                .filter(Boolean)
+                .pop() ?? '';
+            const indexQuery = lastSeg
+              ? `${currentInput}\n${lastSeg}`
+              : currentInput;
+            const hits = await searchHolons(indexQuery, 8);
+            const scored = hits.filter((h) => h.score > 0).slice(0, 6);
+            if (scored.length > 0) {
+              const lines = scored.map((h, i) => {
+                const excerpt = h.excerpt
+                  .replace(/^Holon:\s*\S+\s*/i, '')
+                  .replace(/\n+/g, ' ')
+                  .trim()
+                  .slice(0, 240);
+                return `${i + 1}. **${h.dirName}** — ${excerpt}`;
+              });
+              relevantHolonsNote =
+                `## Relevant local holons (on-disk holonic index — matched to your message)\n` +
+                `Each row is a **root-level project folder** in the open workspace, not a STARNET library id. Explore these before broad list_directory calls.\n\n` +
+                lines.join('\n');
+            }
+          } catch {
+            /* index search failure is non-blocking */
+          }
+        }
+
         const contextPack = buildIdeComposerContextPack({
           workspaceRules,
           autoLoadedProjectInstructions: agentAutoloadInstructions,
@@ -1347,13 +1454,16 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           basePack,
           onChainNote: onChainContextNote,
           starnetNote: starnetContextNote,
-          planningDocNote: planningContextNote
+          planningDocNote: planningContextNote,
+          pathFocusNote,
+          workspaceTreeNote,
+          relevantHolonsNote,
         });
         const agentLoopBase = {
           userText: currentInput,
           model: selectedModelId,
           workspacePath,
-          referencedPaths,
+          referencedPaths: refPathsForTurn,
           fromAvatarId: avatarId ?? undefined,
           contextPack,
           priorMessages: priorForAgent,
@@ -1415,6 +1525,29 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
       // 1) Try OASIS agent first when default agent ID is set
       if (defaultAgentId && api?.chatWithAgent) {
+        /* Search holonic index for OASIS agent path too */
+        let agentHolonsNote: string | null = null;
+        if (indexStatus.phase === 'ready' && currentInput.trim()) {
+          try {
+            const lastSeg = resolvedPathForIndex?.split('/').filter(Boolean).pop() ?? '';
+            const indexQuery = lastSeg ? `${currentInput}\n${lastSeg}` : currentInput;
+            const hits = await searchHolons(indexQuery, 6);
+            const scored = hits.filter((h) => h.score > 0).slice(0, 5);
+            if (scored.length > 0) {
+              const lines = scored.map((h, i) => {
+                const excerpt = h.excerpt
+                  .replace(/^Holon:\s*\S+\s*/i, '')
+                  .replace(/\n+/g, ' ')
+                  .trim()
+                  .slice(0, 200);
+                return `${i + 1}. **${h.dirName}** — ${excerpt}`;
+              });
+              agentHolonsNote =
+                `## Relevant local holons (on-disk holonic index)\n` +
+                lines.join('\n');
+            }
+          } catch { /* non-blocking */ }
+        }
         const result = await api.chatWithAgent(
           defaultAgentId,
           currentInput,
@@ -1423,7 +1556,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           avatarId ?? undefined,
           selectedModelId,
           workspacePath ?? undefined,
-          referencedPaths,
+          refPathsForTurn,
           buildIdeComposerContextPack({
             workspaceRules,
             autoLoadedProjectInstructions: agentAutoloadInstructions,
@@ -1431,7 +1564,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             basePack: getAgentContextPack(),
             onChainNote: onChainContextNote,
             starnetNote: starnetContextNote,
-            planningDocNote: planningContextNote
+            planningDocNote: planningContextNote,
+            pathFocusNote,
+            workspaceTreeNote,
+            relevantHolonsNote: agentHolonsNote,
           })
         );
         if (!result.error && (result.content || (result.toolCalls && result.toolCalls.length > 0))) {
@@ -1443,17 +1579,18 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
       // 2) Fallback: local LLM when available
       if (hasLLM && api?.chatComplete) {
+        const localPrefix = buildLocalIdeContextPrefix(
+          workspacePath,
+          refPathsForTurn,
+          projectMemoryText,
+          starnetContextNote,
+          {
+            workspaceRules,
+            autoLoadedProjectInstructions: agentAutoloadInstructions
+          }
+        );
         const localUser =
-          buildLocalIdeContextPrefix(
-            workspacePath,
-            referencedPaths,
-            projectMemoryText,
-            starnetContextNote,
-            {
-              workspaceRules,
-              autoLoadedProjectInstructions: agentAutoloadInstructions
-            }
-          ) + currentInput;
+          (pathFocusNote ? `${pathFocusNote}\n\n` : '') + localPrefix + currentInput;
         const messagesForApi = [...historyForApi, { role: 'user' as const, content: localUser }];
         const result = await api.chatComplete(messagesForApi, selectedModelId);
         pushAssistantMessage(
@@ -1466,17 +1603,18 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
       // 3) Fallback: rule-based AI Assistant + MCP tools
       if (aiAssistant) {
+        const assistPrefix = buildLocalIdeContextPrefix(
+          workspacePath,
+          refPathsForTurn,
+          projectMemoryText,
+          starnetContextNote,
+          {
+            workspaceRules,
+            autoLoadedProjectInstructions: agentAutoloadInstructions
+          }
+        );
         const response = await aiAssistant.processMessage(
-          buildLocalIdeContextPrefix(
-            workspacePath,
-            referencedPaths,
-            projectMemoryText,
-            starnetContextNote,
-            {
-              workspaceRules,
-              autoLoadedProjectInstructions: agentAutoloadInstructions
-            }
-          ) + currentInput
+          (pathFocusNote ? `${pathFocusNote}\n\n` : '') + assistPrefix + currentInput
         );
         pushAssistantMessage(response.response, response.toolCalls, response.error);
       } else {
@@ -1546,15 +1684,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         : showPlanExecuteToggle
           ? 'ONODE agent (execute)'
           : 'ONODE agent'
-    : composerMode === 'agent' &&
-        (modelMeta?.provider === 'openai' || modelMeta?.provider === 'xai') &&
-        !workspacePath
-      ? 'Agent: open workspace folder'
-      : composerMode === 'agent' &&
-          modelMeta &&
-          modelMeta.provider !== 'openai' &&
-          modelMeta.provider !== 'xai'
-        ? 'Agent: use OpenAI or Grok'
+    : (modelMeta?.provider === 'openai' || modelMeta?.provider === 'xai') && !workspacePath
+      ? 'Open workspace folder'
+      : modelMeta && modelMeta.provider !== 'openai' && modelMeta.provider !== 'xai'
+        ? 'Use OpenAI or Grok for full tools'
         : defaultAgentId
           ? 'ONODE assistant'
           : hasLLM
@@ -1662,7 +1795,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         )}
       </div>
 
-      <div className="composer-messages" ref={messagesScrollRef}>
+      <div className="composer-body-scroll" ref={messagesScrollRef}>
+        <div className="composer-messages">
         {earlierFoldStartIndex !== null && earlierFoldStartIndex > 0 && (
           <details className="composer-earlier-fold">
             <summary className="composer-earlier-fold-summary">
@@ -1693,7 +1827,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             <div className="composer-message-label">Assistant</div>
             <div className="composer-message-body">
               <div className="composer-activity-panel" aria-live="polite" aria-busy="true">
-                <div className="composer-activity-panel-header">Working</div>
+                <div className="composer-activity-panel-header" title="The assistant is using your workspace without stopping the chat — status only, not the final answer.">
+                  In progress
+                </div>
                 {agentActivityFeed.length > 0 ? (
                   <ul ref={agentActivityFeedRef} className="composer-activity-feed">
                     {agentActivityFeed.map((item, i) => (
@@ -1716,7 +1852,29 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             </div>
           </div>
         )}
-        {onChainWorkflow ? (
+        {buildPlanGuide.open ? (
+          <ComposerInlineBuildPlanGuide
+            key={buildPlanGuide.key}
+            onDismiss={() => setBuildPlanGuide((o) => ({ ...o, open: false }))}
+            scrollParentRef={messagesScrollRef}
+            agentLoading={loading}
+            latestAssistantReply={
+              [...messages].reverse().find((m) => m.role === 'assistant')?.content ?? null
+            }
+            onSendToComposer={(text, mode) => {
+              setAgentExecutionMode(mode === 'plan' ? 'plan' : 'execute');
+              void handleSendMessage(text);
+            }}
+          />
+        ) : oasisOnboardGuide.open ? (
+          <ComposerInlineOasisOnboardGuide
+            key={oasisOnboardGuide.key}
+            onDismiss={() => setOasisOnboardGuide((o) => ({ ...o, open: false }))}
+            scrollParentRef={messagesScrollRef}
+            onInsertComposer={(text) => setInput(text)}
+            onSendToComposer={(text) => void handleSendMessage(text)}
+          />
+        ) : onChainWorkflow ? (
           <ComposerInlineOnChainWorkflow
             mode={onChainWorkflow}
             onDismiss={() => setOnChainWorkflow(null)}
@@ -1732,7 +1890,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           />
         ) : null}
         <div ref={messagesEndRef} />
-      </div>
+        </div>
 
       {lastAgentActivity && lastAgentActivity.length > 0 && (
         <details className="composer-activity-summary">
@@ -1809,29 +1967,33 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       {isGameDevMode && (
         <GameToolPalette
           onStartWorkflow={(id) => {
+            setOasisOnboardGuide((o) => ({ ...o, open: false }));
             setOnChainWorkflow(null);
-            setGameQuickWorkflow(id);
             if (id === 'newOapp') {
-              openBuildPlanPane();
+              setGameQuickWorkflow(null);
+              setBuildPlanGuide((o) => ({ open: true, key: o.key + 1 }));
+            } else {
+              setBuildPlanGuide((o) => ({ ...o, open: false }));
+              setGameQuickWorkflow(id);
             }
           }}
         />
       )}
 
-      {showOnChainPalette && !loggedIn ? (
+      {!loggedIn ? (
         <div className="composer-onchain-login-hint" role="note">
           Log in with your OASIS avatar for mint and wallet MCP flows that need your session.
         </div>
       ) : null}
 
-      {showOnChainPalette ? (
-        <OnChainQuickPalette
-          onStartWorkflow={(mode) => {
-            setGameQuickWorkflow(null);
-            setOnChainWorkflow(mode);
-          }}
-        />
-      ) : null}
+      <OnChainQuickPalette
+        onStartWorkflow={(mode) => {
+          setOasisOnboardGuide((o) => ({ ...o, open: false }));
+          setBuildPlanGuide((o) => ({ ...o, open: false }));
+          setGameQuickWorkflow(null);
+          setOnChainWorkflow(mode);
+        }}
+      />
       {referencedPaths.length > 0 && (
         <div className="composer-ref-chips" aria-label="Paths attached to the next message">
           {referencedPaths.map((p) => (
@@ -1850,29 +2012,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         </div>
       )}
 
-      {visible && composerMode === 'chat' && workspacePath && !dismissChatWorkspaceHint ? (
-        <div className="composer-chat-workspace-hint" role="note">
-          <span>
-            <strong>Chat</strong> is text-only (no repo tools). With a folder open, switch to{' '}
-            <strong>Agent</strong> for read_file, grep, npm, STAR, and MCP.{' '}
-            <strong>AGENTS.md</strong> (nested) and <strong>.cursor/rules</strong> load into the context pack for
-            Agent and ONODE chat.
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              try {
-                localStorage.setItem(CHAT_WORKSPACE_HINT_DISMISS_KEY, '1');
-              } catch {
-                /* ignore */
-              }
-              setDismissChatWorkspaceHint(true);
-            }}
-          >
-            Dismiss
-          </button>
-        </div>
-      ) : null}
+      </div>
 
       <div className="composer-input-shell">
         {pendingImageDataUrls.length > 0 ? (
@@ -1906,24 +2046,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
               ? 'Connect OASIS or set local API keys…'
               : loading
                 ? 'Cancel: press Enter with empty input, or use Stop — Shift+Enter for newline'
-                : 'Plan, ask for edits… Paste images in Agent mode (Ctrl/Cmd+V)'
+                : 'Plan, ask for edits… Paste images (Ctrl/Cmd+V) with OpenAI or Grok + workspace'
           }
           disabled={!canSend}
           rows={1}
           spellCheck={false}
         />
         <div className="composer-input-footer">
-          <label className="composer-footer-model">
-            <span className="visually-hidden">Mode</span>
-            <select
-              value={composerMode}
-              onChange={(e) => setComposerMode(e.target.value as ComposerModeId)}
-              title="Chat: text-only via ONODE or local LLM (no read_file / terminal). Agent: OpenAI or Grok with workspace tools and live step list."
-            >
-              <option value="chat">Chat</option>
-              <option value="agent">Agent</option>
-            </select>
-          </label>
           {showPlanExecuteToggle ? (
             <>
               <div
@@ -1983,24 +2112,20 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             </select>
           </label>
           <span
-            className={`composer-mode-pill composer-mode-pill--${composerMode}`}
+            className="composer-mode-pill composer-mode-pill--agent"
             title={
-              composerMode === 'agent'
-                ? showPlanExecuteToggle
-                  ? agentExecutionMode === 'plan'
-                    ? 'Plan: read-only tools + guided questions.'
-                    : 'Execute: full tools (needs OpenAI or Grok + workspace).'
-                  : 'Agent: workspace tools when the model is OpenAI or Grok.'
-                : 'Tools off: faster text-only replies; no automatic repo inspection.'
+              showPlanExecuteToggle
+                ? agentExecutionMode === 'plan'
+                  ? 'Plan: read-only tools + guided questions.'
+                  : 'Execute: full tools (OpenAI or Grok + workspace).'
+                : 'OpenAI or Grok with a workspace: full tool loop.'
             }
           >
-            {composerMode === 'agent'
-              ? showPlanExecuteToggle
-                ? agentExecutionMode === 'plan'
-                  ? 'Plan'
-                  : 'Execute'
-                : 'Agent'
-              : 'Chat'}
+            {showPlanExecuteToggle
+              ? agentExecutionMode === 'plan'
+                ? 'Plan'
+                : 'Execute'
+              : 'Agent'}
           </span>
           <span className="composer-footer-spacer" />
           <button

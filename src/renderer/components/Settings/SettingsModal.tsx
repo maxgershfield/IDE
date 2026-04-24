@@ -15,6 +15,7 @@ import { AIRoutingSection } from './sections/AIRoutingSection';
 import { GameDevSection } from './sections/GameDevSection';
 import { DataProvidersSection } from './sections/DataProvidersSection';
 import { OnChainSection } from './sections/OnChainSection';
+import { HolonicIndexSection } from './sections/HolonicIndexSection';
 import './Settings.css';
 
 const SECTION_COMPONENTS: Record<string, React.FC> = {
@@ -31,6 +32,7 @@ const SECTION_COMPONENTS: Record<string, React.FC> = {
   'game-dev': GameDevSection,
   providers: DataProvidersSection,
   onchain: OnChainSection,
+  indexing: HolonicIndexSection,
 };
 
 export const SettingsModal: React.FC = () => {

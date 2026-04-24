@@ -6,6 +6,8 @@ export class OASISAPIClient {
   private client: AxiosInstance;
   private baseURL: string;
   private authToken: string | null = null;
+  /** OASIS refresh token (not the JWT); used with POST /api/avatar/refresh-token */
+  private refreshToken: string | null = null;
 
   /** Normalize ONODE base URL (no trailing slash). */
   static normalizeBaseUrl(url: string): string {
@@ -44,6 +46,7 @@ export class OASISAPIClient {
 
   clearAuthToken() {
     this.authToken = null;
+    this.refreshToken = null;
     delete this.client.defaults.headers.common['Authorization'];
   }
 
@@ -51,34 +54,140 @@ export class OASISAPIClient {
     return this.authToken;
   }
 
+  setRefreshToken(token: string | null) {
+    this.refreshToken = token && token.trim() ? token.trim() : null;
+  }
+
+  getRefreshToken(): string | null {
+    return this.refreshToken;
+  }
+
+  private parseAvatarAuthPayload(data: unknown): {
+    token: string;
+    refreshToken: string;
+    avatarId: string;
+    username?: string;
+  } {
+    const d = data as Record<string, unknown>;
+    const isError = d.isError === true || d.IsError === true;
+    if (isError) {
+      const msg = (d.message ?? d.Message ?? 'Request failed') as string;
+      throw new Error(typeof msg === 'string' ? msg : 'Request failed');
+    }
+    const inner = (d.result ?? d.Result) as Record<string, unknown> | undefined;
+    const result = (inner?.result ?? inner?.Result ?? inner ?? d) as Record<string, unknown>;
+    const token =
+      (result.jwtToken ?? result.JwtToken ?? result.token ?? result.Token) as string | undefined;
+    const refreshToken =
+      (result.refreshToken ?? result.RefreshToken ?? result.refresh_token) as string | undefined;
+    const avatarId = (result.avatarId ??
+      result.id ??
+      result.AvatarId ??
+      result.Id ??
+      '') as string;
+    const usernameOut = (result.username ?? result.Username) as string | undefined;
+    if (!token) {
+      throw new Error('No JWT token in OASIS API response');
+    }
+    return {
+      token,
+      refreshToken: refreshToken ?? '',
+      avatarId,
+      username: usernameOut
+    };
+  }
+
   /**
    * Authenticate avatar and get JWT. Sets token for subsequent requests.
+   * Persists refresh token when the API returns it (needed for session extension).
    */
-  async authenticateAvatar(username: string, password: string): Promise<{ token: string; avatarId: string; username?: string }> {
+  async authenticateAvatar(
+    username: string,
+    password: string
+  ): Promise<{ token: string; avatarId: string; username?: string; refreshToken: string }> {
     const response = await this.client.post('/api/avatar/authenticate', {
       username,
       password
     });
 
-    const data = response.data ?? response;
-    const isError = data.isError === true || data.IsError === true;
-    if (isError) {
-      const msg = data.message ?? data.Message ?? 'Authentication failed';
-      throw new Error(msg);
+    const parsed = this.parseAvatarAuthPayload(response.data ?? response);
+    this.setAuthToken(parsed.token);
+    if (parsed.refreshToken) {
+      this.setRefreshToken(parsed.refreshToken);
     }
+    return {
+      token: parsed.token,
+      avatarId: parsed.avatarId,
+      username: parsed.username,
+      refreshToken: parsed.refreshToken
+    };
+  }
 
-    const result = data.result?.result ?? data.result ?? data;
-    const token =
-      result.jwtToken ?? result.JwtToken ?? result.token ?? result.Token;
-    const avatarId = result.avatarId ?? result.id ?? result.AvatarId ?? result.Id ?? '';
-    const usernameOut = result.username ?? result.Username;
+  /**
+   * Register a new avatar (ONODE POST /api/avatar/register).
+   * Does not set a session; call authenticateAvatar afterward to sign in.
+   */
+  async registerAvatar(params: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    username: string;
+    password: string;
+    confirmPassword: string;
+  }): Promise<void> {
+    const response = await this.client.post('/api/avatar/register', {
+      title: '',
+      firstName: params.firstName.trim(),
+      lastName: params.lastName.trim(),
+      avatarType: 'User',
+      email: params.email.trim(),
+      username: params.username.trim(),
+      password: params.password,
+      confirmPassword: params.confirmPassword,
+      acceptTerms: true
+    });
 
-    if (!token) {
-      throw new Error('No JWT token received from OASIS API');
+    const status = response.status;
+    const data = (response.data ?? {}) as Record<string, unknown>;
+    if (status >= 400 && status < 500) {
+      const msg = (data.message ?? data.Message ?? `Registration failed (${status})`) as string;
+      throw new Error(typeof msg === 'string' ? msg : `Registration failed (${status})`);
     }
+    if (data.isError === true || data.IsError === true) {
+      const msg = (data.message ?? data.Message ?? 'Registration failed') as string;
+      throw new Error(typeof msg === 'string' ? msg : 'Registration failed');
+    }
+  }
 
-    this.setAuthToken(token);
-    return { token, avatarId, username: usernameOut };
+  /**
+   * Exchange refresh token for a new JWT (does not send the expired JWT).
+   * Uses POST /api/avatar/refresh-token.
+   */
+  async refreshSession(refreshToken: string): Promise<{
+    token: string;
+    refreshToken: string;
+    avatarId: string;
+    username?: string;
+  }> {
+    const rt = refreshToken.trim();
+    if (!rt) {
+      throw new Error('No refresh token');
+    }
+    const response = await axios.post(
+      `${this.baseURL}/api/avatar/refresh-token`,
+      { refreshToken: rt },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000,
+        validateStatus: (status) => status < 500
+      }
+    );
+    const parsed = this.parseAvatarAuthPayload(response.data ?? response);
+    this.setAuthToken(parsed.token);
+    if (parsed.refreshToken) {
+      this.setRefreshToken(parsed.refreshToken);
+    }
+    return parsed;
   }
 
   /**

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Settings, LogOut, LogIn } from 'lucide-react';
+import { Settings, LogOut, LogIn, ExternalLink } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
+import { buildPortalUrl } from '../../utils/portalUrl';
 import { useAuth } from '../../contexts/AuthContext';
 import { LoginModal } from '../Auth/LoginModal';
 import './TitleBar.css';
@@ -13,7 +14,7 @@ import './TitleBar.css';
  * Interactive children must opt out of drag with -webkit-app-region: no-drag.
  */
 export const TitleBar: React.FC = () => {
-  const { openSettings } = useSettings();
+  const { openSettings, settings } = useSettings();
   const { loggedIn, username, logout } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -73,7 +74,7 @@ export const TitleBar: React.FC = () => {
               onClick={() => setShowLogin(true)}
             >
               <LogIn size={12} strokeWidth={1.8} />
-              Log in
+              Sign in
             </button>
           )}
 
@@ -93,6 +94,20 @@ export const TitleBar: React.FC = () => {
 
         <span className="title-bar-label">OASIS IDE</span>
         <div className="title-bar-spacer" />
+
+        <button
+          type="button"
+          className="title-bar-portal-btn"
+          title="Open OASIS Web Portal in the default browser (wallets, NFTs, stats)"
+          aria-label="Open OASIS Web Portal in browser"
+          onClick={() => {
+            const u = buildPortalUrl(settings.portalBaseUrl);
+            void window.electronAPI?.openUrl?.(u);
+          }}
+        >
+          <ExternalLink size={12} strokeWidth={1.8} />
+          <span className="title-bar-portal-label">Portal</span>
+        </button>
 
         <button
           type="button"

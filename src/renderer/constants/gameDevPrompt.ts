@@ -1,6 +1,6 @@
 /**
  * Game Dev mode: system prompt and engine-specific context blocks.
- * Injected as `contextPack` when `composerMode === 'game'`.
+ * Injected as `contextPack` when **Game Dev** mode is on (right panel).
  */
 
 export const HYPERFY_CONTEXT = `
@@ -89,7 +89,11 @@ Please do not run STAR, npm, or write files yet. Instead:
 2. Ask how deep OASIS integration should go at first (local prototype only vs beam-in / quests / NFTs).
 3. Ask whether we should start from an in-repo template, an empty Vite-style shell, or a folder I already have in the workspace.
 
-After I answer, give a short phased plan (prototype, then content, then STARNET publish). Only then suggest concrete paths and \`run_star_cli\` argv from OASIS-IDE/docs/recipes/ with non-interactive flags.`;
+After I answer, give a short phased plan (prototype, then content, then STARNET publish). Only then suggest concrete paths and \`run_star_cli\` argv from OASIS-IDE/docs/recipes/ with non-interactive flags.
+
+If the user attached a planning markdown in the IDE **Build plan** tab, it is already in the context pack: follow its read order and linked paths.
+
+When you recommend a specific app template and catalog-backed holons, you may include the **\`oasis-build-plan\`** JSON fence described in the IDE context pack so the **Build plan** tab can show toggles.`;
 
 export const GAME_DEV_SYSTEM_PROMPT = `
 You are an expert metaverse game developer assistant running inside the OASIS IDE.

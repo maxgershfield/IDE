@@ -12,6 +12,7 @@ import {
   type OnChainMintWorkflowChainId,
   type OnChainSolanaClusterId,
 } from '../constants/onChainMintWorkflow';
+import { invalidateStarnetListCache } from '../services/starApiService';
 
 // ---------------------------------------------------------------------------
 // Settings shape
@@ -54,8 +55,22 @@ export interface OASISSettings {
 
   // Integrations
   oasisApiEndpoint: string;
+  /**
+   * OASIS Web Portal (browser). Used for "Open in portal" and deep links. Should end with / for path joins.
+   * @example https://oasisweb4.one/portal/
+   */
+  portalBaseUrl: string;
+  /**
+   * Poll OASIS A2A inbox and STAR NFT list; show an in-IDE banner when counts increase (portal parity).
+   */
+  portalActivityNotify: boolean;
+  /** Seconds between background polls when portal activity notify is on. */
+  portalActivityPollSec: number;
   githubConnected: boolean;
   gitlabConnected: boolean;
+
+  /** First-run welcome ribbon dismissed */
+  welcomeOnboardingDismissed: boolean;
 
   // Rules & Skills
   alwaysAppliedRules: string[];
@@ -147,8 +162,12 @@ export const DEFAULT_SETTINGS: OASISSettings = {
 
   // Integrations
   oasisApiEndpoint: '',
+  portalBaseUrl: 'https://oasisweb4.one/portal/',
+  portalActivityNotify: false,
+  portalActivityPollSec: 120,
   githubConnected: false,
   gitlabConnected: false,
+  welcomeOnboardingDismissed: false,
 
   // Rules & Skills
   alwaysAppliedRules: [],
@@ -223,9 +242,17 @@ function mergeWithDefaults(raw: Record<string, unknown>): OASISSettings {
     ? raw.onChainSolanaCluster
     : DEFAULT_SETTINGS.onChainSolanaCluster;
 
+  const portalActivityPollSec =
+    typeof raw.portalActivityPollSec === 'number' && !Number.isNaN(raw.portalActivityPollSec)
+      ? Math.min(3600, Math.max(30, Math.floor(raw.portalActivityPollSec)))
+      : typeof raw.portalActivityPollSec === 'string'
+        ? Math.min(3600, Math.max(30, Math.floor(Number(raw.portalActivityPollSec) || DEFAULT_SETTINGS.portalActivityPollSec)))
+        : DEFAULT_SETTINGS.portalActivityPollSec;
+
   return {
     ...DEFAULT_SETTINGS,
     ...raw,
+    portalActivityPollSec,
     onChainDefaultChain,
     onChainSolanaCluster,
     apiKeys: {
@@ -262,7 +289,11 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     setSettings((prev) => {
       const next = { ...prev, ...patch } as OASISSettings;
       if (window.electronAPI?.setSettings) {
-        window.electronAPI.setSettings(patch as Record<string, unknown>).catch((e) =>
+        void window.electronAPI.setSettings(patch as Record<string, unknown>).then(() => {
+          if ('starnetEndpointOverride' in patch) {
+            invalidateStarnetListCache();
+          }
+        }).catch((e) =>
           console.error('[Settings] Failed to persist settings:', e)
         );
       }

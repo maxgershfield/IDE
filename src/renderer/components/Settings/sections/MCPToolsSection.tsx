@@ -35,7 +35,8 @@ export const MCPToolsSection: React.FC = () => {
 
         {!loading && tools.length === 0 && (
           <div className="settings-empty" style={{ padding: '16px' }}>
-            No MCP servers connected. Set OASIS_MCP_SERVER_PATH and restart.
+            No MCP tools (hosted MCP failed or still loading). Check the main log for [MCP], or use local
+            stdio and OASIS_MCP_SERVER_PATH. Restart the IDE after changing env.
           </div>
         )}
 

@@ -10,8 +10,10 @@ import {
   Package,
   Clapperboard,
   Wand2,
+  Code2,
   type LucideProps,
 } from 'lucide-react';
+import { openOasisOnboardGuide, requestActivityView } from '../../utils/activityViewBridge';
 import './MetaverseTemplatePanel.css';
 
 // ─── Icon map ─────────────────────────────────────────────────────────────────
@@ -263,6 +265,30 @@ export const MetaverseTemplatePanel: React.FC<MetaverseTemplatePanelProps> = ({
           <Wand2 size={16} strokeWidth={1.6} />
           Open World Builder
         </button>
+      </div>
+
+      <div className="tmpl-oasis-api">
+        <div className="tmpl-oasis-api-icon" aria-hidden>
+          <Code2 size={24} strokeWidth={1.5} />
+        </div>
+        <div className="tmpl-oasis-api-text">
+          <h2 className="tmpl-oasis-api-title">OASIS API app (Vite + TypeScript)</h2>
+          <p className="tmpl-oasis-api-desc">
+            The guided steps (folder, name, copy, optional <code>npm install</code>) run in the{' '}
+            <strong>Composer</strong> column, like Cursor, so you stay in one place. Use the button below
+            to open that flow, or use <strong>Guided OASIS API app</strong> in the welcome strip.
+          </p>
+        </div>
+        <div className="tmpl-oasis-api-row tmpl-oasis-api-row--one">
+          <button
+            type="button"
+            className="tmpl-btn tmpl-btn-primary tmpl-oasis-api-btn tmpl-oasis-api-btn-lg"
+            onClick={() => openOasisOnboardGuide()}
+            title="Switches to Composer and starts the OASIS API app setup"
+          >
+            Open OASIS API setup in Composer
+          </button>
+        </div>
       </div>
 
       <div className="tmpl-divider" />

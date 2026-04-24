@@ -1,0 +1,424 @@
+.oapp-build-plan {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--text-primary, #e4e4e4);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.oapp-build-plan__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.oapp-build-plan__header-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent, #569cd6);
+}
+
+.oapp-build-plan__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.oapp-build-plan__sub {
+  margin: 4px 0 0;
+  color: var(--text-secondary, #9d9d9d);
+  font-size: 12px;
+  max-width: 52rem;
+}
+
+.oapp-build-plan__err {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #f87171;
+}
+
+.oapp-build-plan__composer {
+  border: 1px dashed var(--border, #444);
+  border-radius: 10px;
+  padding: 14px 16px 16px;
+  margin-bottom: 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.oapp-build-plan__composer.is-drag-over {
+  border-color: var(--accent, #569cd6);
+  background: rgba(86, 156, 214, 0.06);
+}
+
+.oapp-build-plan__label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #9d9d9d);
+  margin-bottom: 8px;
+}
+
+.oapp-build-plan__label--inline {
+  flex-shrink: 0;
+  margin: 0 10px 0 0;
+  align-self: center;
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.oapp-build-plan__path-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.oapp-build-plan__path-input {
+  flex: 1;
+  min-width: 140px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-primary, #e4e4e4);
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+}
+
+.oapp-build-plan__path-input:focus {
+  outline: 1px solid var(--accent, #569cd6);
+  outline-offset: 1px;
+}
+
+.oapp-build-plan__textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-family: inherit;
+  color: var(--text-primary, #e4e4e4);
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.oapp-build-plan__textarea:focus {
+  outline: 1px solid var(--accent, #569cd6);
+  outline-offset: 1px;
+}
+
+.oapp-build-plan__textarea:disabled {
+  opacity: 0.6;
+}
+
+.oapp-build-plan__drop-hint {
+  margin: 0 0 12px;
+  font-size: 11px;
+  color: var(--text-secondary, #777);
+}
+
+.oapp-build-plan__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.oapp-build-plan__saved-hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #86efac;
+}
+
+.oapp-build-plan__saved-hint code {
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.oapp-build-plan__next {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(86, 156, 214, 0.35);
+  background: rgba(86, 156, 214, 0.07);
+}
+
+.oapp-build-plan__next-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.oapp-build-plan__next-steps {
+  margin: 0 0 12px;
+  padding-left: 1.2rem;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, #c8c8c8);
+}
+
+.oapp-build-plan__next-steps li {
+  margin-bottom: 6px;
+}
+
+.oapp-build-plan__next-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.oapp-build-plan__next-foot {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+}
+
+.oapp-build-plan__execute-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  border-radius: 8px;
+  border: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary, #c4c4c4);
+}
+
+.oapp-build-plan__execute-hint code {
+  font-size: 11px;
+}
+
+.oapp-build-plan__advanced {
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-secondary, #9d9d9d);
+}
+
+.oapp-build-plan__advanced-sum {
+  cursor: pointer;
+  user-select: none;
+}
+
+.oapp-build-plan__advanced-sum:hover {
+  color: var(--text-primary, #e4e4e4);
+}
+
+.oapp-build-plan__advanced-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-left: 4px;
+}
+
+.oapp-build-plan__holon-hint {
+  margin: 0 0 16px;
+  font-size: 11px;
+  color: var(--text-secondary, #777);
+}
+
+.oapp-build-plan__holon-hint code {
+  font-size: 10px;
+}
+
+.oapp-build-plan__section {
+  margin-top: 8px;
+}
+
+.oapp-build-plan__section-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #9d9d9d);
+}
+
+.oapp-build-plan__section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.oapp-build-plan__section-head .oapp-build-plan__section-title {
+  margin-bottom: 0;
+}
+
+.oapp-build-plan__bulk {
+  font-size: 11px;
+}
+
+.oapp-build-plan__linkish {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent, #569cd6);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.oapp-build-plan__linkish:hover {
+  text-decoration: underline;
+}
+
+.oapp-build-plan__bulk-sep {
+  color: var(--text-secondary, #666);
+  margin: 0 4px;
+}
+
+.oapp-build-plan__template-card {
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.oapp-build-plan__template-label {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.oapp-build-plan__template-fw {
+  font-size: 12px;
+  color: var(--text-secondary, #b0b0b0);
+  margin-bottom: 6px;
+}
+
+.oapp-build-plan__template-meta {
+  font-size: 12px;
+  color: var(--text-secondary, #9d9d9d);
+}
+
+.oapp-build-plan__template-meta code {
+  font-size: 11px;
+}
+
+.oapp-build-plan__template-rationale {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary, #b5b5b5);
+}
+
+.oapp-build-plan__holon-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.oapp-build-plan__holon-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.oapp-build-plan__holon-row:hover {
+  border-color: rgba(86, 156, 214, 0.45);
+}
+
+.oapp-build-plan__holon-row.is-selected {
+  border-color: var(--accent, #569cd6);
+  background: rgba(86, 156, 214, 0.08);
+}
+
+.oapp-build-plan__holon-check {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+.oapp-build-plan__holon-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.oapp-build-plan__holon-feature {
+  font-weight: 500;
+}
+
+.oapp-build-plan__holon-meta {
+  font-size: 11px;
+  color: var(--text-secondary, #9d9d9d);
+}
+
+.oapp-build-plan__holon-meta code {
+  font-size: 10px;
+}
+
+.oapp-build-plan__holon-role {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+}
+
+.oapp-build-plan__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border, #333);
+}
+
+.oapp-build-plan__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #444);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary, #e4e4e4);
+  cursor: pointer;
+}
+
+.oapp-build-plan__btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.oapp-build-plan__btn--primary {
+  border-color: rgba(86, 156, 214, 0.55);
+  background: rgba(86, 156, 214, 0.15);
+}
+
+.oapp-build-plan__btn--primary:hover {
+  background: rgba(86, 156, 214, 0.25);
+}
+
+.oapp-build-plan__footer-meta {
+  font-size: 11px;
+  color: var(--text-secondary, #666);
+  margin-left: auto;
+}

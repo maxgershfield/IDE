@@ -9,25 +9,23 @@ import { ComposerSessionPanel } from './ComposerSessionPanel';
 import { ProjectMemoryModal } from './ProjectMemoryModal';
 import { useProjectMemory } from '../../contexts/ProjectMemoryContext';
 import { TelegramTaskBanner } from './TelegramTaskBanner';
+import { IndexingStatusBar, IndexingReadyPill } from './IndexingStatusBar';
 import './ChatInterface.css';
 
-/**
- * Composer shell: multi-session tabs + one {@link ComposerSessionPanel} per session so each tab can run
- * its own agent loop concurrently (scoped ONODE abort via runId in the main process).
- */
 export const ChatInterface: React.FC = () => {
   const { loading: mcpLoading, tools } = useMCP();
   const { openSettings } = useSettings();
-  const { workspacePath, tree } = useWorkspace();
+  const { tree } = useWorkspace();
   const { setMemoryModalOpen, text: memoryText } = useProjectMemory();
+  const workspaceFileCount = countWorkspaceFiles(tree);
+
   const {
     sessions,
     activeSessionId,
     setActiveSessionId,
     createEmptySession,
-    closeSession
+    closeSession,
   } = useIdeChat();
-  const workspaceFileCount = countWorkspaceFiles(tree);
 
   return (
     <div className="chat-interface chat-interface--composer">
@@ -35,8 +33,10 @@ export const ChatInterface: React.FC = () => {
       {!mcpLoading && tools.length === 0 ? (
         <div className="composer-mcp-missing-banner" role="status">
           <span>
-            No MCP tools loaded. Set <code>OASIS_MCP_SERVER_PATH</code> to the built OASIS unified MCP
-            server and restart the IDE. See README.md.
+            No MCP tools loaded. The IDE uses hosted MCP by default (see README). Check the main process
+            log for <code>[MCP]</code> errors, network access to <code>mcp.oasisweb4.one</code>, or set{' '}
+            <code>OASIS_MCP_TRANSPORT=stdio</code> and <code>OASIS_MCP_SERVER_PATH</code> for a local
+            build. Then restart the IDE.
           </span>
           <button
             type="button"
@@ -48,51 +48,58 @@ export const ChatInterface: React.FC = () => {
         </div>
       ) : null}
       <ProjectMemoryModal />
-      <div className="composer-session-bar" role="tablist" aria-label="Chat sessions">
-        <div className="composer-session-tabs">
-          {sessions.map((s) => (
-            <div
-              key={s.id}
-              className={`composer-session-tab${s.id === activeSessionId ? ' is-active' : ''}`}
-              role="tab"
-              aria-selected={s.id === activeSessionId}
-            >
-              <button
-                type="button"
-                className="composer-session-tab-main"
-                onClick={() => {
-                  if (s.id !== activeSessionId) {
-                    setActiveSessionId(s.id);
-                  }
-                }}
+      <IndexingStatusBar />
+
+      {/* ── Session tab bar ── */}
+      <div className="composer-session-bar" aria-label="Chat sessions">
+        <div className="composer-session-tabs" role="tablist">
+          {sessions.map((session) => {
+            const isActive = session.id === activeSessionId;
+            const canClose = sessions.length > 1;
+            return (
+              <div
+                key={session.id}
+                className={`composer-session-tab${isActive ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={isActive}
               >
-                {s.title}
-              </button>
-              {s.id !== 'main' && (
                 <button
                   type="button"
-                  className="composer-session-tab-close"
-                  aria-label={`Close ${s.title}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeSession(s.id);
-                  }}
+                  className="composer-session-tab-main"
+                  onClick={() => setActiveSessionId(session.id)}
+                  title={session.title}
                 >
-                  ×
+                  {session.title}
                 </button>
-              )}
-            </div>
-          ))}
+                {canClose && (
+                  <button
+                    type="button"
+                    className="composer-session-tab-close"
+                    onClick={(e) => { e.stopPropagation(); closeSession(session.id); }}
+                    title="Close chat"
+                    aria-label={`Close ${session.title}`}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
+
         <button
           type="button"
           className="composer-session-new"
-          title="New chat session"
-          aria-label="New chat session"
           onClick={() => createEmptySession()}
+          title="New chat"
+          aria-label="New chat"
         >
-          +
+          <span aria-hidden>+</span>
+          <span className="visually-hidden">New chat</span>
         </button>
+
+        <IndexingReadyPill />
+
         <button
           type="button"
           className="composer-session-memory-btn"
@@ -108,18 +115,19 @@ export const ChatInterface: React.FC = () => {
             </span>
           ) : null}
         </button>
+
         <span className="composer-session-mcp-hint" title="MCP tool count">
           {mcpLoading ? 'MCP …' : `${tools.length} tools`}
         </span>
       </div>
 
+      {/* ── One panel per session; CSS visibility-switches via visible prop ── */}
       <div className="composer-session-panels">
-        {sessions.map((s) => (
+        {sessions.map((session) => (
           <ComposerSessionPanel
-            key={s.id}
-            sessionId={s.id}
-            visible={s.id === activeSessionId}
-            sessions={sessions}
+            key={session.id}
+            sessionId={session.id}
+            visible={session.id === activeSessionId}
             workspaceFileCount={workspaceFileCount}
           />
         ))}

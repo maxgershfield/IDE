@@ -13,10 +13,14 @@ import {
   Copy,
   Globe,
   Layers,
+  MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
+import { useIdeChat } from '../../contexts/IdeChatContext';
+import { useStarnetCatalog } from '../../contexts/StarnetCatalogContext';
 import {
   fetchMyOapps,
   fetchAllHolons,
@@ -38,10 +42,11 @@ import {
   type StarApiStatus,
 } from '../../services/starApiService';
 import { holonTypeNameFromEnum } from '../../services/holonTypeLabels';
+import { StarnetBuildTab } from './StarnetBuildTab';
 import './StarnetDashboard.css';
 
 type Tab = 'mine' | 'discover';
-type MainCatalog = 'oapps' | 'holons';
+type MainCatalog = 'oapps' | 'holons' | 'match';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -91,7 +96,10 @@ const HolonTypeBadge: React.FC<{ holonType: number | string | undefined }> = ({ 
   <span className="sn-badge sn-badge--holon-type">{holonTypeNameFromEnum(holonType)}</span>
 );
 
-const HolonRow: React.FC<{ holon: StarHolonRecord }> = ({ holon }) => {
+const HolonRow: React.FC<{
+  holon: StarHolonRecord;
+  onUseInComposer?: (holon: StarHolonRecord) => void;
+}> = ({ holon, onUseInComposer }) => {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(holon.id).catch(() => {});
@@ -128,6 +136,17 @@ const HolonRow: React.FC<{ holon: StarHolonRecord }> = ({ holon }) => {
           {holon.id}
         </span>
         <div className="sn-oapp-spacer" />
+        {onUseInComposer && (
+          <button
+            type="button"
+            className="sn-action-btn sn-action-btn--ghost"
+            title="Put this holon in the composer as context for your next message"
+            onClick={() => onUseInComposer(holon)}
+          >
+            <MessageSquare size={11} />
+            Chat
+          </button>
+        )}
         <button className="sn-action-btn sn-action-btn--ghost" title="Copy id" onClick={handleCopy}>
           {copied ? <CheckCircle2 size={11} /> : <Copy size={11} />}
         </button>
@@ -141,7 +160,8 @@ const OappRow: React.FC<{
   mine?: boolean;
   onInstall?: (id: string) => void;
   installing?: boolean;
-}> = ({ oapp, mine, onInstall, installing }) => {
+  onUseInComposer?: (oapp: OAPPRecord) => void;
+}> = ({ oapp, mine, onInstall, installing, onUseInComposer }) => {
   const [copied, setCopied] = useState(false);
   const installs = totalInstalls(oapp);
   const downloads = totalDownloads(oapp);
@@ -185,6 +205,17 @@ const OappRow: React.FC<{
         )}
         {oapp.version && <span className="sn-oapp-stat">v{oapp.version}</span>}
         <div className="sn-oapp-spacer" />
+        {onUseInComposer && (
+          <button
+            type="button"
+            className="sn-action-btn sn-action-btn--ghost"
+            title="Put this OAPP in the composer as context for your next message"
+            onClick={() => onUseInComposer(oapp)}
+          >
+            <MessageSquare size={11} />
+            Chat
+          </button>
+        )}
         {!mine && onInstall && (
           <button
             className="sn-action-btn"
@@ -243,6 +274,39 @@ export const StarnetDashboard: React.FC = () => {
   }, []);
 
   const baseUrl = getStarApiUrl(settings.starnetEndpointOverride, resolvedStarFromMain);
+  const { injectComposerDraft } = useIdeChat();
+  const { setStarnetCatalogSnapshot } = useStarnetCatalog();
+
+  const injectHolonToComposer = useCallback(
+    (h: StarHolonRecord) => {
+      const nm = (h.name || h.id).replace(/\*/g, '');
+      injectComposerDraft(
+        `[STARNET holon] **${nm}**\n` +
+          `- id: \`${h.id}\`\n` +
+          `- type: ${holonTypeNameFromEnum(h.holonType)}\n` +
+          `- description: ${(h.description || '').trim().replace(/\r?\n/g, ' ').slice(0, 1200)}\n\n` +
+          `(STAR base URL for this IDE view: \`${baseUrl}\`)\n\n` +
+          `Help me use this holon in my OAPP or answer questions about it.`
+      );
+    },
+    [injectComposerDraft, baseUrl]
+  );
+
+  const injectOappToComposer = useCallback(
+    (o: OAPPRecord) => {
+      const nm = (o.name || o.id).replace(/\*/g, '');
+      injectComposerDraft(
+        `[STARNET OAPP] **${nm}**\n` +
+          `- id: \`${o.id}\`\n` +
+          `- type: ${oappTypeLabel(o.oappType)}\n` +
+          `- version: ${o.version ?? '—'}\n` +
+          `- description: ${(o.description || '').trim().replace(/\r?\n/g, ' ').slice(0, 1200)}\n\n` +
+          `(STAR base URL: \`${baseUrl}\`)\n\n` +
+          `Help me plan changes, publish, or compose with this OAPP.`
+      );
+    },
+    [injectComposerDraft, baseUrl]
+  );
 
   const [apiStatus, setApiStatus] = useState<StarApiStatus>('idle');
   /** Default to Holons tab (OAPPs stay one click away on the OAPPs tab). */
@@ -419,6 +483,17 @@ export const StarnetDashboard: React.FC = () => {
   /** Instances from GET /api/Holons plus OAPPTemplate rows (same library as register_starnet_component_holons.mjs). */
   const holonCatalogRows = useMemo(() => mergeHolonCatalogView(holons, oapps), [holons, oapps]);
 
+  useEffect(() => {
+    if (!loggedIn) return;
+    setStarnetCatalogSnapshot({
+      holonCatalogRows,
+      oapps,
+      baseUrl,
+      apiReady: apiStatus === 'ok',
+      loggedIn: true
+    });
+  }, [holonCatalogRows, oapps, baseUrl, apiStatus, loggedIn, setStarnetCatalogSnapshot]);
+
   const filteredHolons = searchQuery.trim()
     ? holonCatalogRows.filter((h) => {
         const q = searchQuery.toLowerCase();
@@ -510,6 +585,14 @@ export const StarnetDashboard: React.FC = () => {
         >
           <Layers size={12} /> Holons
         </button>
+        <button
+          type="button"
+          className={`sn-tab${mainCatalog === 'match' ? ' sn-tab--active' : ''}`}
+          title="Rank holons from a short phrase (local only). Puts a draft in the Composer on the right — no chat here."
+          onClick={() => setMainCatalog('match')}
+        >
+          <Sparkles size={12} /> Match
+        </button>
       </div>
 
       {/* ── OAPP sub-tabs ── */}
@@ -534,7 +617,30 @@ export const StarnetDashboard: React.FC = () => {
 
       {/* ── Body ── */}
       <div className="sn-body">
-        {apiStatus === 'offline' ? (
+        {mainCatalog === 'match' ? (
+          apiStatus === 'offline' ? (
+            <Offline url={baseUrl} onRetry={handleRetry} />
+          ) : apiStatus === 'auth' ? (
+            <div className="sn-empty">
+              <CheckCircle2 size={28} style={{ color: '#4ec9b0', marginBottom: 8 }} />
+              <div className="sn-empty-title">Log in to use Match</div>
+              <div className="sn-empty-sub">
+                Sign in with your OASIS Avatar (title bar), then open <strong>Match</strong> again to rank holons
+                from a phrase.
+                <span style={{ marginTop: 6, display: 'block', opacity: 0.6 }}>
+                  STAR API: <code className="sn-code">{baseUrl}</code>
+                </span>
+              </div>
+            </div>
+          ) : (
+            <StarnetBuildTab
+              holonCatalogRows={holonCatalogRows}
+              baseUrl={baseUrl}
+              holonsLoading={loadingHolons}
+              onDraftToComposer={injectComposerDraft}
+            />
+          )
+        ) : apiStatus === 'offline' ? (
           <Offline url={baseUrl} onRetry={handleRetry} />
         ) : apiStatus === 'auth' ? (
           <div className="sn-empty">
@@ -590,6 +696,7 @@ export const StarnetDashboard: React.FC = () => {
                       mine={tab === 'mine'}
                       onInstall={tab === 'discover' ? handleInstall : undefined}
                       installing={installing === o.id}
+                      onUseInComposer={injectOappToComposer}
                     />
                   ))}
                 </div>
@@ -620,7 +727,7 @@ export const StarnetDashboard: React.FC = () => {
                   !holonError && (
                     <div className="sn-list">
                       {filteredHolons.map((h) => (
-                        <HolonRow key={h.id} holon={h} />
+                        <HolonRow key={h.id} holon={h} onUseInComposer={injectHolonToComposer} />
                       ))}
                     </div>
                   )

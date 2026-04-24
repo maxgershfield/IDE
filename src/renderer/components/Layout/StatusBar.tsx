@@ -137,7 +137,7 @@ export const StatusBar: React.FC = () => {
           className={`ide-status-pill ide-status-pill--mcp${mcpLoading ? ' ide-status-pill--loading' : ''}`}
           title={
             tools.length === 0
-              ? 'Set OASIS_MCP_SERVER_PATH and restart for MCP tools'
+              ? 'No MCP tools (check hosted MCP / log; or stdio + OASIS_MCP_SERVER_PATH)'
               : `${tools.length} MCP tools`
           }
         >

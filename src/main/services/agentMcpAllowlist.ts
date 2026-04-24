@@ -86,6 +86,44 @@ export function isAgentMcpToolAllowed(toolName: string): boolean {
   return n.length > 0 && AGENT_MCP_ALLOWLIST.has(n);
 }
 
+/**
+ * MCP tools allowed when the agent runs in plan / plan_gather / plan_present (read-only discovery).
+ * Blocks create/publish/mint/save and other mutating paths even if the model requests them.
+ */
+const AGENT_MCP_PLAN_READONLY = new Set<string>([
+  'oasis_health_check',
+  'oasis_get_holon',
+  'oasis_search_holons',
+  'oasis_get_avatar_detail',
+  'oasis_get_geo_nfts',
+  'oasis_get_all_geo_nfts',
+  'oasis_get_geo_nfts_for_mint_address',
+  'star_health_check',
+  'star_get_status',
+  'star_list_oapps',
+  'star_get_oapp',
+  'star_search_oapps',
+  'star_list_holons',
+  'star_get_holon',
+  'star_list_zomes',
+  'star_get_zome',
+  'star_list_celestial_bodies',
+  'star_get_celestial_body',
+  'star_list_quests',
+  'star_get_quest',
+  'star_list_missions',
+  'star_get_mission',
+  'star_list_npcs',
+  'star_get_npc',
+  'star_list_items',
+  'star_get_item'
+]);
+
+export function isAgentMcpToolPlanReadOnly(toolName: string): boolean {
+  const n = (toolName || '').trim();
+  return n.length > 0 && AGENT_MCP_PLAN_READONLY.has(n);
+}
+
 export function listAgentMcpToolNames(): string[] {
   return Array.from(AGENT_MCP_ALLOWLIST).sort();
 }

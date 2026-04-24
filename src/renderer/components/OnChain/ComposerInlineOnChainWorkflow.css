@@ -203,6 +203,39 @@
   color: var(--text-primary);
 }
 
+.composer-inline-onchain-field--traits > span {
+  margin-bottom: 2px;
+}
+
+.composer-inline-onchain-trait-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.composer-inline-onchain-trait-row input {
+  flex: 1;
+  min-width: 6rem;
+}
+
+.composer-inline-onchain-trait-add {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.composer-inline-onchain-preview-json {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  background: rgba(0, 0, 0, 0.4) !important;
+  color: var(--text-secondary);
+  resize: vertical;
+  min-height: 140px;
+  cursor: default;
+}
+
 .composer-inline-onchain-hint {
   margin: 0;
   font-size: 11px;

@@ -6,8 +6,18 @@ interface AuthState {
   avatarId?: string;
 }
 
+export interface RegisterAccountPayload {
+  firstName: string;
+  lastName: string;
+  email: string;
+  username: string;
+  password: string;
+  confirmPassword: string;
+}
+
 interface AuthContextValue extends AuthState {
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (payload: RegisterAccountPayload) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   refreshStatus: () => Promise<void>;
 }
@@ -38,12 +48,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         error: 'App bridge not ready. Quit OASIS IDE completely and open it again, then try logging in.'
       };
     }
-    const result = await window.electronAPI.authLogin(username, password);
-    if (result.success) {
-      setState({ loggedIn: true, username: result.username ?? username, avatarId: result.avatarId });
-      return { success: true };
+    try {
+      const result = await window.electronAPI.authLogin(username, password);
+      if (result.success) {
+        setState({ loggedIn: true, username: result.username ?? username, avatarId: result.avatarId });
+        return { success: true };
+      }
+      return { success: false, error: result.error ?? 'Login failed' };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('No handler registered')) {
+        return {
+          success: false,
+          error:
+            'The Electron main process is out of date (IPC handler missing). Quit OASIS IDE fully, run npm run build:main && npm run build:preload, then start the app again.'
+        };
+      }
+      return { success: false, error: msg };
     }
-    return { success: false, error: result.error ?? 'Login failed' };
+  }, []);
+
+  const register = useCallback(async (payload: RegisterAccountPayload) => {
+    if (typeof window.electronAPI?.authRegister !== 'function') {
+      return {
+        success: false,
+        error: 'App bridge not ready. Quit OASIS IDE completely and open it again, then try creating an account.'
+      };
+    }
+    try {
+      const result = await window.electronAPI.authRegister(payload);
+      if (result.success) {
+        setState({
+          loggedIn: true,
+          username: result.username ?? payload.username,
+          avatarId: result.avatarId
+        });
+        return { success: true };
+      }
+      return { success: false, error: result.error ?? 'Registration failed' };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('No handler registered')) {
+        return {
+          success: false,
+          error:
+            'The Electron main process is out of date (IPC handler missing). Quit OASIS IDE fully, run npm run build:main && npm run build:preload, then start the app again.'
+        };
+      }
+      return { success: false, error: msg };
+    }
   }, []);
 
   const logout = useCallback(async () => {
@@ -55,6 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value: AuthContextValue = {
     ...state,
     login,
+    register,
     logout,
     refreshStatus
   };

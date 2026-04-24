@@ -1,5 +1,8 @@
-/** Max UTF-8 length returned to the LLM from one MCP tool call. */
-const MCP_TOOL_RESULT_MAX_CHARS = 256 * 1024;
+/**
+ * Max UTF-8 length returned to the LLM from one MCP tool call (after STAR list compaction).
+ * Large JSON (e.g. accidental huge payloads) must not dominate the 128k-token window.
+ */
+const MCP_TOOL_RESULT_MAX_CHARS = 48 * 1024;
 
 /**
  * Normalise MCP \`callTool\` result to a single string for the agent tool loop.

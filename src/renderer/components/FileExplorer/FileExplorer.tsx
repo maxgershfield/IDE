@@ -4,6 +4,7 @@ import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useIdeChat } from '../../contexts/IdeChatContext';
 import type { TreeNode } from '../../contexts/WorkspaceContext';
+import { OASIS_IDE_EXPLORER_FILE_PATH_MIME } from '../../utils/buildPlanningDocContextNote';
 import './FileExplorer.css';
 
 // ─── File-type icon helpers ───────────────────────────────────────────────────
@@ -129,6 +130,16 @@ function FileTreeItem({
       <div
         className={`file-tree-node ${node.isDirectory ? 'folder' : 'file'}`}
         style={{ paddingLeft: level * 12 + 6 }}
+        draggable={!node.isDirectory}
+        onDragStart={
+          node.isDirectory
+            ? undefined
+            : (e) => {
+                e.dataTransfer.setData('text/plain', node.path);
+                e.dataTransfer.setData(OASIS_IDE_EXPLORER_FILE_PATH_MIME, node.path);
+                e.dataTransfer.effectAllowed = 'copy';
+              }
+        }
         onClick={handleClick}
         onContextMenu={(e) => onContextMenuNode(e, node)}
       >

@@ -15,15 +15,19 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { MCPProvider } from './contexts/MCPContext';
 import { AgentProvider } from './contexts/AgentContext';
 import { WorkspaceProvider } from './contexts/WorkspaceContext';
+import { WorkspaceIndexProvider } from './contexts/WorkspaceIndexContext';
 import { IdeChatProvider } from './contexts/IdeChatContext';
+import { StarnetCatalogProvider } from './contexts/StarnetCatalogContext';
 import { ProjectMemoryProvider } from './contexts/ProjectMemoryContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { NonElectronBanner } from './components/Layout/NonElectronBanner';
 import { GameDevProvider } from './contexts/GameDevContext';
 import { EditorTabProvider } from './contexts/EditorTabContext';
+import { OappBuildPlanProvider } from './contexts/OappBuildPlanContext';
 import { ActivityBar, ActivityView } from './components/Layout/ActivityBar';
 import { TitleBar } from './components/Layout/TitleBar';
 import { FirstRunWelcomeBanner } from './components/Layout/FirstRunWelcomeBanner';
+import { PortalActivityBanner } from './components/Layout/PortalActivityBanner';
 import { SearchPanel } from './components/FileExplorer/SearchPanel';
 import { StarnetDashboard } from './components/Starnet/StarnetDashboard';
 import { EntitlementSlotsPanel } from './components/Entitlements/EntitlementSlotsPanel';
@@ -33,6 +37,15 @@ import { A2AProvider } from './contexts/A2AContext';
 import type { ElevenLabsVoice, ElevenLabsAgentParams } from '../shared/elevenLabsTypes';
 import type { AgentActivityMeta } from '../shared/agentTurnTypes';
 import type { ContentTemplateMeta } from '../shared/templateTypes';
+import { useStarnetCatalogLoader } from './hooks/useStarnetCatalogLoader';
+import { OASIS_SET_ACTIVITY_VIEW } from './utils/activityViewBridge';
+
+/** Mounts the always-on STARNET catalog loader so the snapshot is populated for the Composer
+ *  even when the STARNET activity view is not visible. */
+function StarnetCatalogLoaderMount() {
+  useStarnetCatalogLoader();
+  return null;
+}
 
 declare global {
   interface Window {
@@ -48,6 +61,8 @@ declare global {
       getWorkspacePath: () => Promise<string | null>;
       setWorkspacePath: (dir: string) => Promise<any[]>;
       listTree: (dir?: string) => Promise<any[]>;
+      listRootLevel: () => Promise<any[]>;
+      listDirShallow: (absPath: string) => Promise<any[]>;
       readFile: (path: string) => Promise<string | null>;
       writeFile: (path: string, content: string) => Promise<void>;
       revealInFinder: (targetPath: string) => Promise<{ ok: boolean; error?: string }>;
@@ -178,8 +193,46 @@ declare global {
         destDir: string,
         variables: Record<string, string>
       ) => Promise<{ ok: boolean; filesCreated?: string[]; projectPath?: string; error?: string }>;
+      copyOasisOnboardStarter: (parentDir: string, folderName: string) => Promise<
+        | { ok: true; projectPath: string; folderName: string }
+        | { ok: false; error: string }
+      >;
+      applyOasisOnboardBranding: (projectPath: string, description: string) => Promise<
+        { ok: true } | { ok: false; error: string }
+      >;
+      bootstrapOasisOnboardStarter: (parentDir: string) => Promise<
+        | {
+            ok: true;
+            projectPath: string;
+            folderName: string;
+            npmInstallOk: boolean;
+            npmInstallLog: string;
+          }
+        | { ok: false; error: string }
+      >;
+      npmInstallInProject: (projectPath: string) => Promise<
+        | { ok: true; npmOk: boolean; log: string; exitCode: number | null }
+        | { ok: false; error: string }
+      >;
       openUrl: (url: string) => Promise<{ ok: boolean; error?: string }>;
       checkPort: (port: number) => Promise<boolean>;
+      holonicIndexLoadStatus: (workspaceRoot: string) => Promise<any>;
+      holonicIndexStatus: () => Promise<any>;
+      holonicIndexBuild: (workspaceRoot: string) => Promise<{ ok: boolean }>;
+      holonicIndexCancel: () => Promise<{ ok: boolean }>;
+      holonicIndexDelete: (workspaceRoot: string) => Promise<{ ok: boolean }>;
+      holonicIndexSearch: (workspaceRoot: string, query: string, limit?: number) => Promise<any[]>;
+      onHolonicIndexProgress: (callback: (status: any) => void) => () => void;
+      pollPortalActivity: () => Promise<
+        | {
+            ok: true;
+            a2aMessageCount: number;
+            nftCount: number | null;
+            a2aError?: string;
+            starError?: string;
+          }
+        | { ok: false; error: string }
+      >;
       // ElevenLabs NPC Voice Studio
       elevenlabsListVoices: () => Promise<
         { ok: true; voices: ElevenLabsVoice[] } | { ok: false; error: string }
@@ -212,6 +265,15 @@ function AppInner() {
   const [mcpReady, setMcpReady] = useState(false);
   const [oasisReady, setOasisReady] = useState(false);
   const [activeView, setActiveView] = useState<ActivityView>('files');
+
+  useEffect(() => {
+    const onSetActivity = (e: Event) => {
+      const v = (e as CustomEvent<{ view?: ActivityView }>).detail?.view;
+      if (v) setActiveView(v);
+    };
+    window.addEventListener(OASIS_SET_ACTIVITY_VIEW, onSetActivity);
+    return () => window.removeEventListener(OASIS_SET_ACTIVITY_VIEW, onSetActivity);
+  }, []);
 
   useEffect(() => {
     const p = window.electronAPI?.platform;
@@ -247,11 +309,16 @@ function AppInner() {
             <AgentProvider>
               <AuthProvider>
                 <WorkspaceProvider>
+                  <WorkspaceIndexProvider>
                   <ProjectMemoryProvider>
                   <IdeChatProvider>
+                    <OappBuildPlanProvider>
+                    <StarnetCatalogProvider>
+                    <StarnetCatalogLoaderMount />
                     <div className="app-shell-workspace">
                       <TitleBar />
                       <FirstRunWelcomeBanner />
+                      <PortalActivityBanner />
                       <div className="workspace-main">
                         <Layout
                           activityBar={
@@ -291,8 +358,11 @@ function AppInner() {
                       {/* Settings overlay sits inside app-shell-workspace so TitleBar stays visible */}
                       <SettingsModal />
                     </div>
+                    </StarnetCatalogProvider>
+                    </OappBuildPlanProvider>
                   </IdeChatProvider>
                   </ProjectMemoryProvider>
+                  </WorkspaceIndexProvider>
                 </WorkspaceProvider>
               </AuthProvider>
             </AgentProvider>

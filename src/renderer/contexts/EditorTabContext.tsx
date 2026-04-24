@@ -3,8 +3,12 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 interface EditorTabContextValue {
   /** null = file/editor view is active; a string = that builder tab is active */
   activeBuilderTab: string | null;
+  /** Left editor: structured OAPP build plan (holon pick list) vs Monaco */
+  buildPlanPaneOpen: boolean;
   openBuilderTab: (builderId: string) => void;
   closeBuilderTab: () => void;
+  openBuildPlanPane: () => void;
+  closeBuildPlanPane: () => void;
   /**
    * Called by form-based builders (NPC, Quest, MissionArc, etc.) to submit a
    * structured message directly into the active chat session via the registered
@@ -26,8 +30,11 @@ interface EditorTabContextValue {
 
 const EditorTabContext = createContext<EditorTabContextValue>({
   activeBuilderTab: null,
+  buildPlanPaneOpen: false,
   openBuilderTab: () => {},
   closeBuilderTab: () => {},
+  openBuildPlanPane: () => {},
+  closeBuildPlanPane: () => {},
   submitBuilderMessage: () => {},
   registerSubmitHandler: () => {},
   pendingComposerText: null,
@@ -37,11 +44,22 @@ const EditorTabContext = createContext<EditorTabContextValue>({
 
 export const EditorTabProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeBuilderTab, setActiveBuilderTab] = useState<string | null>(null);
+  const [buildPlanPaneOpen, setBuildPlanPaneOpen] = useState(false);
   const [pendingComposerText, setPendingComposerTextState] = useState<string | null>(null);
   const submitHandlerRef = useRef<((message: string) => void) | null>(null);
 
   const openBuilderTab = useCallback((builderId: string) => {
+    setBuildPlanPaneOpen(false);
     setActiveBuilderTab(builderId);
+  }, []);
+
+  const openBuildPlanPane = useCallback(() => {
+    setActiveBuilderTab(null);
+    setBuildPlanPaneOpen(true);
+  }, []);
+
+  const closeBuildPlanPane = useCallback(() => {
+    setBuildPlanPaneOpen(false);
   }, []);
 
   const closeBuilderTab = useCallback(() => {
@@ -71,8 +89,11 @@ export const EditorTabProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     <EditorTabContext.Provider
       value={{
         activeBuilderTab,
+        buildPlanPaneOpen,
         openBuilderTab,
         closeBuilderTab,
+        openBuildPlanPane,
+        closeBuildPlanPane,
         submitBuilderMessage,
         registerSubmitHandler,
         pendingComposerText,

@@ -21,6 +21,13 @@ export interface IdeChatSession {
   title: string;
 }
 
+/** One-shot: replace the active session's composer input (no auto-send). */
+export interface ComposerDraftInjection {
+  id: number;
+  sessionId: string;
+  text: string;
+}
+
 interface SessionRegistry {
   sessions: IdeChatSession[];
   activeId: string;
@@ -32,9 +39,9 @@ export interface IdeChatContextValue {
   addReference: (path: string) => void;
   removeReference: (path: string) => void;
   clearReferences: () => void;
-  /** New session + paths (Explorer “new chat here”). */
+  /** Attach paths to the single composer thread (Explorer “new chat here”). */
   requestNewChatWithPaths: (paths: string[]) => void;
-  /** Bumped when a new session is created (legacy consumers). */
+  /** Bumped when the main thread is focused for a “new chat” handoff (Explorer / Telegram). */
   newChatCounter: number;
 
   sessions: IdeChatSession[];
@@ -45,17 +52,15 @@ export interface IdeChatContextValue {
   setSessionTitle: (id: string, title: string) => void;
   /** Attachment paths for a specific session (active session is still the default for Explorer add). */
   getReferencedPathsForSession: (sessionId: string) => string[];
+
+  /** Pending draft for the active session; consumed by ComposerSessionPanel. */
+  composerDraftInjection: ComposerDraftInjection | null;
+  /** Replace the **active** chat tab's composer text (user reviews before Send). */
+  injectComposerDraft: (text: string) => void;
+  acknowledgeComposerDraftInjection: (id: number) => void;
 }
 
 const IdeChatContext = createContext<IdeChatContextValue | null>(null);
-
-function newSessionId(): string {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-}
 
 function loadRegistry(baseKey: string): SessionRegistry | null {
   try {
@@ -99,6 +104,7 @@ export function IdeChatProvider({ children }: { children: React.ReactNode }) {
   const [activeSessionId, setActiveSessionId] = useState('main');
   const [sessionRefs, setSessionRefs] = useState<Record<string, string[]>>({});
   const [newChatCounter, setNewChatCounter] = useState(0);
+  const [composerDraftInjection, setComposerDraftInjection] = useState<ComposerDraftInjection | null>(null);
 
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
@@ -196,36 +202,36 @@ export function IdeChatProvider({ children }: { children: React.ReactNode }) {
     const cleaned = [...new Set(paths.map((p) => p.trim()).filter(Boolean))].slice(
       -IDE_CHAT_MAX_REF_PATHS
     );
-    const id = newSessionId();
-    const label =
-      cleaned.length > 0
-        ? (cleaned[0].split(/[/\\]/).filter(Boolean).pop() ?? 'New chat').slice(0, 48)
-        : 'New chat';
-    setSessions((prev) => [...prev, { id, title: label }]);
-    setActiveSessionId(id);
-    setSessionRefs((prev) => ({ ...prev, [id]: cleaned }));
+    setActiveSessionId('main');
+    setSessionRefs((prev) => ({ ...prev, main: cleaned }));
     setNewChatCounter((c) => c + 1);
   }, []);
 
   const createEmptySession = useCallback(() => {
-    const id = newSessionId();
-    setSessions((prev) => [...prev, { id, title: `Chat ${prev.length + 1}` }]);
+    const id = `s${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    setSessions((prev) => [...prev, { id, title: 'New chat' }]);
     setActiveSessionId(id);
-    setNewChatCounter((c) => c + 1);
     return id;
   }, []);
 
   const closeSession = useCallback((id: string) => {
-    if (id === 'main') return;
     setSessions((prev) => {
+      if (prev.length <= 1) return prev; // never close the last session
+      const idx = prev.findIndex((s) => s.id === id);
+      if (idx === -1) return prev;
       const next = prev.filter((s) => s.id !== id);
-      return next.length > 0 ? next : [{ id: 'main', title: 'Main' }];
+      // Switch to adjacent tab if the closed one was active
+      setActiveSessionId((cur) => {
+        if (cur !== id) return cur;
+        const fallback = next[Math.max(0, idx - 1)];
+        return fallback ? fallback.id : next[0].id;
+      });
+      return next;
     });
     setSessionRefs((prev) => {
       const { [id]: _, ...rest } = prev;
       return rest;
     });
-    setActiveSessionId((cur) => (cur === id ? 'main' : cur));
   }, []);
 
   const setSessionTitle = useCallback((sessionId: string, title: string) => {
@@ -238,6 +244,21 @@ export function IdeChatProvider({ children }: { children: React.ReactNode }) {
     (sessionId: string) => sessionRefs[sessionId] ?? [],
     [sessionRefs]
   );
+
+  const injectComposerDraft = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const sid = activeSessionIdRef.current;
+    setComposerDraftInjection((prev) => ({
+      id: (prev?.id ?? 0) + 1,
+      sessionId: sid,
+      text: trimmed
+    }));
+  }, []);
+
+  const acknowledgeComposerDraftInjection = useCallback((id: number) => {
+    setComposerDraftInjection((cur) => (cur && cur.id === id ? null : cur));
+  }, []);
 
   const value = useMemo<IdeChatContextValue>(
     () => ({
@@ -253,7 +274,10 @@ export function IdeChatProvider({ children }: { children: React.ReactNode }) {
       createEmptySession,
       closeSession,
       setSessionTitle,
-      getReferencedPathsForSession
+      getReferencedPathsForSession,
+      composerDraftInjection,
+      injectComposerDraft,
+      acknowledgeComposerDraftInjection
     }),
     [
       referencedPaths,
@@ -267,7 +291,10 @@ export function IdeChatProvider({ children }: { children: React.ReactNode }) {
       createEmptySession,
       closeSession,
       setSessionTitle,
-      getReferencedPathsForSession
+      getReferencedPathsForSession,
+      composerDraftInjection,
+      injectComposerDraft,
+      acknowledgeComposerDraftInjection
     ]
   );
 

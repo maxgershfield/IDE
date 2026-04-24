@@ -15,10 +15,6 @@ export interface IdeChatModelOption {
 
 export const IDE_CHAT_MODEL_STORAGE_KEY = 'oasis-ide-selected-chat-model';
 
-/** Composer: plain chat vs tool agent loop (OpenAI/Grok + local tools). */
-export const IDE_COMPOSER_MODE_STORAGE_KEY = 'oasis-ide-composer-mode';
-export type ComposerModeId = 'chat' | 'agent';
-
 /** Agent only: plan (read-only + one question + chips) vs execute (full tools). */
 export const IDE_AGENT_EXECUTION_MODE_STORAGE_KEY = 'oasis-ide-agent-execution-mode';
 export type AgentExecutionModeId = 'plan' | 'execute';

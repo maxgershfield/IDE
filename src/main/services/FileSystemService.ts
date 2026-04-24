@@ -51,9 +51,28 @@ export class FileSystemService {
     return this.readDirRecursive(root, root);
   }
 
+  /**
+   * Shallow listing (default depth 2) used for holonic annotation and similar
+   * analysis tasks. Safe to call on huge monorepos where a full recursive tree
+   * would time out or exhaust memory.
+   */
+  async listRootLevel(maxDepth = 2): Promise<TreeNode[]> {
+    const root = this.workspacePath;
+    if (!root) return [];
+    return this.readDirRecursive(root, root, 0, maxDepth);
+  }
+
+  /** One directory level (no children loaded) for path-scoped composer context. */
+  async listDirectoryShallow(absolutePath: string): Promise<TreeNode[]> {
+    const resolved = path.resolve(absolutePath);
+    return this.readDirRecursive(resolved, resolved, 0, 0);
+  }
+
   private async readDirRecursive(
     currentPath: string,
-    rootPath: string
+    rootPath: string,
+    currentDepth = 0,
+    maxDepth = Infinity
   ): Promise<TreeNode[]> {
     const entries = await fs.readdir(currentPath, { withFileTypes: true });
     const nodes: TreeNode[] = [];
@@ -66,12 +85,14 @@ export class FileSystemService {
         path: fullPath,
         isDirectory: entry.isDirectory(),
       };
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && currentDepth < maxDepth) {
         try {
-          node.children = await this.readDirRecursive(fullPath, rootPath);
+          node.children = await this.readDirRecursive(fullPath, rootPath, currentDepth + 1, maxDepth);
         } catch {
           node.children = [];
         }
+      } else if (entry.isDirectory()) {
+        node.children = [];
       }
       nodes.push(node);
     }

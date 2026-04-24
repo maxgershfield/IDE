@@ -184,7 +184,7 @@ All linked to one Avatar, with one karma score, in one STARNET namespace. That i
 |---|---|
 | `mcp_invoke` returns "MCP not connected" | Check Settings > MCP — the server path should point to `MCP/dist/src/index.js`. Reload the IDE to restart the MCP child process. |
 | Tool returns "Unknown tool prefix" or "Unknown STAR tool" | The IDE MCP process is running an old build. Reload the IDE window (`Cmd+R`) to restart the MCP child from the new `dist/`. |
-| `star_create_*` returns connection error | STAR WebAPI is not running. Start it from the STAR ODK project and confirm it listens on `http://127.0.0.1:5001` (or set `STAR_API_URL`). |
+| `star_create_*` returns connection error | STAR WebAPI is not running or MCP is pointed at the wrong STAR base. Start STAR from the STAR ODK project (default dev URL is often `http://127.0.0.1:50564`) or set **Settings → STARNET** / `STAR_API_URL` to your real STAR origin. |
 | `star_create_*` returns 401 | Avatar not beamed in to STAR. Call `star_beam_in` with your credentials first, or re-login in Settings > Avatar. |
 | `oasis_workflow_mint_*` returns error | Confirm ONODE is running on port 5003 and your Avatar wallet is funded (Solana devnet tokens for testing). |
 | ElevenLabs tools return "ELEVENLABS_API_KEY is not set" | Set `ELEVENLABS_API_KEY` in Settings > Integrations. The MCP process picks it up on next restart. |

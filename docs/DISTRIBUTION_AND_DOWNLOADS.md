@@ -9,12 +9,10 @@ This document answers: **how do we ship installers**, **how do we point everythi
 | Layer | What it is today | “Point to remote” means |
 |--------|------------------|---------------------------|
 | **OASIS IDE ↔ ONODE** | HTTP from the Electron app (`OASIS_API_URL`, default `http://127.0.0.1:5003`) | Set **`OASIS_API_URL`** to your **public or staging** ONODE base (e.g. `https://api.yourdomain.com`) before launch or in an installer step. |
-| **OASIS IDE ↔ OASIS MCP** | **stdio**: the IDE spawns a **local Node process** (`node …/MCP/dist/src/index.js`). There is no “MCP URL” in this path—the protocol is stdin/stdout. | The MCP server still runs **on the user’s machine** next to the IDE. What becomes remote is **every HTTP call the MCP makes** into OASIS (and optional STAR / smart-contract URLs), via **`OASIS_API_URL`** (and related env vars the MCP reads). |
-| **MCP ↔ OASIS** | The MCP package uses `process.env.OASIS_API_URL` (see `MCP/src/config.ts`) plus optional `OASIS_API_KEY` / JWT for agent-style access. | Ship or inject env so **`OASIS_API_URL`** matches the same remote ONODE your IDE uses. |
+| **OASIS IDE ↔ OASIS MCP** | **Default:** Streamable HTTP to **`OASIS_MCP_REMOTE_URL`** (default `https://mcp.oasisweb4.one/mcp`). JWT is sent as `Authorization: Bearer …` after login. **Optional:** `OASIS_MCP_TRANSPORT=stdio` spawns local `node …/MCP/dist/src/index.js` (same tool surface; shared `serverFactory.ts` in the MCP repo). | Hosted: the **MCP process runs on your infra**; tool calls go hosted MCP → ONODE. Local stdio: MCP runs on the user machine and uses **`OASIS_API_URL`** from its env for HTTP into OASIS. |
+| **MCP ↔ OASIS** | The MCP package uses `process.env.OASIS_API_URL` (see `MCP/src/config.ts`) plus optional `OASIS_API_KEY` / JWT for agent-style access. | For **hosted** deploy, set server env so **`OASIS_API_URL`** (and STAR URLs if needed) match production. For **stdio**, match the IDE’s ONODE. |
 
-So: **testers do not browse to “MCP endpoints”** in the browser for the unified server today. They run the desktop app; the app runs MCP locally; **MCP talks to your remote API** over HTTPS.
-
-If you later want a **hosted MCP** (HTTP/SSE transport), that is a **separate product change** (different MCP transport in `MCPServerManager`, server deployment, auth). This guide assumes the **current stdio + remote ONODE** model.
+End users with the **default hosted MCP** do not install or build the `MCP` package. Use **`OASIS_MCP_TRANSPORT=stdio`** only when you need air-gapped or monorepo-local debugging.
 
 ---
 
@@ -54,9 +52,11 @@ npm ci
 npm run build
 ```
 
-### 3. Build the MCP server (still required for tools)
+### 3. MCP (optional for packaging)
 
-The IDE does **not** embed the MCP bundle in `electron-builder` `files` today—it expects either monorepo-relative path or **`OASIS_MCP_SERVER_PATH`**.
+**Default:** the IDE uses **hosted** MCP; you do **not** need to ship `MCP/dist` for tools to work.
+
+If you support **local stdio** (`OASIS_MCP_TRANSPORT=stdio`) or bundle MCP into the app:
 
 ```bash
 cd MCP
@@ -80,10 +80,7 @@ npm run package:linux
 
 Artifacts land under **`OASIS-IDE/release/`** (see `package.json` → `build.directories.output`).
 
-**Tester reality today:** Packaged users must either:
-
-- Install MCP somewhere and set **`OASIS_MCP_SERVER_PATH`** to the absolute path of `dist/src/index.js`, **or**
-- You change packaging to **`extraResources`** (electron-builder) copying `MCP/dist/**` into the app bundle and set that path **at runtime** in `MCPServerManager` when `app.isPackaged`—**recommended** before a wide public beta so testers are not editing env vars for MCP.
+**Tester reality:** With default hosted MCP, no local MCP install. For **stdio** mode without env ceremony, use **`extraResources`** (electron-builder) copying `MCP/dist/**` into the app bundle and resolve **`OASIS_MCP_SERVER_PATH`** at runtime when `app.isPackaged`.
 
 ### 5. Point the app and MCP at **remote** ONODE
 
@@ -128,8 +125,10 @@ Minimal page structure for a download hub:
 
 | Variable | Purpose |
 |----------|---------|
-| **`OASIS_API_URL`** | ONODE base URL for IDE + (when inherited) MCP. |
-| **`OASIS_MCP_SERVER_PATH`** | Absolute path to `MCP/dist/src/index.js` **until** MCP is bundled inside the app. |
+| **`OASIS_API_URL`** | ONODE base URL for IDE + (when inherited) local stdio MCP. |
+| **`OASIS_MCP_TRANSPORT`** | `http` (default, hosted MCP) or `stdio` (local build). |
+| **`OASIS_MCP_REMOTE_URL`** | Hosted MCP URL (default `https://mcp.oasisweb4.one/mcp`). |
+| **`OASIS_MCP_SERVER_PATH`** | **stdio only:** absolute path to `MCP/dist/src/index.js` if not using defaults. |
 | **`OASIS_IDE_ASSISTANT_AGENT_ID`** | If your hosted agent id ≠ default `oasis-ide-assistant`. |
 
 IDE-only keys for local LLM / chat are documented in [LOCAL_LLM_AND_GOOSE_STYLE_SETUP.md](./LOCAL_LLM_AND_GOOSE_STYLE_SETUP.md).
@@ -138,7 +137,7 @@ IDE-only keys for local LLM / chat are documented in [LOCAL_LLM_AND_GOOSE_STYLE_
 
 ## Follow-up work (recommended before “everyone try it”)
 
-1. **Bundle MCP** via `electron-builder` `extraResources` + packaged path resolution in `MCPServerManager.ts`.  
+1. **Optional: bundle MCP** for stdio users via `electron-builder` `extraResources` + packaged path resolution in `MCPServerManager.ts`.  
 2. **Default remote `OASIS_API_URL`** (build-time or first-run) so double-click works.  
 3. **Wire `electron-updater`** + publish `latest-mac.yml` / equivalent with each release.  
 4. **Code signing** (Apple Developer ID + notarization; Windows Authenticode).  
@@ -152,7 +151,7 @@ IDE-only keys for local LLM / chat are documented in [LOCAL_LLM_AND_GOOSE_STYLE_
 |------|-----------|
 | `OASIS-IDE/package.json` | `build` / `electron-builder` / `package:*` scripts |
 | `OASIS-IDE/src/main/services/OASISAPIClient.ts` | `OASIS_API_URL` default |
-| `OASIS-IDE/src/main/services/MCPServerManager.ts` | MCP spawn path; place to add packaged `resourcesPath` |
+| `OASIS-IDE/src/main/services/MCPServerManager.ts` | Hosted Streamable HTTP vs stdio; JWT headers for remote |
 | `MCP/src/config.ts` | Remote API URLs for tool implementations |
 
 ---

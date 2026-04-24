@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import { useMCP } from '../../contexts/MCPContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -14,6 +14,10 @@ export type OnChainWorkflowMode = 'mint' | 'wallet' | 'health';
 
 /** Match Composer paste limits; MCP allows up to 12 MB after base64 decode. */
 const MAX_MINT_IMAGE_BYTES = 4 * 1024 * 1024;
+
+type MintTraitRow = { trait_type: string; value: string };
+
+const EMPTY_MINT_TRAIT_ROW: MintTraitRow = { trait_type: '', value: '' };
 
 const WALLET_PROVIDER_CHOICES: { value: string; label: string }[] = [
   { value: 'SolanaOASIS', label: 'Solana' },
@@ -86,6 +90,58 @@ function parseOasisWorkflowMintResult(
   return { outcome: 'unparsed' };
 }
 
+export type WalletSuccessDetails = {
+  userSummary: string;
+  guidance?: string;
+  avatarId?: string;
+  walletProviderLabel?: string;
+  walletName?: string;
+  publicAddress?: string;
+};
+
+function parseCreateWalletFullMcpResult(
+  raw: unknown
+):
+  | { outcome: 'ok'; details: WalletSuccessDetails }
+  | { outcome: 'fail'; message: string }
+  | { outcome: 'unparsed' } {
+  let o: unknown = raw;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s.startsWith('{')) return { outcome: 'unparsed' };
+    try {
+      o = JSON.parse(s);
+    } catch {
+      return { outcome: 'unparsed' };
+    }
+  }
+  if (!o || typeof o !== 'object') return { outcome: 'unparsed' };
+  const rec = o as Record<string, unknown>;
+  if (rec.success === false) {
+    return {
+      outcome: 'fail',
+      message: String(
+        rec.userSummary ?? rec.message ?? rec.Message ?? 'Wallet creation failed.'
+      ),
+    };
+  }
+  if (rec.success === true && typeof rec.userSummary === 'string') {
+    return {
+      outcome: 'ok',
+      details: {
+        userSummary: rec.userSummary,
+        guidance: typeof rec.guidance === 'string' ? rec.guidance : undefined,
+        avatarId: typeof rec.avatarId === 'string' ? rec.avatarId : undefined,
+        walletProviderLabel:
+          typeof rec.walletProviderLabel === 'string' ? rec.walletProviderLabel : undefined,
+        walletName: typeof rec.walletName === 'string' ? rec.walletName : undefined,
+        publicAddress: typeof rec.publicAddress === 'string' ? rec.publicAddress : undefined,
+      },
+    };
+  }
+  return { outcome: 'unparsed' };
+}
+
 type ChatLine = { role: 'assistant' | 'user'; content: string };
 
 export interface ComposerInlineOnChainWorkflowProps {
@@ -133,12 +189,19 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
   const [password, setPassword] = useState('');
   const [numberToMintStr, setNumberToMintStr] = useState('1');
   const [sendToAddressAfterMinting, setSendToAddressAfterMinting] = useState('');
+  /** Solana: URI of hosted Metaplex JSON for JSONMetaDataURL (optional). */
+  const [jsonMetadataUrl, setJsonMetadataUrl] = useState('');
+  /** Solana: Metaplex-style traits merged into MetaData.attributes after optional JSON object. */
+  const [traitRows, setTraitRows] = useState<MintTraitRow[]>([{ ...EMPTY_MINT_TRAIT_ROW }]);
   const [metadataJson, setMetadataJson] = useState('');
   /** Validation for optional review fields (metadata JSON, quantity) */
   const [mintReviewError, setMintReviewError] = useState<string | null>(null);
   const [mintSuccessDetails, setMintSuccessDetails] = useState<MintSuccessDetails | null>(null);
+  const [walletSuccessDetails, setWalletSuccessDetails] = useState<WalletSuccessDetails | null>(null);
 
   const [walletProvider, setWalletProvider] = useState(WALLET_PROVIDER_CHOICES[0].value);
+  /** Optional display name; MCP defaults to e.g. Solana wallet 2 if empty */
+  const [walletDisplayName, setWalletDisplayName] = useState('');
   const [manualAvatarId, setManualAvatarId] = useState('');
 
   const [mcpPhase, setMcpPhase] = useState<McpInvocationPhase>('idle');
@@ -147,11 +210,52 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
   const [mcpResult, setMcpResult] = useState<unknown>();
   const [mcpError, setMcpError] = useState<string | null>(null);
 
+  const solanaMintPreviewJson = useMemo(() => {
+    if (chain !== 'solana') return '';
+    let baseMeta: Record<string, unknown> = {};
+    if (metadataJson.trim()) {
+      try {
+        const p = JSON.parse(metadataJson.trim()) as unknown;
+        if (p && typeof p === 'object' && !Array.isArray(p)) baseMeta = p as Record<string, unknown>;
+        else return '(additional metadata must be a JSON object for preview)';
+      } catch {
+        return '(fix additional metadata JSON to update preview)';
+      }
+    }
+    const traits = traitRows
+      .filter((r) => r.trait_type.trim() && r.value.trim())
+      .map((r) => ({ trait_type: r.trait_type.trim(), value: r.value.trim() }));
+    const prevAttrs = Array.isArray(baseMeta.attributes) ? (baseMeta.attributes as unknown[]) : [];
+    const merged: Record<string, unknown> = { ...baseMeta };
+    if (traits.length) {
+      merged.attributes = [...prevAttrs, ...traits];
+    }
+    const preview = {
+      name: title.trim() || symbol.trim() || 'Title',
+      symbol: symbol.trim() || 'SYM',
+      description: description.trim() || '',
+      image:
+        imageUrl.trim() ||
+        (imageBase64 ? '(upload → IPFS URL after authentication)' : ''),
+      ...merged,
+    };
+    return JSON.stringify(preview, null, 2);
+  }, [
+    chain,
+    symbol,
+    title,
+    description,
+    imageUrl,
+    imageBase64,
+    metadataJson,
+    traitRows,
+  ]);
+
   useEffect(() => {
     const el = scrollParentRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [lines, mcpPhase, mode, mintStep, mintSuccessDetails, scrollParentRef]);
+  }, [lines, mcpPhase, mode, mintStep, mintSuccessDetails, walletSuccessDetails, scrollParentRef]);
 
   useEffect(() => {
     if (authUsername) setUsername(authUsername);
@@ -173,7 +277,11 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
         content:
           `I'll walk you through minting an NFT with **oasis_workflow_mint_nft** on **${chainLabel}**` +
           (chain === 'solana' ? ` using cluster **${cluster}**` : '') +
-          '. Answer each step below. You can use an **HTTPS image URL** or **upload an image** for artwork. Your password is only sent to the MCP tool for this session and is not stored by the IDE.',
+          '. Answer each step below. You can use an **HTTPS image URL** or **upload an image** for artwork.' +
+          (chain === 'solana'
+            ? ' On Solana, review can add a **metadata JSON URL**, **traits**, and extra JSON merged into **MetaData**.'
+            : '') +
+          ' Your password is only sent to the MCP tool for this session and is not stored by the IDE.',
       },
     ]);
     setMintStep('symbol');
@@ -188,6 +296,8 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
     setPassword('');
     setNumberToMintStr('1');
     setSendToAddressAfterMinting('');
+    setJsonMetadataUrl('');
+    setTraitRows([{ ...EMPTY_MINT_TRAIT_ROW }]);
     setMetadataJson('');
     setMintReviewError(null);
     setMintSuccessDetails(null);
@@ -210,6 +320,8 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
     setPassword('');
     setNumberToMintStr('1');
     setSendToAddressAfterMinting('');
+    setJsonMetadataUrl('');
+    setTraitRows([{ ...EMPTY_MINT_TRAIT_ROW }]);
     setMetadataJson('');
     setMintReviewError(null);
     setMcpPhase('idle');
@@ -223,7 +335,11 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
         content:
           `I'll walk you through minting an NFT with **oasis_workflow_mint_nft** on **${chainLabel}**` +
           (chain === 'solana' ? ` using cluster **${cluster}**` : '') +
-          '. Answer each step below. You can use an **HTTPS image URL** or **upload an image** for artwork. Your password is only sent to the MCP tool for this session and is not stored by the IDE.',
+          '. Answer each step below. You can use an **HTTPS image URL** or **upload an image** for artwork.' +
+          (chain === 'solana'
+            ? ' On Solana, review can add a **metadata JSON URL**, **traits**, and extra JSON merged into **MetaData**.'
+            : '') +
+          ' Your password is only sent to the MCP tool for this session and is not stored by the IDE.',
       },
     ]);
     if (authUsername) setUsername(authUsername);
@@ -243,13 +359,32 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
       {
         role: 'assistant',
         content:
-          'Create a wallet linked to your OASIS avatar using **oasis_create_wallet_full**. Choose the provider, then run the tool.',
+          'Create a wallet linked to your OASIS avatar using **oasis_create_wallet_full**. Add a short display name (optional), or leave it blank for an automatic name like Solana wallet 2. The MCP server may cap how many wallets you can create per chain. Choose the provider, then run the tool.',
       },
     ]);
+    setWalletSuccessDetails(null);
+    setWalletDisplayName('');
     setMcpPhase('idle');
     setMcpResult(undefined);
     setMcpError(null);
   }, [mode]);
+
+  const resetWalletFlow = useCallback(() => {
+    setWalletSuccessDetails(null);
+    setWalletDisplayName('');
+    setMcpPhase('idle');
+    setMcpToolName('');
+    setMcpArgs(undefined);
+    setMcpResult(undefined);
+    setMcpError(null);
+    setLines([
+      {
+        role: 'assistant',
+        content:
+          'Create a wallet linked to your OASIS avatar using **oasis_create_wallet_full**. Add a short display name (optional), or leave it blank for an automatic name like Solana wallet 2. The MCP server may cap how many wallets you can create per chain. Choose the provider, then run the tool.',
+      },
+    ]);
+  }, []);
 
   useEffect(() => {
     if (mode !== 'health') return;
@@ -392,7 +527,9 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
     }
     setMcpArgs(argsForUi);
     if (mcpTools.length === 0) {
-      setMcpError('MCP server is not connected. Set OASIS_MCP_SERVER_PATH and restart the IDE.');
+      setMcpError(
+        'MCP is not connected. Default is hosted MCP; check the console for [MCP] errors, or set OASIS_MCP_TRANSPORT=stdio and OASIS_MCP_SERVER_PATH, then restart the IDE.'
+      );
       setMcpPhase('error');
       return;
     }
@@ -400,6 +537,7 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
     setMcpError(null);
     setMcpResult(undefined);
     setMintSuccessDetails(null);
+    setWalletSuccessDetails(null);
     try {
       const raw = await executeTool(toolName, args);
       const normalized = normalizeMcpToolResult(raw);
@@ -417,6 +555,17 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
         } else if (parsed.outcome === 'fail') {
           setMcpPhase('error');
           setMcpError(parsed.userSummary || 'Mint did not complete on-chain.');
+        } else {
+          setMcpPhase('success');
+        }
+      } else if (toolName === 'oasis_create_wallet_full') {
+        const w = parseCreateWalletFullMcpResult(normalized);
+        if (w.outcome === 'ok') {
+          setWalletSuccessDetails(w.details);
+          setMcpPhase('success');
+        } else if (w.outcome === 'fail') {
+          setMcpPhase('error');
+          setMcpError(w.message);
         } else {
           setMcpPhase('success');
         }
@@ -502,10 +651,21 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
           setMintReviewError('Metadata must be a JSON object, for example {"rarity":"legendary"}.');
           return;
         }
-        metaData = p as Record<string, unknown>;
+        metaData = { ...(p as Record<string, unknown>) };
       } catch {
         setMintReviewError('Metadata is not valid JSON.');
         return;
+      }
+    }
+
+    if (chain === 'solana') {
+      const traits = traitRows
+        .filter((r) => r.trait_type.trim() && r.value.trim())
+        .map((r) => ({ trait_type: r.trait_type.trim(), value: r.value.trim() }));
+      if (traits.length) {
+        metaData = metaData ?? {};
+        const prev = Array.isArray(metaData.attributes) ? (metaData.attributes as object[]) : [];
+        metaData.attributes = [...prev, ...traits];
       }
     }
 
@@ -530,7 +690,18 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
     } else if (imageUrl.trim()) {
       args.imageUrl = imageUrl.trim();
     }
-    if (chain === 'solana') args.cluster = cluster;
+    if (chain === 'solana') {
+      args.cluster = cluster;
+      if (jsonMetadataUrl.trim()) {
+        const u = jsonMetadataUrl.trim();
+        const lower = u.toLowerCase();
+        if (!lower.startsWith('https://') && !lower.startsWith('http://') && !lower.startsWith('ipfs://')) {
+          setMintReviewError('Metadata JSON URL must start with https://, http://, or ipfs://');
+          return;
+        }
+        args.jsonMetadataUrl = u;
+      }
+    }
     if (sendToAddressAfterMinting.trim()) {
       args.sendToAddressAfterMinting = sendToAddressAfterMinting.trim();
     }
@@ -551,11 +722,13 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
       setMcpPhase('error');
       return;
     }
-    void runMcp('oasis_create_wallet_full', {
+    const args: Record<string, unknown> = {
       avatarId: id,
       WalletProviderType: walletProvider,
       GenerateKeyPair: true,
-    });
+    };
+    if (walletDisplayName.trim()) args.Name = walletDisplayName.trim();
+    void runMcp('oasis_create_wallet_full', args);
   };
 
   const handleHealthRun = () => {
@@ -641,6 +814,21 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
                     {metadataJson.trim().length > 80 ? '…' : ''})
                   </li>
                 ) : null}
+                {chain === 'solana' && jsonMetadataUrl.trim() ? (
+                  <li>
+                    <strong>Metadata JSON URL</strong>: {jsonMetadataUrl.trim()}
+                  </li>
+                ) : null}
+                {chain === 'solana' &&
+                traitRows.some((r) => r.trait_type.trim() && r.value.trim()) ? (
+                  <li>
+                    <strong>Traits</strong>:{' '}
+                    {
+                      traitRows.filter((r) => r.trait_type.trim() && r.value.trim()).length
+                    }{' '}
+                    row(s) → MetaData.attributes
+                  </li>
+                ) : null}
                 <li>
                   <strong>Username</strong>: {username.trim()}
                 </li>
@@ -710,6 +898,44 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
                 ) : null}
               </ul>
               <p className="composer-inline-onchain-success-summary">{mintSuccessDetails.userSummary}</p>
+            </div>
+          ) : null}
+
+          {mode === 'wallet' && walletSuccessDetails ? (
+            <div className="composer-inline-onchain-success" role="status" aria-live="polite">
+              <div className="composer-inline-onchain-success-title">Wallet created</div>
+              <p className="composer-inline-onchain-success-lead">{walletSuccessDetails.userSummary}</p>
+              {walletSuccessDetails.guidance ? (
+                <p className="composer-inline-onchain-success-summary">{walletSuccessDetails.guidance}</p>
+              ) : null}
+              <ul className="composer-inline-onchain-success-links">
+                {walletSuccessDetails.walletName ? (
+                  <li className="composer-inline-onchain-success-meta">
+                    <strong>Display name</strong>: {walletSuccessDetails.walletName}
+                  </li>
+                ) : null}
+                {walletSuccessDetails.walletProviderLabel ? (
+                  <li className="composer-inline-onchain-success-meta">
+                    <strong>Provider</strong>: {walletSuccessDetails.walletProviderLabel}
+                  </li>
+                ) : null}
+                {walletSuccessDetails.avatarId ? (
+                  <li className="composer-inline-onchain-success-meta">
+                    <strong>Linked avatar</strong>:{' '}
+                    <code className="composer-inline-onchain-success-code">
+                      {walletSuccessDetails.avatarId}
+                    </code>
+                  </li>
+                ) : null}
+                {walletSuccessDetails.publicAddress ? (
+                  <li className="composer-inline-onchain-success-meta">
+                    <strong>Public address</strong>:{' '}
+                    <code className="composer-inline-onchain-success-code">
+                      {walletSuccessDetails.publicAddress}
+                    </code>
+                  </li>
+                ) : null}
+              </ul>
             </div>
           ) : null}
 
@@ -976,8 +1202,90 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
                 autoComplete="off"
               />
             </label>
+            {chain === 'solana' ? (
+              <>
+                <label className="composer-inline-onchain-field">
+                  <span>Metadata JSON URL (optional)</span>
+                  <input
+                    type="text"
+                    value={jsonMetadataUrl}
+                    onChange={(e) => {
+                      setJsonMetadataUrl(e.target.value);
+                      setMintReviewError(null);
+                    }}
+                    placeholder="https://… or ipfs://… (hosted Metaplex JSON)"
+                    autoComplete="off"
+                  />
+                </label>
+                <p className="composer-inline-onchain-hint">
+                  When set, the MCP workflow sends this URI as JSONMetaDataURL (ExternalJSONURL). Leave blank and the API builds Metaplex JSON and uploads it to Pinata. Use https, http, or ipfs.
+                </p>
+                <div className="composer-inline-onchain-field composer-inline-onchain-field--traits">
+                  <span>Traits (optional)</span>
+                  {traitRows.map((row, idx) => (
+                    <div key={idx} className="composer-inline-onchain-trait-row">
+                      <input
+                        type="text"
+                        aria-label={`Trait name ${idx + 1}`}
+                        value={row.trait_type}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTraitRows((prev) => prev.map((r, i) => (i === idx ? { ...r, trait_type: v } : r)));
+                          setMintReviewError(null);
+                        }}
+                        placeholder="trait_type"
+                      />
+                      <input
+                        type="text"
+                        aria-label={`Trait value ${idx + 1}`}
+                        value={row.value}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTraitRows((prev) => prev.map((r, i) => (i === idx ? { ...r, value: v } : r)));
+                          setMintReviewError(null);
+                        }}
+                        placeholder="value"
+                      />
+                      <button
+                        type="button"
+                        className="composer-inline-onchain-secondary"
+                        onClick={() => {
+                          if (traitRows.length <= 1) {
+                            setTraitRows([{ ...EMPTY_MINT_TRAIT_ROW }]);
+                            return;
+                          }
+                          setTraitRows((prev) => prev.filter((_, i) => i !== idx));
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="composer-inline-onchain-secondary composer-inline-onchain-trait-add"
+                    onClick={() => setTraitRows((prev) => [...prev, { ...EMPTY_MINT_TRAIT_ROW }])}
+                  >
+                    Add trait row
+                  </button>
+                </div>
+                <label className="composer-inline-onchain-field">
+                  <span>Combined metadata preview (read-only)</span>
+                  <textarea
+                    readOnly
+                    className="composer-inline-onchain-preview-json"
+                    value={solanaMintPreviewJson}
+                    rows={10}
+                    spellCheck={false}
+                  />
+                </label>
+              </>
+            ) : null}
             <label className="composer-inline-onchain-field">
-              <span>Additional metadata JSON (optional)</span>
+              <span>
+                Additional metadata JSON (optional)
+                {chain === 'solana' ? ' (merged with traits into MetaData)' : ''}
+              </span>
               <textarea
                 value={metadataJson}
                 onChange={(e) => {
@@ -1014,7 +1322,18 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
           </div>
         )}
 
-        {mode === 'wallet' && (
+        {mode === 'wallet' && walletSuccessDetails ? (
+          <div className="composer-inline-onchain-form composer-inline-onchain-success-actions">
+            <button type="button" className="composer-inline-onchain-primary" onClick={resetWalletFlow}>
+              Create another wallet
+            </button>
+            <button type="button" className="composer-inline-onchain-secondary" onClick={onDismiss}>
+              Close
+            </button>
+          </div>
+        ) : null}
+
+        {mode === 'wallet' && !walletSuccessDetails ? (
           <form
             className="composer-inline-onchain-form"
             onSubmit={(e) => {
@@ -1036,6 +1355,19 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
               <p className="composer-inline-onchain-hint">Using logged-in avatar: {avatarId.slice(0, 8)}…</p>
             )}
             <label className="composer-inline-onchain-field">
+              <span>Display name (optional)</span>
+              <input
+                type="text"
+                value={walletDisplayName}
+                onChange={(e) => setWalletDisplayName(e.target.value)}
+                placeholder="e.g. My trading wallet"
+                autoComplete="off"
+              />
+            </label>
+            <p className="composer-inline-onchain-hint">
+              If you leave this blank, the MCP server sets a name like Solana wallet 2. A limit may apply per chain (see OASIS_MCP_MAX_WALLETS_PER_PROVIDER on the MCP host).
+            </p>
+            <label className="composer-inline-onchain-field">
               <span>Provider</span>
               <select value={walletProvider} onChange={(e) => setWalletProvider(e.target.value)}>
                 {WALLET_PROVIDER_CHOICES.map((p) => (
@@ -1053,7 +1385,7 @@ export const ComposerInlineOnChainWorkflow: React.FC<ComposerInlineOnChainWorkfl
               Create wallet (MCP)
             </button>
           </form>
-        )}
+        ) : null}
 
         {mode === 'health' && (
           <form

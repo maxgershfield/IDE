@@ -7,17 +7,22 @@
  *   3. runtimeDefault (from main process: launchSettings + /api/Health probe)
  *   4. Default STAR WebAPI local port (50564)
  *
+ * Base URL is the origin (and optional path prefix) **before** the app's `/api` routes, e.g.
+ * `https://star.oasisweb4.one`, not `.../star/api`. A trailing `/api` is stripped (see `normalizeStarApiBaseUrl`).
+ *
  * Token: fetched from the Electron main process via `window.electronAPI.authGetToken()`
  * (stored in userData/oasis-ide-auth.json). Never sourced from localStorage.
  */
 
+import { normalizeStarApiBaseUrl } from '../../shared/starApiBaseUrl';
+
 export const DEFAULT_STAR_API_URL = 'http://127.0.0.1:50564';
 
 export function getStarApiUrl(override?: string, runtimeDefault?: string): string {
-  if (override?.trim()) return override.trim();
+  if (override?.trim()) return normalizeStarApiBaseUrl(override.trim());
   const vite = (import.meta as any).env?.VITE_STAR_API_URL?.trim();
-  if (vite) return vite;
-  if (runtimeDefault?.trim()) return runtimeDefault.trim();
+  if (vite) return normalizeStarApiBaseUrl(vite);
+  if (runtimeDefault?.trim()) return normalizeStarApiBaseUrl(runtimeDefault.trim());
   return DEFAULT_STAR_API_URL;
 }
 

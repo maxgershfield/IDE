@@ -4,18 +4,39 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MCPServerManager } from './services/MCPServerManager.js';
-import { getResolvedStarApiBaseUrl, resolveStarApiBaseUrl } from './services/starApiUrlResolve.js';
+import {
+  getResolvedStarApiBaseUrl,
+  resetStarApiCache,
+  resolveStarApiBaseUrl,
+} from './services/starApiUrlResolve.js';
 import { OASISAPIClient } from './services/OASISAPIClient.js';
 import { AgentRuntime } from './services/AgentRuntime.js';
 import { FileSystemService } from './services/FileSystemService.js';
 import { TerminalService } from './services/TerminalService.js';
 import { loadStoredAuth, saveAuth, clearStoredAuth } from './services/AuthStore.js';
+import {
+  clearSessionRefreshTimer,
+  refreshSessionIfExpiringSoon,
+  scheduleSessionRefresh,
+  type SessionRefreshDeps
+} from './services/sessionRefresh.js';
 import { ChatService } from './services/ChatService.js';
 import { StaticPreviewService } from './services/StaticPreviewService.js';
 import { AgentToolExecutor } from './services/AgentToolExecutor.js';
 import { SemanticSearchService } from './services/SemanticSearchService.js';
+import { HolonicIndexService } from './services/HolonicIndexService.js';
 import { TEMPLATE_REGISTRY, TEMPLATE_META, getContentTemplateFiles } from './templates/metaverseTemplates.js';
 import { LocalBridgeServer } from './services/LocalBridgeServer.js';
+import { runNpmInstall } from './services/oasisOnboardNpm.js';
+import { fetchPortalActivitySnapshot } from './services/portalActivityPoll.js';
+import {
+  allocateOasisOnboardStarterDest,
+  getOasisOnboardStarterSourceDir,
+  oasisOnboardStarterSourceExists,
+  sanitizeOasisStarterFolderName
+} from './services/oasisOnboardStarterPath.js';
+import { applyOasisOnboardBranding } from './services/oasisOnboardBranding.js';
+import { BUNDLE_OASIS_API_BASE, BUNDLE_STAR_API_BASE } from '../shared/oasisIdeBundleDefaults.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,11 +73,21 @@ let authUsername: string | undefined;
 let authAvatarId: string | undefined;
 let mcpManager: MCPServerManager;
 let oasisClient: OASISAPIClient;
+
+function getSessionRefreshDeps(): SessionRefreshDeps {
+  return {
+    oasisClient,
+    mcpManager,
+    getUsername: () => authUsername,
+    getAvatarId: () => authAvatarId
+  };
+}
 let agentRuntime: AgentRuntime;
 let fileSystemService: FileSystemService;
 let terminalService: TerminalService;
 let chatService: ChatService;
 let staticPreviewService: StaticPreviewService;
+let holonicIndexService: HolonicIndexService;
 let agentToolExecutor: AgentToolExecutor;
 
 let rendererDistWatchStarted = false;
@@ -260,7 +291,7 @@ function createWindow() {
     mainWindow.webContents.on('render-process-gone', (_event, details) => {
       console.error('[Main] render-process-gone:', details.reason, details.exitCode);
     });
-    if (process.env.OASIS_IDE_DEVTOOLS !== '0') {
+    if (process.env.OASIS_IDE_DEVTOOLS === '1') {
       mainWindow.webContents.openDevTools();
     }
   }
@@ -274,6 +305,12 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Packaged installs: default to hosted Streamable MCP so testers are not required to run or build
+  // local MCP, and the transport matches a remote OASIS API. Dev override: set OASIS_MCP_TRANSPORT.
+  if (app.isPackaged && !process.env.OASIS_MCP_TRANSPORT?.trim()) {
+    process.env.OASIS_MCP_TRANSPORT = 'http';
+  }
+
   // Initialize services — AgentRuntime shares the authenticated oasisClient
   mcpManager = new MCPServerManager();
   const oasisBase = resolveOasisApiBaseUrl();
@@ -286,6 +323,7 @@ app.whenReady().then(async () => {
   chatService = new ChatService();
   staticPreviewService = new StaticPreviewService();
   const semanticSearchService = new SemanticSearchService();
+  holonicIndexService = new HolonicIndexService();
   agentToolExecutor = new AgentToolExecutor(fileSystemService, {
     mcpExecuteTool: (toolName, args) => mcpManager.executeTool(toolName, args),
     openExternalUrl: (url) => shell.openExternal(url),
@@ -295,15 +333,24 @@ app.whenReady().then(async () => {
   const stored = await loadStoredAuth();
   if (stored?.token) {
     oasisClient.setAuthToken(stored.token);
+    if (stored.refreshToken) {
+      oasisClient.setRefreshToken(stored.refreshToken);
+    }
     authUsername = stored.username;
     authAvatarId = stored.avatarId;
+  }
+
+  try {
+    await refreshSessionIfExpiringSoon(getSessionRefreshDeps(), 3 * 60 * 1000);
+  } catch (e: unknown) {
+    console.warn('[Main] Session startup refresh skipped:', e);
   }
 
   mcpManager.setOasisJwtToken(oasisClient.getAuthToken());
   mcpManager.setOasisAvatarId(authAvatarId);
 
   try {
-    const starUrl = await resolveStarApiBaseUrl();
+    const starUrl = await resolveStarApiBaseUrl(getEffectiveStarnetEndpointFromSettingsDisk());
     process.env.STAR_API_URL = starUrl;
     console.log('[Main] Resolved STAR WebAPI URL:', starUrl);
   } catch (e: unknown) {
@@ -319,6 +366,10 @@ app.whenReady().then(async () => {
     console.error('[Main] Error details:', error.message);
     // Don't throw - let the app start even if MCP fails
     // The UI will show an error state
+  }
+
+  if (oasisClient.getRefreshToken()) {
+    scheduleSessionRefresh(getSessionRefreshDeps());
   }
 
   // Probe STAR CLI (non-blocking: app starts regardless of result)
@@ -443,6 +494,25 @@ ipcMain.handle('fs:list-tree', async (_, dir?: string) => {
   }
 });
 
+ipcMain.handle('fs:list-root-level', async () => {
+  try {
+    return await fileSystemService.listRootLevel(2);
+  } catch (error: any) {
+    console.error('[IPC] List root level error:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('fs:list-dir-shallow', async (_, absPath: string) => {
+  try {
+    if (typeof absPath !== 'string' || !path.isAbsolute(absPath)) return [];
+    return await fileSystemService.listDirectoryShallow(absPath);
+  } catch (error: any) {
+    console.error('[IPC] List dir shallow error:', error);
+    return [];
+  }
+});
+
 ipcMain.handle('fs:read-file', async (_, filePath: string) => {
   try {
     return await fileSystemService.readFile(filePath);
@@ -527,6 +597,126 @@ ipcMain.handle('scaffold:template', async (_, engine: string, destDir: string, p
 /** Return template metadata for the MetaverseTemplatePanel card grid. */
 ipcMain.handle('templates:list-meta', async () => {
   return { ok: true, templates: TEMPLATE_META };
+});
+
+/**
+ * Copy the OASIS API (onboard) Vite starter from bundled `docs/templates/oasis-onboard-starter`
+ * into `path.join(parentDir, folderName)`.
+ */
+ipcMain.handle(
+  'templates:copy-oasis-onboard-starter',
+  async (_evt, parentDir: string, folderName: string) => {
+    try {
+      if (typeof parentDir !== 'string' || !parentDir.trim()) {
+        return { ok: false as const, error: 'Open a workspace folder first.' };
+      }
+      const safeName = sanitizeOasisStarterFolderName(
+        typeof folderName === 'string' ? folderName : 'oasis-onboard-starter'
+      );
+      const normParent = path.resolve(parentDir.trim());
+      const normDest = path.resolve(path.join(normParent, safeName));
+      const rel = path.relative(normParent, normDest);
+      if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+        return { ok: false as const, error: 'Invalid destination path.' };
+      }
+      if (!(await oasisOnboardStarterSourceExists())) {
+        return {
+          ok: false as const,
+          error:
+            'OASIS onboard starter template is missing from this app install. If you are developing the IDE, ensure docs/templates/oasis-onboard-starter exists and is included in the packaged build.',
+        };
+      }
+      try {
+        await fs.promises.access(normDest);
+        return {
+          ok: false as const,
+          error: `A folder or file already exists: ${safeName}. Choose another name or remove it first.`,
+        };
+      } catch {
+        /* not exists */
+      }
+      const src = getOasisOnboardStarterSourceDir();
+      await fs.promises.cp(src, normDest, { recursive: true, errorOnExist: true });
+      return { ok: true as const, projectPath: normDest, folderName: safeName };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error('[IPC] templates:copy-oasis-onboard-starter error:', e);
+      return { ok: false as const, error: message };
+    }
+  }
+);
+
+ipcMain.handle(
+  'templates:apply-oasis-onboard-branding',
+  async (_evt, projectPath: string, description: string) => {
+    if (typeof projectPath !== 'string' || !projectPath.trim()) {
+      return { ok: false as const, error: 'No project path.' };
+    }
+    return applyOasisOnboardBranding(
+      projectPath,
+      typeof description === 'string' ? description : ''
+    );
+  }
+);
+
+/**
+ * One action: create `oasis-onboard-starter` (or -2, -3, …), copy files, run `npm install`.
+ */
+ipcMain.handle('templates:bootstrap-oasis-onboard-starter', async (_evt, parentDir: string) => {
+  try {
+    if (typeof parentDir !== 'string' || !parentDir.trim()) {
+      return { ok: false as const, error: 'No workspace folder. Open a folder first.' };
+    }
+    if (!(await oasisOnboardStarterSourceExists())) {
+      return {
+        ok: false as const,
+        error:
+          'OASIS onboard starter template is missing from this app install. Rebuild or reinstall the IDE.',
+      };
+    }
+    const src = getOasisOnboardStarterSourceDir();
+    const { fullPath, folderName } = await allocateOasisOnboardStarterDest(parentDir);
+    await fs.promises.cp(src, fullPath, { recursive: true, errorOnExist: true });
+    const npm = await runNpmInstall(fullPath);
+    return {
+      ok: true as const,
+      projectPath: fullPath,
+      folderName,
+      npmInstallOk: npm.ok,
+      npmInstallLog: npm.log,
+    };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error('[IPC] templates:bootstrap-oasis-onboard-starter error:', e);
+    return { ok: false as const, error: message };
+  }
+});
+
+/**
+ * Run `npm install` in an existing project directory (used by the guided OASIS API setup).
+ */
+ipcMain.handle('templates:npm-install-in-project', async (_evt, projectPath: string) => {
+  try {
+    if (typeof projectPath !== 'string' || !projectPath.trim()) {
+      return { ok: false as const, error: 'No project path.' };
+    }
+    const norm = path.resolve(projectPath.trim());
+    const st = await fs.promises.stat(norm).catch(() => null);
+    if (!st?.isDirectory()) {
+      return { ok: false as const, error: 'Path is not a directory.' };
+    }
+    const npm = await runNpmInstall(norm);
+    return {
+      ok: true as const,
+      npmOk: npm.ok,
+      log: npm.log,
+      exitCode: npm.exitCode,
+    };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error('[IPC] templates:npm-install-in-project error:', e);
+    return { ok: false as const, error: message };
+  }
 });
 
 /**
@@ -710,12 +900,21 @@ ipcMain.handle('ide:preview-stop', () => {
 /** Agent tool execution (OASIS_IDE-style loop — see docs/OASIS_IDE_PARITY_ROADMAP.md). */
 ipcMain.handle(
   'agent:execute-tool',
-  async (_e, payload: { toolCallId: string; name: string; argumentsJson: string }) => {
+  async (
+    _e,
+    payload: {
+      toolCallId: string;
+      name: string;
+      argumentsJson: string;
+      executionMode?: 'plan' | 'plan_gather' | 'plan_present' | 'execute';
+    }
+  ) => {
     try {
       const result = await agentToolExecutor.execute(
         payload.toolCallId,
         payload.name,
-        payload.argumentsJson
+        payload.argumentsJson,
+        { executionMode: payload.executionMode }
       );
       return { ok: true, result };
     } catch (error: any) {
@@ -751,36 +950,77 @@ ipcMain.handle('terminal:destroy', (_, sessionId: string) => {
 });
 
 // Auth
+type OasisAuthResult = Awaited<
+  ReturnType<InstanceType<typeof OASISAPIClient>['authenticateAvatar']>
+>;
+
+async function applyOasisSessionAfterAuthenticate(
+  result: OasisAuthResult,
+  usernameFallback: string
+): Promise<{ username: string; avatarId: string }> {
+  authUsername = result.username ?? usernameFallback;
+  authAvatarId = result.avatarId;
+  await saveAuth({
+    token: result.token,
+    refreshToken: result.refreshToken || undefined,
+    username: authUsername,
+    avatarId: authAvatarId
+  });
+  mcpManager.setOasisJwtToken(result.token);
+  mcpManager.setOasisAvatarId(authAvatarId);
+  try {
+    await mcpManager.restartOASISMCP();
+  } catch (mcpErr: unknown) {
+    console.error('[Main] MCP restart after login failed:', mcpErr);
+  }
+  clearSessionRefreshTimer();
+  if (oasisClient.getRefreshToken()) {
+    scheduleSessionRefresh(getSessionRefreshDeps());
+  }
+  oasisClient.registerAgentCapabilities(authAvatarId, [
+    'code-generation', 'data-analysis', 'general', 'ide-session'
+  ]).catch((err: unknown) => {
+    console.warn('[Main] A2A agent registration failed (non-fatal):', err);
+  });
+  return { username: authUsername, avatarId: authAvatarId };
+}
+
 ipcMain.handle('auth:login', async (_, username: string, password: string) => {
   try {
     const result = await oasisClient.authenticateAvatar(username, password);
-    authUsername = result.username ?? username;
-    authAvatarId = result.avatarId;
-    await saveAuth({
-      token: result.token,
-      username: authUsername,
-      avatarId: authAvatarId
-    });
-    mcpManager.setOasisJwtToken(result.token);
-    mcpManager.setOasisAvatarId(authAvatarId);
-    try {
-      await mcpManager.restartOASISMCP();
-    } catch (mcpErr: unknown) {
-      console.error('[Main] MCP restart after login failed:', mcpErr);
-    }
-    // Register this IDE session as a discoverable A2A agent (fire-and-forget)
-    oasisClient.registerAgentCapabilities(authAvatarId, [
-      'code-generation', 'data-analysis', 'general', 'ide-session'
-    ]).catch((err: unknown) => {
-      console.warn('[Main] A2A agent registration failed (non-fatal):', err);
-    });
-    return { success: true, username: authUsername, avatarId: authAvatarId };
+    const out = await applyOasisSessionAfterAuthenticate(result, username);
+    return { success: true, username: out.username, avatarId: out.avatarId };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
 });
 
+ipcMain.handle(
+  'auth:register',
+  async (
+    _,
+    payload: {
+      firstName: string;
+      lastName: string;
+      email: string;
+      username: string;
+      password: string;
+      confirmPassword: string;
+    }
+  ) => {
+    try {
+      await oasisClient.registerAvatar(payload);
+      const result = await oasisClient.authenticateAvatar(payload.username, payload.password);
+      const out = await applyOasisSessionAfterAuthenticate(result, payload.username);
+      return { success: true, username: out.username, avatarId: out.avatarId };
+    } catch (error: any) {
+      return { success: false, error: error.message ?? String(error) };
+    }
+  }
+);
+
 ipcMain.handle('auth:logout', async () => {
+  clearSessionRefreshTimer();
   oasisClient.clearAuthToken();
   authUsername = undefined;
   authAvatarId = undefined;
@@ -805,8 +1045,54 @@ ipcMain.handle('auth:getStatus', async () => {
 
 ipcMain.handle('auth:getToken', () => oasisClient.getAuthToken());
 
+/** Poll A2A message count (OASIS API) and NFT list length (STAR) for portal parity notifications. */
+ipcMain.handle('portal:poll-activity', async () => {
+  try {
+    const token = oasisClient.getAuthToken();
+    if (!token) {
+      return { ok: false as const, error: 'not_authenticated' };
+    }
+    const starBase = await resolveStarApiBaseUrl(getEffectiveStarnetEndpointFromSettingsDisk());
+    return await fetchPortalActivitySnapshot(oasisClient, starBase, token);
+  } catch (e: unknown) {
+    return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+  }
+});
+
 /** STAR WebAPI base URL (resolved at startup from launchSettings + health probe, or STAR_API_URL). */
 ipcMain.handle('star:getResolvedApiUrl', () => getResolvedStarApiBaseUrl());
+
+/* ── Holonic codebase index ──────────────────────────────────────────────── */
+
+ipcMain.handle('holon-index:load-status', async (_, workspaceRoot: string) => {
+  return holonicIndexService.loadStoredStatus(workspaceRoot);
+});
+
+ipcMain.handle('holon-index:status', () => {
+  return holonicIndexService.getStatus();
+});
+
+ipcMain.handle('holon-index:build', (_, workspaceRoot: string) => {
+  holonicIndexService.setProgressCallback((status) => {
+    mainWindow?.webContents.send('holon-index:progress', status);
+  });
+  holonicIndexService.buildIndex(workspaceRoot);
+  return { ok: true };
+});
+
+ipcMain.handle('holon-index:cancel', () => {
+  holonicIndexService.cancel();
+  return { ok: true };
+});
+
+ipcMain.handle('holon-index:delete', async (_, workspaceRoot: string) => {
+  await holonicIndexService.deleteIndex(workspaceRoot);
+  return { ok: true };
+});
+
+ipcMain.handle('holon-index:search', async (_, workspaceRoot: string, query: string, limit?: number) => {
+  return holonicIndexService.search(workspaceRoot, query, limit ?? 8);
+});
 
 // A2A Inbox (uses auth token from oasisClient)
 ipcMain.handle('a2a:getPending', async () => {
@@ -1032,31 +1318,112 @@ function readOasisApiEndpointFromSettingsDisk(): string {
   return ep.replace(/\/$/, '');
 }
 
+function readStarnetEndpointOverrideFromSettingsDisk(): string {
+  const data = readSettingsFromDisk();
+  const ep =
+    typeof data.starnetEndpointOverride === 'string' ? data.starnetEndpointOverride.trim() : '';
+  return ep.replace(/\/$/, '');
+}
+
+function getEffectiveOasisApiEndpointFromSettingsDisk(): string {
+  const from = readOasisApiEndpointFromSettingsDisk();
+  if (from) return from;
+  if (app.isPackaged) return BUNDLE_OASIS_API_BASE;
+  return '';
+}
+
+function getEffectiveStarnetEndpointFromSettingsDisk(): string {
+  const from = readStarnetEndpointOverrideFromSettingsDisk();
+  if (from) return from;
+  if (app.isPackaged) return BUNDLE_STAR_API_BASE;
+  return '';
+}
+
+function starnetEndpointFromSettingsRecord(data: Record<string, unknown>): string {
+  const ep =
+    typeof data.starnetEndpointOverride === 'string' ? data.starnetEndpointOverride.trim() : '';
+  return ep.replace(/\/$/, '');
+}
+
+function getEffectiveStarnetEndpointFromSettingsRecord(
+  data: Record<string, unknown>
+): string {
+  const from = starnetEndpointFromSettingsRecord(data);
+  if (from) return from;
+  if (app.isPackaged) return BUNDLE_STAR_API_BASE;
+  return '';
+}
+
+/**
+ * Merged view for the renderer: packaged builds show public defaults when Integrations is unset;
+ * not written to disk until the user changes settings.
+ */
+function mergeSettingsPayloadWithPackagedDefaults(
+  disk: Record<string, unknown>
+): Record<string, unknown> {
+  if (!app.isPackaged) {
+    return disk;
+  }
+  const out: Record<string, unknown> = { ...disk };
+  if (typeof out.oasisApiEndpoint !== 'string' || !String(out.oasisApiEndpoint).trim()) {
+    out.oasisApiEndpoint = BUNDLE_OASIS_API_BASE;
+  }
+  if (
+    typeof out.starnetEndpointOverride !== 'string' ||
+    !String(out.starnetEndpointOverride).trim()
+  ) {
+    out.starnetEndpointOverride = BUNDLE_STAR_API_BASE;
+  }
+  return out;
+}
+
 /**
  * Same ONODE base for `OASISAPIClient` and stdio OASIS MCP.
- * Precedence: `OASIS_API_URL` env, then Settings (Integrations) API endpoint override, then local ONODE.
+ * Precedence: `OASIS_API_URL` env, then Settings (Integrations) override (or packaged public default),
+ * then `http://127.0.0.1:5003` when unset in unpackaged dev.
  */
 function resolveOasisApiBaseUrl(): string {
   const env = process.env.OASIS_API_URL?.trim();
   if (env) return OASISAPIClient.normalizeBaseUrl(env);
-  const fromSettings = readOasisApiEndpointFromSettingsDisk();
+  const fromSettings = getEffectiveOasisApiEndpointFromSettingsDisk();
   if (fromSettings) return OASISAPIClient.normalizeBaseUrl(fromSettings);
   return 'http://127.0.0.1:5003';
 }
 
-ipcMain.handle('settings:get', () => readSettingsFromDisk());
+ipcMain.handle('settings:get', () =>
+  mergeSettingsPayloadWithPackagedDefaults(readSettingsFromDisk())
+);
 
-ipcMain.handle('settings:set', (_, patch: Record<string, unknown>) => {
+ipcMain.handle('settings:set', async (_, patch: Record<string, unknown>) => {
   const current = readSettingsFromDisk();
   const merged = { ...current, ...patch };
   writeSettingsToDisk(merged);
+  let needMcpRestart = false;
   if ('oasisApiEndpoint' in patch && mcpManager && oasisClient) {
     const url = resolveOasisApiBaseUrl();
     oasisClient.setBaseURL(url);
     mcpManager.setOasisApiUrlResolved(url);
-    mcpManager.restartOASISMCP().catch((e: unknown) => {
-      console.error('[Settings] MCP restart after OASIS API URL change:', e);
-    });
+    needMcpRestart = true;
+  }
+  if ('starnetEndpointOverride' in patch && mcpManager) {
+    resetStarApiCache();
+    try {
+      const starUrl = await resolveStarApiBaseUrl(
+        getEffectiveStarnetEndpointFromSettingsRecord(merged)
+      );
+      process.env.STAR_API_URL = starUrl;
+      console.log('[Settings] STAR WebAPI URL after STARNET endpoint change:', starUrl);
+    } catch (e: unknown) {
+      console.error('[Settings] STAR URL resolve after STARNET endpoint change:', e);
+    }
+    needMcpRestart = true;
+  }
+  if (needMcpRestart && mcpManager) {
+    try {
+      await mcpManager.restartOASISMCP();
+    } catch (e: unknown) {
+      console.error('[Settings] MCP restart after settings change:', e);
+    }
   }
   return merged;
 });

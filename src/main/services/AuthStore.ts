@@ -6,6 +6,8 @@ const AUTH_FILE = 'oasis-ide-auth.json';
 
 interface StoredAuth {
   token: string;
+  /** Long-lived token used to obtain new JWTs via POST /api/avatar/refresh-token */
+  refreshToken?: string;
   username?: string;
   avatarId?: string;
 }

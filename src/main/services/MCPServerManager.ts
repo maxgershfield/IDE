@@ -2,8 +2,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { getResolvedStarApiBaseUrl } from './starApiUrlResolve.js';
+import { normalizeStarApiBaseUrl } from '../../shared/starApiBaseUrl.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,11 +32,33 @@ function parseEnvFile(filePath: string): Record<string, string> {
   return out;
 }
 
+type McpClientTransport = StdioClientTransport | StreamableHTTPClientTransport;
+
 interface MCPServerConnection {
   client: Client;
-  transport: StdioClientTransport;
+  transport: McpClientTransport;
   status: 'running' | 'stopped' | 'error';
   tools: any[];
+}
+
+const DEFAULT_REMOTE_MCP_URL = 'https://mcp.oasisweb4.one/mcp';
+
+function useStdioMcpTransport(): boolean {
+  const t = process.env.OASIS_MCP_TRANSPORT?.trim().toLowerCase();
+  if (t === 'stdio' || t === 'local') return true;
+  if (t === 'http' || t === 'remote') return false;
+  /**
+   * When unset: prefer **local stdio** if the built MCP entry exists (monorepo / dev installs).
+   * Then `STAR_API_URL` in the child process matches the IDE’s `resolveStarApiBaseUrl` (Settings → STARNET
+   * wins over `.env`). **Hosted** MCP runs `star_*` on the remote host with *its* STAR URL — so the STARNET
+   * tab can show remote holons while `star_list_holons` still hits `127.0.0.1:50564` on that host.
+   * Set `OASIS_MCP_TRANSPORT=http` to force hosted MCP even when `MCP/dist` is present.
+   */
+  try {
+    return fs.existsSync(getMCPServerPath());
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -53,6 +77,8 @@ function getMCPServerPath(): string {
 export class MCPServerManager {
   private servers: Map<string, MCPServerConnection> = new Map();
   private mcpServerPath: string;
+  /** Streamable HTTP endpoint (hosted); same tool surface as local stdio (shared MCP serverFactory). */
+  private remoteMcpUrl: string;
   /**
    * Resolved ONODE base URL (from env + Settings); when set, overrides `process.env.OASIS_API_URL`
    * for the stdio MCP child so it matches `OASISAPIClient`.
@@ -65,11 +91,13 @@ export class MCPServerManager {
 
   constructor() {
     this.mcpServerPath = getMCPServerPath();
+    this.remoteMcpUrl =
+      process.env.OASIS_MCP_REMOTE_URL?.trim() || DEFAULT_REMOTE_MCP_URL;
 
-    if (!fs.existsSync(this.mcpServerPath)) {
+    if (useStdioMcpTransport() && !fs.existsSync(this.mcpServerPath)) {
       console.error(`[MCP] MCP server not found at: ${this.mcpServerPath}`);
       console.error(
-        '[MCP] Set OASIS_MCP_SERVER_PATH to the path of MCP dist/src/index.js, or from monorepo: cd MCP && npm run build'
+        '[MCP] Set OASIS_MCP_SERVER_PATH to MCP dist/src/index.js, or run: cd MCP && npm run build. Or set OASIS_MCP_TRANSPORT=http to use hosted MCP without a local build.'
       );
     }
   }
@@ -131,12 +159,9 @@ export class MCPServerManager {
     const mcpDotEnv = parseEnvFile(path.join(mcpRoot, '.env'));
     const ideDotEnv = parseEnvFile(path.join(ideRoot, '.env'));
 
-    const starUrl =
-      process.env.STAR_API_URL?.trim() ||
-      ideDotEnv.STAR_API_URL?.trim() ||
-      mcpDotEnv.STAR_API_URL?.trim() ||
-      getResolvedStarApiBaseUrl();
-    env.STAR_API_URL = starUrl;
+    // Same STAR base as main/renderer (`resolveStarApiBaseUrl` cache). Do not re-read .env here — it could
+    // disagree with Settings → STARNET after we reordered resolve precedence.
+    env.STAR_API_URL = normalizeStarApiBaseUrl(getResolvedStarApiBaseUrl());
 
     const elevenLabsKey =
       process.env.ELEVENLABS_API_KEY?.trim() ||
@@ -149,6 +174,14 @@ export class MCPServerManager {
     return env;
   }
 
+  private buildRemoteRequestHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (this.oasisJwtToken) {
+      headers.Authorization = `Bearer ${this.oasisJwtToken}`;
+    }
+    return headers;
+  }
+
   /** Stop and start the unified MCP server (e.g. after auth changes). */
   async restartOASISMCP(): Promise<void> {
     await this.stopServer('oasis-unified');
@@ -157,13 +190,26 @@ export class MCPServerManager {
 
   async startOASISMCP(): Promise<void> {
     try {
-      console.log('[MCP] Starting OASIS MCP server...');
-      console.log('[MCP] Server path:', this.mcpServerPath);
+      const stdio = useStdioMcpTransport();
+      console.log(
+        `[MCP] Starting OASIS MCP (${stdio ? 'stdio' : 'hosted Streamable HTTP'})...`
+      );
+      if (stdio) {
+        console.log('[MCP] Server path:', this.mcpServerPath);
+      } else {
+        console.log('[MCP] Remote URL:', this.remoteMcpUrl);
+      }
 
-      if (!fs.existsSync(this.mcpServerPath)) {
-        const error = `MCP server not found at ${this.mcpServerPath}. Please build it first: cd MCP && npm run build`;
+      if (stdio && !fs.existsSync(this.mcpServerPath)) {
+        const error = `MCP server not found at ${this.mcpServerPath}. Build it: cd MCP && npm run build, or set OASIS_MCP_TRANSPORT=http to use hosted MCP (${DEFAULT_REMOTE_MCP_URL}).`;
         console.error(`[MCP] ${error}`);
         throw new Error(error);
+      }
+
+      if (stdio && !process.env.OASIS_MCP_TRANSPORT?.trim()) {
+        console.log(
+          '[MCP] Using local stdio MCP (MCP/dist found). STAR_* tools use the same STAR base as Settings → STARNET. Set OASIS_MCP_TRANSPORT=http to force hosted MCP.'
+        );
       }
 
       const client = new Client(
@@ -176,11 +222,19 @@ export class MCPServerManager {
         }
       );
 
-      const transport = new StdioClientTransport({
-        command: 'node',
-        args: [this.mcpServerPath],
-        env: this.buildMcpChildEnv()
-      });
+      let transport: McpClientTransport;
+      if (stdio) {
+        transport = new StdioClientTransport({
+          command: 'node',
+          args: [this.mcpServerPath],
+          env: this.buildMcpChildEnv()
+        });
+      } else {
+        const headers = this.buildRemoteRequestHeaders();
+        transport = new StreamableHTTPClientTransport(new URL(this.remoteMcpUrl), {
+          requestInit: Object.keys(headers).length ? { headers } : undefined
+        });
+      }
 
       await client.connect(transport);
 
@@ -200,10 +254,10 @@ export class MCPServerManager {
         const conn = this.servers.get('oasis-unified');
         if (conn) conn.status = 'stopped';
       };
+      // Streamable HTTP may emit onerror for non-fatal SSE noise (disconnect/reconnect). Do not set
+      // status to 'error' or listTools() and the UI break while callTool POST may still work.
       transport.onerror = (error: unknown) => {
-        console.error('[MCP] Transport error:', error);
-        const conn = this.servers.get('oasis-unified');
-        if (conn) conn.status = 'error';
+        console.error('[MCP] Transport error (logged; connection still usable):', error);
       };
     } catch (error: any) {
       console.error('[MCP] Failed to start server:', error);
@@ -213,7 +267,8 @@ export class MCPServerManager {
 
   async listTools(serverName: string = 'oasis-unified'): Promise<any[]> {
     const conn = this.servers.get(serverName);
-    if (!conn || conn.status !== 'running') {
+    // Only `stopped` means tear-down. `error` was used for noisy Streamable HTTP/SSE; tools stay cached.
+    if (!conn || conn.status === 'stopped') {
       throw new Error(`Server ${serverName} is not running`);
     }
     return conn.tools;
@@ -221,7 +276,7 @@ export class MCPServerManager {
 
   async executeTool(toolName: string, args: any): Promise<any> {
     const conn = this.servers.get('oasis-unified');
-    if (!conn || conn.status !== 'running') {
+    if (!conn || conn.status === 'stopped') {
       throw new Error('OASIS MCP server is not running');
     }
 

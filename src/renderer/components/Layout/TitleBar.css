@@ -34,6 +34,37 @@ html:not([data-platform='darwin']) .title-bar-traffic-zone {
   flex: 1;
 }
 
+/* Open OASIS Web Portal (browser) */
+.title-bar-portal-btn {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  margin-right: 4px;
+  background: transparent;
+  border: 1px solid rgba(78, 201, 176, 0.25);
+  border-radius: 5px;
+  color: rgba(120, 200, 180, 0.85);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.title-bar-portal-btn:hover {
+  color: #a8e8d8;
+  background: rgba(78, 201, 176, 0.1);
+  border-color: rgba(78, 201, 176, 0.45);
+}
+
+.title-bar-portal-label {
+  line-height: 1;
+}
+
 /* Settings button — top-right, must opt out of window drag region */
 .title-bar-settings-btn {
   -webkit-app-region: no-drag;

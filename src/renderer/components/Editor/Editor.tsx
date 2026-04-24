@@ -4,6 +4,7 @@ import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import { useGameDev } from '../../contexts/GameDevContext';
 import { GameBuilderPane } from '../Chat/GameBuilderPane';
+import { OappBuildPlanPanel } from './OappBuildPlanPanel';
 import './Editor.css';
 
 function languageFromPath(filePath: string): string {
@@ -27,7 +28,14 @@ export const Editor: React.FC = () => {
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoEditorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const { fileContent, openFilePath, setFileContent, save, dirty, starWorkspaceConfig } = useWorkspace();
-  const { activeBuilderTab, closeBuilderTab, openBuilderTab } = useEditorTab();
+  const {
+    activeBuilderTab,
+    closeBuilderTab,
+    openBuilderTab,
+    buildPlanPaneOpen,
+    openBuildPlanPane,
+    closeBuildPlanPane
+  } = useEditorTab();
   const { isGameDevMode } = useGameDev();
   const ignoreNextChange = useRef(false);
 
@@ -107,6 +115,8 @@ export const Editor: React.FC = () => {
 
   const fileLabel = openFilePath ? openFilePath.replace(/^.*[/\\]/, '') : 'Untitled';
   const showBuilder = activeBuilderTab !== null;
+  const showBuildPlan = buildPlanPaneOpen && !showBuilder;
+  const showMonaco = !showBuilder && !showBuildPlan;
 
   // Builder tab label from builderId
   const BUILDER_LABELS: Record<string, string> = {
@@ -132,12 +142,24 @@ export const Editor: React.FC = () => {
         {/* File tab */}
         <button
           type="button"
-          className={`editor-tab-btn${!showBuilder ? ' is-active' : ''}`}
-          onClick={showBuilder ? closeBuilderTab : undefined}
+          className={`editor-tab-btn${showMonaco ? ' is-active' : ''}`}
+          onClick={() => {
+            if (showBuilder) closeBuilderTab();
+            if (buildPlanPaneOpen) closeBuildPlanPane();
+          }}
           title={fileLabel}
         >
           {fileLabel}
-          {dirty && !showBuilder && <span className="editor-dirty" title="Unsaved changes">●</span>}
+          {dirty && showMonaco && <span className="editor-dirty" title="Unsaved changes">●</span>}
+        </button>
+
+        <button
+          type="button"
+          className={`editor-tab-btn${showBuildPlan ? ' is-active' : ''}`}
+          onClick={openBuildPlanPane}
+          title="Structured OAPP template and holon selection"
+        >
+          Build plan
         </button>
 
         {/* Builder tab — only rendered when a builder is open */}
@@ -174,13 +196,19 @@ export const Editor: React.FC = () => {
       <div
         ref={editorRef}
         className="editor"
-        style={{ display: showBuilder ? 'none' : undefined }}
+        style={{ display: showMonaco ? undefined : 'none' }}
       />
 
       {/* Builder pane — rendered inline when a builder tab is active */}
       {showBuilder && (
         <GameBuilderPane builderId={activeBuilderTab} onClose={closeBuilderTab} />
       )}
+
+      {showBuildPlan ? (
+        <div className="editor-build-plan-slot">
+          <OappBuildPlanPanel />
+        </div>
+      ) : null}
     </div>
   );
 };

@@ -132,19 +132,51 @@ export const StarnetSection: React.FC = () => {
 
         <div className="settings-row">
           <div className="settings-row-info">
-            <div className="settings-row-label">Endpoint Override</div>
+            <div className="settings-row-label">STAR WebAPI / STARNET endpoint</div>
             <div className="settings-row-desc">
-              Custom STARNET endpoint. Leave blank to use the platform default.
+              STAR WebAPI base (origin only; the app appends <code style={{ fontSize: 11 }}>/api/...</code>).
+              Example: <code style={{ fontSize: 11 }}>https://star.oasisweb4.one</code>, not{' '}
+              <code style={{ fontSize: 11 }}>.../star/api</code>. When this field is set, it takes precedence
+              over <code style={{ fontSize: 11 }}>STAR_API_URL</code> in <code style={{ fontSize: 11 }}>.env</code>{' '}
+              for the STARNET view and for <strong>local</strong> MCP (<code style={{ fontSize: 11 }}>MCP/dist</code>{' '}
+              stdio). The Composer agent&apos;s <code style={{ fontSize: 11 }}>star_*</code> tools need that same
+              STAR host: use local MCP when this points at a remote STAR, or set{' '}
+              <code style={{ fontSize: 11 }}>OASIS_MCP_TRANSPORT=http</code> only if you accept hosted MCP&apos;s own STAR routing.
             </div>
           </div>
-          <div className="settings-row-control" style={{ width: 220 }}>
+          <div className="settings-row-control" style={{ width: 300 }}>
             <input
               type="text"
               className="settings-input"
-              placeholder="https://starnet.oasis.ac"
+              placeholder="https://star.oasisweb4.one"
               value={settings.starnetEndpointOverride}
               onChange={(e) => updateSettings({ starnetEndpointOverride: e.target.value })}
             />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+              <button
+                type="button"
+                className="settings-btn settings-btn-secondary"
+                onClick={() => updateSettings({ starnetEndpointOverride: 'http://127.0.0.1:50564' })}
+              >
+                Local STAR
+              </button>
+              <button
+                type="button"
+                className="settings-btn settings-btn-secondary"
+                onClick={() =>
+                  updateSettings({ starnetEndpointOverride: 'https://star.oasisweb4.one' })
+                }
+              >
+                Remote star.oasisweb4.one
+              </button>
+              <button
+                type="button"
+                className="settings-btn settings-btn-secondary"
+                onClick={() => updateSettings({ starnetEndpointOverride: '' })}
+              >
+                Clear
+              </button>
+            </div>
           </div>
         </div>
       </div>

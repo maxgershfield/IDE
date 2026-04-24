@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { OASIS_OPEN_ONBOARD_GUIDE } from '../utils/activityViewBridge';
 import type { RightPanelTabId } from '../components/Layout/RightPanelShell';
 
 interface A2AContextValue {
@@ -22,6 +23,12 @@ export const A2AProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setComposeTarget(agentId);
     setActiveTab('inbox');
   }, []);
+
+  useEffect(() => {
+    const focusComposerForOnboard = () => setActiveTab('composer');
+    window.addEventListener(OASIS_OPEN_ONBOARD_GUIDE, focusComposerForOnboard);
+    return () => window.removeEventListener(OASIS_OPEN_ONBOARD_GUIDE, focusComposerForOnboard);
+  }, [setActiveTab]);
 
   return (
     <A2AContext.Provider value={{ composeTarget, setComposeTarget, activeTab, setActiveTab, openComposeToAgent }}>
