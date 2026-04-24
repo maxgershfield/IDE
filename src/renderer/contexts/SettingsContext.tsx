@@ -42,6 +42,11 @@ export interface OASISSettings {
   usageSummaryDisplay: 'auto' | 'always' | 'never';
   agentAutocomplete: boolean;
   startAgentReviewOnCommit: boolean;
+  /**
+   * **searchFirst** (default) — small system pack + STARNET pointer; agent lists holons via `mcp_invoke`.
+   * **full** — larger pack + full STARNET table every turn; higher API token use.
+   */
+  agentContextPacking: 'searchFirst' | 'full';
 
   // Models
   enabledModels: string[];
@@ -142,6 +147,7 @@ export const DEFAULT_SETTINGS: OASISSettings = {
   usageSummaryDisplay: 'auto',
   agentAutocomplete: true,
   startAgentReviewOnCommit: false,
+  agentContextPacking: 'searchFirst',
 
   // Models
   enabledModels: [
@@ -249,9 +255,15 @@ function mergeWithDefaults(raw: Record<string, unknown>): OASISSettings {
         ? Math.min(3600, Math.max(30, Math.floor(Number(raw.portalActivityPollSec) || DEFAULT_SETTINGS.portalActivityPollSec)))
         : DEFAULT_SETTINGS.portalActivityPollSec;
 
+  const agentContextPacking =
+    raw.agentContextPacking === 'full' || raw.agentContextPacking === 'searchFirst'
+      ? raw.agentContextPacking
+      : DEFAULT_SETTINGS.agentContextPacking;
+
   return {
     ...DEFAULT_SETTINGS,
     ...raw,
+    agentContextPacking,
     portalActivityPollSec,
     onChainDefaultChain,
     onChainSolanaCluster,

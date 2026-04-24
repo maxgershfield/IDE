@@ -145,6 +145,30 @@ export const AgentsSection: React.FC = () => {
             />
           </div>
         </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">Agent context packing</div>
+            <div className="settings-row-desc">
+              <strong>Search-first</strong> (recommended) sends a short system pack and a STARNET pointer
+              so the model lists holons via tools—fewer API tokens. <strong>Full</strong> preloads the STARNET
+              catalog table every turn (higher token use, useful when you hit rate limits on tool calls
+              or want the model to see all rows without calling mcp list tools first).
+            </div>
+          </div>
+          <div className="settings-row-control">
+            <select
+              className="settings-select"
+              value={settings.agentContextPacking}
+              onChange={(e) =>
+                updateSettings({ agentContextPacking: e.target.value as 'searchFirst' | 'full' })
+              }
+            >
+              <option value="searchFirst">Search-first (lower token use)</option>
+              <option value="full">Full (preloaded STARNET + long pack)</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <p className="settings-section-heading">Agent Review</p>

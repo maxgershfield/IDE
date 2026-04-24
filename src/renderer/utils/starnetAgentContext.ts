@@ -101,3 +101,24 @@ export function buildStarnetIdeContextNote(snapshot: StarnetCatalogSnapshot | nu
   }
   return out;
 }
+
+/**
+ * **Search-first STARNET** — tiny pointer instead of preloading the full holon/OAPP table every turn.
+ * The agent fetches inventory via `mcp_invoke` (`star_list_holons`, `star_list_oapps`) or uses the
+ * in-IDE STARNET activity view. Cuts several thousand input tokens per agent turn vs `buildStarnetIdeContextNote`.
+ */
+export function buildStarnetSearchFirstNote(baseUrl: string, apiReady: boolean, loggedIn: boolean): string | null {
+  if (!loggedIn) return null;
+  const apiLine = apiReady
+    ? 'STAR WebAPI was reachable the last time the IDE checked.'
+    : 'Confirm **Settings → STARNET** and use **Refresh** on the STARNET screen if list tools fail.';
+  return (
+    '## STARNET (search-first — table not pre-attached)\n\n' +
+    '**Disambiguation:** This is the **global STAR registry** (published holons/OAPPs), not the on-disk holonic index or folder tree.\n\n' +
+    'The full catalog markdown table is **omitted this turn** to save API tokens. **Fetch what you need:**\n' +
+    '- `mcp_invoke` with `star_list_holons` and `star_list_oapps` (bounded tables), then `star_get_holon` / `star_get_oapp` for one id’s full JSON\n' +
+    '- Or browse **Activity bar → STARNET** in the IDE (same data the full table would have mirrored)\n\n' +
+    `Observed STAR base: \`${baseUrl}\`. ${apiLine}\n` +
+    'Do not send users to external “STARNET portal” marketing URLs for inventory; use tools or the in-IDE view.\n'
+  );
+}

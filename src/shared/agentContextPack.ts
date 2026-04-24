@@ -2,8 +2,11 @@
  * Bounded reference text appended to IDE agent turns and (via ONODE) IDE Chat turns.
  * Keep in sync with MCP tool behaviour in `MCP/src/tools/oasisTools.ts` + `starTools.ts`.
  * ONODE caps total size (see IdeAgentController / IdeChatController MaxContextPackChars).
+ *
+ * **Search-first** (`getAgentContextPackSearchFirst`) omits long duplicate STARNET and planning prose so
+ * the model relies on `workspace_grep` / `semantic_search` / `mcp_invoke` and uses fewer input tokens.
  */
-export const AGENT_CONTEXT_PACK_VERSION = '1.12.0';
+export const AGENT_CONTEXT_PACK_VERSION = '1.13.0';
 
 export function getAgentContextPack(): string {
   return `## OASIS IDE context pack (v${AGENT_CONTEXT_PACK_VERSION})
@@ -116,40 +119,18 @@ When creating a **new** browser game or OAPP with **Vite**:
 - **STAR:** OAPP + zomes + holons, DNA, STARNET publish/activate, beam-in.
 - **OASIS / ONODE:** graph holons, avatars, SERV/A2A, cross-OAPP linkage when apps need shared graph + identity.
 
-### Holonic composition — how to wire holons together (mandatory reading before any multi-holon build)
+### Holonic composition — wiring holons together
 
-Holons are lego bricks. A "food delivery app" is a composition of VenueHolon → MenuItemHolon → CartHolon → DeliveryOrderHolon. The agent must **explicitly wire these connections** using the tools below — they do not connect automatically.
+Holons are lego bricks. Wire them explicitly — connections do not form automatically.
 
-**Three-step composition pattern:**
-1. **Create** — call \`holon_*_create\` for each holon, passing \`parentHolonId\` when there is a natural parent (e.g. \`holon_menuitem_create({ venueHolonId: "...", parentHolonId: venueId })\`). Each create handler accepts \`parentHolonId\` and records it in the session graph.
-2. **Connect** — call \`holon_connect({ parentId, childId, relationLabel? })\` after creation to register the formal OASIS graph edge (sets \`ParentHolonId\` on the child so \`load-holons-for-parent\` can traverse it). Use this for any relationship not set at create time.
-3. **Verify** — call \`holon_get_graph({ rootHolonId, maxDepth: 2 })\` to read back the real graph from STARNET and confirm edges are correct. Emit the result as \`<oasis_holon_diagram>\` so the user sees a **grounded** (not guessed) diagram.
+**Pattern:** Create → Connect → Verify
+1. \`holon_*_create(…, parentHolonId?)\` — pass \`parentHolonId\` when there's a natural parent
+2. \`holon_connect({ parentId, childId, relationLabel? })\` — registers the formal OASIS graph edge (sets \`ParentHolonId\` so \`load-holons-for-parent\` can traverse it)
+3. \`holon_get_graph({ rootHolonId })\` → emit result as \`<oasis_holon_diagram>\` (**always ground diagrams from live data, not memory**)
 
-**Graph tools in \`mcp_invoke\`:**
-| Tool | When to use |
-|---|---|
-| \`holon_connect\` | Wire parent→child after create, or connect any two holons explicitly |
-| \`holon_get_graph\` | Read back the real OASIS graph from STARNET (use as basis for any diagram) |
-| \`holon_session_graph\` | Get all holons created/connected this MCP session as \`{nodes, edges}\` — use at the start of a turn to orient yourself |
+\`holon_session_graph()\` returns all holons created this session as \`{nodes, edges}\` — call it to orient yourself at the start of a turn.
 
-**How holons reference each other today (two mechanisms):**
-- **Formal graph edges:** \`ParentHolonId\` on the child holon (set via \`holon_connect\` or \`parentHolonId\` arg at create). Traversable by \`load-holons-for-parent\`.
-- **Typed FK metaData keys:** \`venueHolonId\`, \`courseHolonId\`, \`themeHolonId\` etc. stored in \`metaData\`. These are visible to the agent but are **not** traversed by the OASIS graph layer unless \`holon_connect\` is also called. Always call \`holon_connect\` in addition to setting the FK field.
-
-**Session context — always check before planning:**
-If the context pack includes \`## Session holons (built this conversation)\`, that table lists every holon created in this thread with truncated IDs and their connections. **Use these IDs** when calling \`holon_connect\` or adding child holons — do not re-create holons you already built. If the table is absent or you need the full ID, call \`holon_session_graph()\`.
-
-**Diagram grounding rule:** Never emit \`<oasis_holon_diagram>\` from memory alone after a composition sequence. Always call \`holon_get_graph\` first and use its \`{nodes, edges}\` output as the diagram payload. This ensures the diagram reflects real STARNET state, not the agent's assumption.
-
-**Composition example (food delivery app):**
-\`\`\`
-1. holon_venue_create({ name: "Chain Ramen", ... })         → venueId
-2. holon_menuitem_create({ venueHolonId: venueId, ... })    → menuItemId
-3. holon_connect({ parentId: venueId, childId: menuItemId, relationLabel: "serves" })
-4. holon_cart_create({ avatarId, venueHolonId: venueId })   → cartId
-5. holon_connect({ parentId: venueId, childId: cartId, relationLabel: "cart-for" })
-6. holon_get_graph({ rootHolonId: venueId })                → emit as <oasis_holon_diagram>
-\`\`\`
+If the context pack includes \`## Session holons (built this conversation)\`, use those IDs — do not re-create holons already built.
 
 ### IDE-embedded STARNET (composer must follow — stops “open a portal” wrong answers)
 - **STARNET is already in this IDE.** The user browses holons and OAPPs in **Activity bar → STARNET** (center panel lists, refresh, row actions). That is the **primary** UI for exploring what is available while staying in the IDE.
@@ -212,6 +193,65 @@ The IDE renders the JSON block as a live interactive React Flow graph. Example s
 
 Node **type** values: \`oapp\` (blue), \`template\` (green), \`core\` (purple), \`service\` (amber), \`custom\` (cyan).
 Each node's **description** field should state the specific feature it serves in this app, not a generic summary of the template.
+
+`;
+}
+
+/**
+ * Reduced token context for Agent mode. Same behaviour expectations as the full pack, but the model is
+ * directed to **fetch** STARNET rows and file facts via tools instead of receiving long preloaded tables
+ * in every system prefix. Shaves roughly half of context-pack input tokens; pair with
+ * `buildStarnetSearchFirstNote` in the Composer.
+ */
+export function getAgentContextPackSearchFirst(): string {
+  return `## OASIS IDE context pack — search-first (v${AGENT_CONTEXT_PACK_VERSION})
+This pack is a **short** form. For STARNET inventory, file contents, and repo structure, use **read-only tools in this turn** — do not assume the full table was pre-attached.
+
+### Auto-load & planning
+**AGENTS.md** / \`.cursor/rules\` / \`.oasiside\` rules may be prepended separately. A **planning document** may appear in its own \`## Planning document\` block — follow it but still **read_file** on paths you change.
+
+### OASIS / STAR
+- **OASIS / ONODE:** avatars, graph holons, A2A, \`/api/ide/agent/turn\` tool loop.
+- **STAR WebAPI:** OAPPs, STARNET, \`star_*\` via **\`mcp_invoke\`**. Set \`STAR_API_URL\` in IDE or env if needed.
+
+| Surface | Note |
+|--------|------|
+| **ONODE** | JWT, holons, IDE agent |
+| **STAR** | \`star_*\` tools |
+| **MCP (stdio in IDE)** | \`oasis_*\`, \`star_*\`, holon_* |
+
+### MCP (call exact names)
+1. \`oasis_health_check\` 2. Avatars / wallet / karma 3. Holons \`oasis_save_holon\` / \`oasis_search_holons\` … 4. NFT / GeoNFT 5. Chains 6. A2A / SERV 7. **\`star_*\`** for OAPP / STARNET. Full list: \`MCP/README.md\` or \`read_file\` in repo.
+
+### Discipline
+- **Done** means tool output: run \`npm run build\` (or \`dev\` without import errors) before claiming a Node scaffold works.
+- **Facts** = output from \`read_file\`, \`mcp_invoke\`, \`workspace_grep\`, \`list_directory\` in **this** thread. Otherwise label **assumption**.
+- **Holons / chain:** no invented ids — cite tools or "not verified".
+
+### IDE tools (Agent)
+**Plan** = read-only: \`read_file\`, \`list_directory\`, \`workspace_grep\`, \`codebase_search\`, \`semantic_search\`, \`web_search\`, \`mcp_invoke\` (read-only list/get). **Execute** adds writes, \`mcp_invoke\` writes, \`run_workspace_command\`, \`run_star_cli\`.
+- Prefer **codebase_search** / **workspace_grep** over re-reading large trees. **semantic_search** hits OpenAI embeddings (index in IDE userData).
+- **mcp_invoke** = \`{ "tool": "…", "arguments": {} }\` allowlisted in main.
+
+### Recipes (read before scaffolds)
+| Type | Path |
+|------|------|
+| Vite + browser OAPP | \`OASIS-IDE/docs/recipes/minimal-vite-browser-oapp.md\` |
+| Expo community / geo | \`OASIS-IDE/docs/recipes/community-social-app.md\` |
+
+Vite: \`"type": "module"\`, pin real npm packages, set dev **port** in \`vite.config\` (avoid 3000), report **URL from \`npm run dev\`**.
+
+### STARNET in this turn
+A separate block may say **STARNET (search-first)** with no table. **Do not** claim the catalog is empty because no table is here — call \`mcp_invoke\` \`star_list_holons\` / \`star_list_oapps\` or use **Activity bar → STARNET**. For one row, \`star_get_holon\` / \`star_get_oapp\`. Do not send users to external marketing STARNET sites.
+
+### Holon wiring (lego)
+Create → \`holon_connect\` (parent/child) → \`holon_get_graph\` to ground \`<oasis_holon_diagram>\`. \`holon_session_graph\` = session state. Reuse ids from \`## Session holons\` if present.
+
+### Diagrams
+**Mermaid** for architecture. **\`<oasis_holon_diagram>\` JSON** with \`nodes\` + \`edges\` (see full pack in repo for field shapes). **Type** = \`oapp\` | \`template\` | \`core\` | \`service\` | \`custom\`.
+
+### Mint (short)
+\`oasis_workflow_mint_nft\` with \`chain\` for simple mints. Proof = real tx id / address from tool output, not only holon ids.
 
 `;
 }

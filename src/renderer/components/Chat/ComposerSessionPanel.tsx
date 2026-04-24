@@ -11,7 +11,7 @@ import {
   getIdeChatModelById,
   type AgentExecutionModeId
 } from '../../constants/ideChatModels';
-import { getAgentContextPack } from '../../../shared/agentContextPack';
+import { getAgentContextPack, getAgentContextPackSearchFirst } from '../../../shared/agentContextPack';
 import { getGameDevContextPack } from '../../constants/gameDevPrompt';
 import { useGameDev } from '../../contexts/GameDevContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -37,7 +37,8 @@ import { GameToolPalette } from './GameToolPalette';
 import { useStarnetCatalog } from '../../contexts/StarnetCatalogContext';
 import {
   buildStarnetIdeContextNote,
-  buildStarnetIdeSnapshotMissingNote
+  buildStarnetIdeSnapshotMissingNote,
+  buildStarnetSearchFirstNote,
 } from '../../utils/starnetAgentContext';
 import { OnChainQuickPalette } from './OnChainQuickPalette';
 import {
@@ -354,7 +355,11 @@ const LOCAL_VS_STARNET_ROUTING_NOTE =
  * their IDs, types, and what they reference. This closes the biggest LLM blindspot:
  * without it, the agent has no memory of what it built in prior turns.
  */
-function buildSessionHolonsNote(messages: Array<{ toolCalls?: Array<{ tool: string; result: any }> }>): string | null {
+function buildSessionHolonsNote(
+  messages: Array<{ toolCalls?: Array<{ tool: string; result: any }> }>,
+  opts?: { maxRows?: number }
+): string | null {
+  const maxRows = Math.min(80, Math.max(1, opts?.maxRows ?? 40));
   const CREATE_PATTERNS = /^holon_.*?(create|send|add|mint_record|register|define|save_schema|checkin|submit|enroll)$/;
   interface SessionRow {
     id: string;
@@ -406,16 +411,24 @@ function buildSessionHolonsNote(messages: Array<{ toolCalls?: Array<{ tool: stri
 
   if (rows.length === 0) return null;
 
+  const truncated = rows.length > maxRows;
+  const displayRows = truncated ? rows.slice(0, maxRows) : rows;
   const table = [
     '| id | name | type | connected to |',
     '|---|---|---|---|',
-    ...rows.map(r => `| ${r.id} | ${r.name} | ${r.holonType} | ${r.connectedTo} |`),
+    ...displayRows.map(r => `| ${r.id} | ${r.name} | ${r.holonType} | ${r.connectedTo} |`),
   ].join('\n');
+
+  const tail = truncated
+    ? `\n\n_…and ${rows.length - maxRows} more — call \`holon_session_graph()\` for the full set._\n`
+    : '\n';
 
   return (
     '## Session holons (built this conversation)\n' +
     'These holons were created or connected during this session. Use their full IDs (expand the truncated prefix from context) when calling holon_connect or referencing them in new holons.\n\n' +
-    table + '\n\n' +
+    table +
+    tail +
+    '\n' +
     '> Call `holon_session_graph()` to get the full graph JSON, or `holon_get_graph(rootHolonId)` to verify connections in STARNET.'
   );
 }
@@ -590,11 +603,20 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   } = useIdeChat();
   const { snapshot: starnetCatalogSnapshot } = useStarnetCatalog();
   const starnetContextNote = useMemo(() => {
+    if (settings.agentContextPacking === 'searchFirst') {
+      if (!loggedIn) return null;
+      const baseUrl = starnetCatalogSnapshot?.baseUrl ?? '(see Settings → STARNET)';
+      return buildStarnetSearchFirstNote(
+        baseUrl,
+        starnetCatalogSnapshot?.apiReady ?? false,
+        loggedIn
+      );
+    }
     const fromSnapshot = buildStarnetIdeContextNote(starnetCatalogSnapshot);
     if (fromSnapshot) return fromSnapshot;
     if (loggedIn) return buildStarnetIdeSnapshotMissingNote();
     return null;
-  }, [starnetCatalogSnapshot, loggedIn]);
+  }, [starnetCatalogSnapshot, loggedIn, settings.agentContextPacking]);
   const { text: projectMemoryText, appendAutoTurnLine, appendChatSummaryBlock } = useProjectMemory();
   const referencedPaths = getReferencedPathsForSession(sessionId);
   const threadKey = useMemo(
@@ -603,6 +625,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   );
   /** One user send: all agent/turn rounds share this id for IPC cancel. */
   const ideRunIdRef = useRef<string | null>(null);
+
+  // Must be declared before the canvas sync useEffect that uses it in its dep array.
+  const { setCanvasGraph, addCanvasEdge } = useHolonicCanvas();
+
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const messagesRef = useRef<Message[]>(messages);
 
@@ -626,11 +652,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         const meta: Record<string, unknown> = holon.metaData ?? {};
         const holonType = String(meta.holonType ?? tc.tool.replace(/^holon_/, '').replace(/_create$/, ''));
         const label = String(holon.name ?? meta.username ?? meta.title ?? meta.key ?? holonType).slice(0, 40);
-        // Collect FK references
-        const refs: string[] = [];
         const parentId: string | undefined = (holon.parentHolonId || meta.parentHolonId) as string | undefined;
         if (parentId && parentId !== '00000000-0000-0000-0000-000000000000') {
-          refs.push(`parentId: ${parentId}`);
           canvasEdges.push({ source: parentId, target: holon.id, label: 'contains' });
         }
         for (const [key, val] of Object.entries(meta)) {
@@ -722,7 +745,6 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   } = useEditorTab();
   const { applyPayload, planningDocPath, planningDocContent } = useOappBuildPlan();
   const { status: indexStatus, searchHolons } = useWorkspaceIndex();
-  const { setCanvasGraph, addCanvasEdge } = useHolonicCanvas();
 
   const planningContextNote = useMemo(() => {
     if (!planningDocContent?.trim()) return null;
@@ -1547,9 +1569,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         );
         const basePack = isGameMode
           ? getGameDevContextPack(starWorkspaceConfig?.gameEngine)
-          : getAgentContextPack();
+          : (settings.agentContextPacking === 'searchFirst' ? getAgentContextPackSearchFirst() : getAgentContextPack());
 
         /* Search the holonic index for holons relevant to this specific message */
+        const leanContext = settings.agentContextPacking === 'searchFirst';
         let relevantHolonsNote: string | null = null;
         if (indexStatus.phase === 'ready' && currentInput.trim()) {
           try {
@@ -1561,15 +1584,15 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             const indexQuery = lastSeg
               ? `${currentInput}\n${lastSeg}`
               : currentInput;
-            const hits = await searchHolons(indexQuery, 8);
-            const scored = hits.filter((h) => h.score > 0).slice(0, 6);
+            const hits = await searchHolons(indexQuery, leanContext ? 5 : 8);
+            const scored = hits.filter((h) => h.score > 0).slice(0, leanContext ? 4 : 6);
             if (scored.length > 0) {
               const lines = scored.map((h, i) => {
                 const excerpt = h.excerpt
                   .replace(/^Holon:\s*\S+\s*/i, '')
                   .replace(/\n+/g, ' ')
                   .trim()
-                  .slice(0, 240);
+                  .slice(0, leanContext ? 120 : 240);
                 return `${i + 1}. **${h.dirName}** — ${excerpt}`;
               });
               relevantHolonsNote =
@@ -1593,7 +1616,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           pathFocusNote,
           workspaceTreeNote,
           relevantHolonsNote,
-          sessionHolonsNote: buildSessionHolonsNote(threadBefore),
+          sessionHolonsNote: buildSessionHolonsNote(threadBefore, {
+            maxRows: leanContext ? 12 : 40,
+          }),
         });
         const agentLoopBase = {
           userText: currentInput,
@@ -1662,20 +1687,21 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       // 1) Try OASIS agent first when default agent ID is set
       if (defaultAgentId && api?.chatWithAgent) {
         /* Search holonic index for OASIS agent path too */
+        const leanCtxAgent = settings.agentContextPacking === 'searchFirst';
         let agentHolonsNote: string | null = null;
         if (indexStatus.phase === 'ready' && currentInput.trim()) {
           try {
             const lastSeg = resolvedPathForIndex?.split('/').filter(Boolean).pop() ?? '';
             const indexQuery = lastSeg ? `${currentInput}\n${lastSeg}` : currentInput;
-            const hits = await searchHolons(indexQuery, 6);
-            const scored = hits.filter((h) => h.score > 0).slice(0, 5);
+            const hits = await searchHolons(indexQuery, leanCtxAgent ? 4 : 6);
+            const scored = hits.filter((h) => h.score > 0).slice(0, leanCtxAgent ? 3 : 5);
             if (scored.length > 0) {
               const lines = scored.map((h, i) => {
                 const excerpt = h.excerpt
                   .replace(/^Holon:\s*\S+\s*/i, '')
                   .replace(/\n+/g, ' ')
                   .trim()
-                  .slice(0, 200);
+                  .slice(0, leanCtxAgent ? 100 : 200);
                 return `${i + 1}. **${h.dirName}** — ${excerpt}`;
               });
               agentHolonsNote =
@@ -1697,14 +1723,17 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             workspaceRules,
             autoLoadedProjectInstructions: agentAutoloadInstructions,
             projectMemoryText,
-            basePack: getAgentContextPack(),
+            basePack:
+              settings.agentContextPacking === 'searchFirst' ? getAgentContextPackSearchFirst() : getAgentContextPack(),
             onChainNote: onChainContextNote,
             starnetNote: starnetContextNote,
             planningDocNote: planningContextNote,
             pathFocusNote,
             workspaceTreeNote,
             relevantHolonsNote: agentHolonsNote,
-            sessionHolonsNote: buildSessionHolonsNote(threadBefore),
+            sessionHolonsNote: buildSessionHolonsNote(threadBefore, {
+              maxRows: leanCtxAgent ? 12 : 40,
+            }),
           })
         );
         if (!result.error && (result.content || (result.toolCalls && result.toolCalls.length > 0))) {
