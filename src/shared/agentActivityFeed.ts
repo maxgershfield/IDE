@@ -2,8 +2,11 @@
  * Structured rows for the Composer "Live progress" panel (renderer + agent loop).
  */
 
+/** Semantic category of the tool being invoked — drives icon and accent colour in the feed. */
+export type ToolKind = 'read' | 'write' | 'search' | 'command' | 'mcp' | 'web' | 'other';
+
 export type AgentActivityFeedItem =
-  | { kind: 'text'; text: string }
+  | { kind: 'text'; text: string; toolKind?: ToolKind }
   | {
       kind: 'file_edit';
       /** Basename for display */

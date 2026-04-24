@@ -4,7 +4,7 @@ import type {
   AgentContentPart,
   AgentToolCall
 } from '../../shared/agentTurnTypes';
-import type { AgentActivityFeedItem } from '../../shared/agentActivityFeed';
+import type { AgentActivityFeedItem, ToolKind } from '../../shared/agentActivityFeed';
 import { extractGatherDigest } from '../utils/planReplyParser';
 
 function basenamePath(p: string): string {
@@ -677,6 +677,17 @@ export function narrateAfterTool(
 }
 
 
+/** Map a tool name to its visual category for the activity feed. */
+function toolKindForName(name: string): ToolKind {
+  if (name === 'read_file' || name === 'list_directory' || name === 'fetch_url') return 'read';
+  if (name === 'write_file' || name === 'write_files' || name === 'search_replace') return 'write';
+  if (name === 'workspace_grep' || name === 'codebase_search' || name === 'semantic_search') return 'search';
+  if (name === 'run_workspace_command' || name === 'run_star_cli') return 'command';
+  if (name === 'mcp_invoke') return 'mcp';
+  if (name === 'web_search' || name === 'open_browser_url') return 'web';
+  return 'other';
+}
+
 export interface AgentTurnApiResult {
   ok: true;
   kind: 'message' | 'tool_calls';
@@ -788,8 +799,8 @@ export async function runIdeAgentLoop(
     activityLog.push(item);
     options.onActivityFeedItem?.(item);
   };
-  const emitText = (line: string) => {
-    pushFeed({ kind: 'text', text: line });
+  const emitText = (line: string, toolKind?: ToolKind) => {
+    pushFeed(toolKind ? { kind: 'text', text: line, toolKind } : { kind: 'text', text: line });
   };
 
   const emptyOutcome = (extra: {
@@ -883,7 +894,7 @@ export async function runIdeAgentLoop(
         }
         const argsJson = tc.argumentsJson ?? '{}';
         if (shouldEmitBeforeToolNarration(tc.name)) {
-          emitText(narrateBeforeTool(tc.name, argsJson));
+          emitText(narrateBeforeTool(tc.name, argsJson), toolKindForName(tc.name));
         }
         const ex = await deps.agentExecuteTool({
           toolCallId: tc.id,
@@ -892,7 +903,7 @@ export async function runIdeAgentLoop(
           executionMode: options.executionMode ?? 'execute'
         });
         if (!ex.ok) {
-          emitText(narrateAfterTool(tc.name, false, ex.error));
+          emitText(narrateAfterTool(tc.name, false, ex.error), toolKindForName(tc.name));
           toolCallsLog.push({ tool: tc.name, ok: false });
           recordedToolOutputsForUi.push({ tool: tc.name, content: `Error: ${ex.error}` });
           chain.push({
@@ -917,7 +928,8 @@ export async function runIdeAgentLoop(
               toolSucceeded,
               ex.result.content,
               toolSucceeded ? meta : undefined
-            )
+            ),
+            toolKindForName(tc.name)
           );
         }
         toolCallsLog.push({ tool: tc.name, ok: toolSucceeded });

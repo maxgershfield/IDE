@@ -707,6 +707,101 @@
   font-weight: 400;
 }
 
+/* ── Tool-kind rows (icon + label) ────────────────────────────────── */
+
+.composer-activity-tool {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 8px !important;
+  border-left-width: 2px !important;
+  border-left-style: solid !important;
+}
+
+.composer-activity-tool-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  margin-top: 2px;
+  opacity: 0.9;
+}
+
+/* standalone write icon inside file-edit header */
+.composer-activity-tool-icon--write {
+  color: #68d391;
+  margin-top: 0;
+}
+
+.composer-activity-tool-label {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+/* Colour palette — border + icon tint per tool kind */
+.composer-activity-tool--read {
+  border-left-color: rgba(99, 179, 237, 0.45) !important;
+}
+.composer-activity-tool--read .composer-activity-tool-icon { color: #63b3ed; }
+
+.composer-activity-tool--write {
+  border-left-color: rgba(104, 211, 145, 0.45) !important;
+}
+.composer-activity-tool--write .composer-activity-tool-icon { color: #68d391; }
+
+.composer-activity-tool--search {
+  border-left-color: rgba(183, 148, 244, 0.45) !important;
+}
+.composer-activity-tool--search .composer-activity-tool-icon { color: #b794f4; }
+
+.composer-activity-tool--command {
+  border-left-color: rgba(246, 173, 85, 0.45) !important;
+}
+.composer-activity-tool--command .composer-activity-tool-icon { color: #f6ad55; }
+
+.composer-activity-tool--mcp {
+  border-left-color: rgba(79, 209, 197, 0.45) !important;
+}
+.composer-activity-tool--mcp .composer-activity-tool-icon { color: #4fd1c5; }
+
+.composer-activity-tool--web {
+  border-left-color: rgba(118, 169, 250, 0.45) !important;
+}
+.composer-activity-tool--web .composer-activity-tool-icon { color: #76a9fa; }
+
+.composer-activity-tool--other {
+  border-left-color: rgba(255, 255, 255, 0.15) !important;
+}
+.composer-activity-tool--other .composer-activity-tool-icon { color: var(--text-secondary); }
+
+/* ── Active-step pulse while agent is running ─────────────────────── */
+
+@keyframes composer-tool-icon-pulse {
+  0%, 100% { opacity: 0.9; }
+  50%       { opacity: 0.3; }
+}
+
+.composer-activity-panel[aria-busy="true"]
+  .composer-activity-feed
+  > li.composer-activity-tool:last-child
+  .composer-activity-tool-icon {
+  animation: composer-tool-icon-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes composer-text-row-pulse {
+  0%, 100% { opacity: 0.86; }
+  50%       { opacity: 0.45; }
+}
+
+.composer-activity-panel[aria-busy="true"]
+  .composer-activity-feed
+  > li.composer-activity-text:last-child {
+  animation: composer-text-row-pulse 1.6s ease-in-out infinite;
+}
+
 .composer-activity-file-edit {
   display: flex;
   flex-direction: column;
