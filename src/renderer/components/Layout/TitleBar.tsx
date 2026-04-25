@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Settings, LogOut, LogIn, ExternalLink } from 'lucide-react';
+import { Settings, LogOut, LogIn, ExternalLink, MessageSquare } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { buildPortalUrl } from '../../utils/portalUrl';
 import { useAuth } from '../../contexts/AuthContext';
+import { useA2A } from '../../contexts/A2AContext';
 import { LoginModal } from '../Auth/LoginModal';
 import './TitleBar.css';
 
@@ -16,6 +17,7 @@ import './TitleBar.css';
 export const TitleBar: React.FC = () => {
   const { openSettings, settings } = useSettings();
   const { loggedIn, username, logout } = useAuth();
+  const { activeTab, setActiveTab } = useA2A();
   const [showLogin, setShowLogin] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -107,6 +109,17 @@ export const TitleBar: React.FC = () => {
         >
           <ExternalLink size={12} strokeWidth={1.8} />
           <span className="title-bar-portal-label">Portal</span>
+        </button>
+
+        <button
+          type="button"
+          className={`title-bar-message-btn${activeTab === 'inbox' ? ' active' : ''}`}
+          title="Open A2A inbox"
+          aria-label="Open A2A inbox"
+          aria-pressed={activeTab === 'inbox'}
+          onClick={() => setActiveTab(activeTab === 'inbox' ? 'composer' : 'inbox')}
+        >
+          <MessageSquare size={14} strokeWidth={1.7} />
         </button>
 
         <button

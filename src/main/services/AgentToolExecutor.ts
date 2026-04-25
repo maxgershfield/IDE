@@ -6,7 +6,11 @@ import type {
   AgentToolExecutionResult
 } from '../../shared/agentTurnTypes.js';
 import { buildSimpleDiffPreview } from '../../shared/diffPreview.js';
-import { isAgentMcpToolAllowed, isAgentMcpToolPlanReadOnly } from './agentMcpAllowlist.js';
+import {
+  isAgentMcpToolAllowed,
+  isAgentMcpToolPlanReadOnly,
+  resolveAgentMcpToolAlias,
+} from './agentMcpAllowlist.js';
 import type { FileSystemService } from './FileSystemService.js';
 import type { SemanticSearchService } from './SemanticSearchService.js';
 import { formatMcpToolResult } from './mcpToolResultFormat.js';
@@ -43,6 +47,14 @@ const GREP_MAX_PATTERN_LEN = 512;
 /** Tavily web search: max bytes of raw HTTP response before string handling. */
 const WEB_FETCH_MAX_BYTES = 1_500_000;
 const WEB_FETCH_TIMEOUT_MS = 30_000;
+
+const PLAN_MODE_BLOCKED_TOOLS = new Set([
+  'write_file',
+  'write_files',
+  'search_replace',
+  'run_workspace_command',
+  'run_star_cli'
+]);
 
 /** First argv token basename (no shell) — keep tight to reduce abuse from model-supplied argv. */
 const RUN_WORKSPACE_ALLOWED = new Set([
@@ -134,15 +146,22 @@ export class AgentToolExecutor {
    */
   private resolveWorkspacePath(userPath: string): string {
     const root = this.fileSystem.getWorkspacePath();
-    // Absolute paths are allowed — the agent may write to a sibling project directory.
-    // Relative paths are resolved against the workspace root (requires a workspace to be open).
-    if (path.isAbsolute(userPath)) {
-      return path.normalize(userPath);
-    }
     if (!root) {
-      throw new Error('No workspace open — provide an absolute path or open a workspace first');
+      throw new Error('No workspace open — open a workspace before using agent file or command tools');
     }
-    return path.normalize(path.join(root, userPath));
+    const workspaceRoot = path.resolve(root);
+    const resolved = path.isAbsolute(userPath)
+      ? path.resolve(userPath)
+      : path.resolve(workspaceRoot, userPath);
+    const rel = path.relative(workspaceRoot, resolved);
+    const insideWorkspace = rel === '' || (rel.length > 0 && !rel.startsWith('..') && !path.isAbsolute(rel));
+    if (!insideWorkspace) {
+      throw new Error(
+        `Path is outside the open workspace: ${userPath}. ` +
+        'Open the target folder as the workspace before asking the agent to read, write, or run commands there.'
+      );
+    }
+    return resolved;
   }
 
   async execute(
@@ -163,6 +182,16 @@ export class AgentToolExecutor {
     }
 
     try {
+      if (isPlanAgentExecutionMode(meta?.executionMode) && PLAN_MODE_BLOCKED_TOOLS.has(name)) {
+        return {
+          toolCallId,
+          content:
+            `Plan mode is read-only and blocked ${name}. ` +
+            'Switch to Execute mode after approving the plan to write files, edit files, or run commands.',
+          isError: true
+        };
+      }
+
       switch (name) {
         case 'read_file':
           return await this.readFile(toolCallId, args);
@@ -627,9 +656,6 @@ export class AgentToolExecutor {
       return { toolCallId, content: msg, isError: true };
     }
 
-    // Auto-create the cwd if it doesn't exist yet — the agent may specify a project dir
-    // before any files have been written there.
-    await fs.mkdir(cwdFull, { recursive: true });
     const st = await fs.stat(cwdFull).catch(() => null);
     if (!st?.isDirectory()) {
       return { toolCallId, content: `cwd is not a directory: ${cwdRel}`, isError: true };
@@ -914,19 +940,20 @@ export class AgentToolExecutor {
         isError: true
       };
     }
-    if (!isAgentMcpToolAllowed(tool)) {
+    const effectiveTool = resolveAgentMcpToolAlias(tool);
+    if (!isAgentMcpToolAllowed(effectiveTool)) {
       return {
         toolCallId,
-        content: `MCP tool not allowed for agent: ${tool}. Use an allowlisted oasis_* or star_* tool.`,
+        content: `MCP tool not allowed for agent: ${tool}. Use an allowlisted oasis_* or star_* tool, or a holon_* tool (e.g. holon_connect, holon_venue_create).`,
         isError: true
       };
     }
-    if (isPlanAgentExecutionMode(meta?.executionMode) && !isAgentMcpToolPlanReadOnly(tool)) {
+    if (isPlanAgentExecutionMode(meta?.executionMode) && !isAgentMcpToolPlanReadOnly(effectiveTool)) {
       return {
         toolCallId,
         content:
-          `Plan mode allows only read-only MCP discovery (e.g. star_list_holons, star_get_holon, star_list_oapps, star_get_oapp, oasis_health_check). ` +
-          `"${tool}" needs Execute mode. Switch to Execute after the plan is agreed, or use a read-only list/get tool.`,
+          `Plan mode allows only read-only MCP discovery (e.g. star_list_holons, star_get_holon, star_list_oapps, star_get_oapp, oasis_health_check, holon_get_graph). ` +
+          `"${effectiveTool}" needs Execute mode. Switch to Execute after the plan is agreed, or use a read-only list/get tool.`,
         isError: true
       };
     }
@@ -938,13 +965,32 @@ export class AgentToolExecutor {
         isError: true
       };
     }
-    const rawArgs =
+    let rawArgs: Record<string, unknown> =
       args.arguments !== undefined && args.arguments !== null && typeof args.arguments === 'object'
         ? (args.arguments as Record<string, unknown>)
         : {};
+    if (tool === 'star_connect_holons' && effectiveTool === 'holon_connect') {
+      const a: Record<string, unknown> = { ...rawArgs };
+      const p =
+        a.parentId ?? a.parent_holon_id ?? a.parentHolonId ?? a.sourceId ?? a.fromHolonId;
+      const c =
+        a.childId ?? a.child_holon_id ?? a.childHolonId ?? a.targetId ?? a.toHolonId;
+      const ids = a.holonIds;
+      if (!p && !c && Array.isArray(ids) && ids.length >= 2) {
+        a.parentId = String((ids as unknown[])[0] ?? '');
+        a.childId = String((ids as unknown[])[1] ?? '');
+      } else {
+        if (p != null) a.parentId = String(p);
+        if (c != null) a.childId = String(c);
+      }
+      rawArgs = a;
+    }
     try {
-      const result = await fn(tool, rawArgs);
-      const text = compactAgentMcpToolResult(tool, formatMcpToolResult(result));
+      const result = await fn(effectiveTool, rawArgs);
+      const text = compactAgentMcpToolResult(
+        effectiveTool,
+        formatMcpToolResult(result)
+      );
       const r = result as { isError?: boolean };
       return { toolCallId, content: text, isError: Boolean(r?.isError) };
     } catch (e) {
@@ -988,7 +1034,6 @@ export class AgentToolExecutor {
       return { toolCallId, content: msg, isError: true };
     }
 
-    await fs.mkdir(cwdFull, { recursive: true });
     const st = await fs.stat(cwdFull).catch(() => null);
     if (!st?.isDirectory()) {
       return { toolCallId, content: `cwd is not a directory: ${cwdRel}`, isError: true };

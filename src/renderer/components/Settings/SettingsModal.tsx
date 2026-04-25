@@ -51,8 +51,9 @@ export const SettingsModal: React.FC = () => {
 
   if (!isSettingsOpen) return null;
 
-  const activeItem = NAV_ITEMS.find((i) => i.id === activeSection);
-  const SectionComponent = SECTION_COMPONENTS[activeSection] ?? GeneralSection;
+  const resolvedSection = NAV_ITEMS.some((i) => i.id === activeSection) ? activeSection : 'general';
+  const activeItem = NAV_ITEMS.find((i) => i.id === resolvedSection);
+  const SectionComponent = SECTION_COMPONENTS[resolvedSection] ?? GeneralSection;
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === overlayRef.current) closeSettings();
@@ -61,7 +62,7 @@ export const SettingsModal: React.FC = () => {
   return (
     <div className="settings-overlay" ref={overlayRef} onClick={handleOverlayClick}>
       <div className="settings-modal" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
-        <SettingsNav active={activeSection} onSelect={setActiveSection} />
+        <SettingsNav active={resolvedSection} onSelect={setActiveSection} />
 
         <div className="settings-content">
           <div className="settings-content-header">

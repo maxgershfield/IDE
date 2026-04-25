@@ -65,7 +65,8 @@ html:not([data-platform='darwin']) .title-bar-traffic-zone {
   line-height: 1;
 }
 
-/* Settings button — top-right, must opt out of window drag region */
+/* Top-right icon buttons, must opt out of window drag region */
+.title-bar-message-btn,
 .title-bar-settings-btn {
   -webkit-app-region: no-drag;
   width: 32px;
@@ -84,6 +85,12 @@ html:not([data-platform='darwin']) .title-bar-traffic-zone {
   transition: color 0.12s, background 0.12s;
 }
 
+.title-bar-message-btn.active {
+  color: #8fd6ff;
+  background: rgba(0, 122, 204, 0.16);
+}
+
+.title-bar-message-btn:hover,
 .title-bar-settings-btn:hover {
   color: rgba(204, 204, 204, 0.9);
   background: rgba(255, 255, 255, 0.07);

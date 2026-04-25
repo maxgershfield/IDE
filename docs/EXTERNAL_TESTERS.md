@@ -20,10 +20,19 @@ Use this for **friends beta**, **investor demos**, and **QA** so nobody gets stu
 
 4. **Log in** with an OASIS avatar (register if needed). JWT is sent to hosted MCP for authenticated tools.
 
-5. **Smoke test MCP** (optional, from `OASIS-IDE`):
+5. **Smoke test the build and local safety checks** (from `OASIS-IDE`):
    ```bash
-   npm run test:mcp-remote
+   npm run smoke:beta
    ```
+
+   This runs the local regression tests, production build, and checks the expected Electron/Vite artifacts. It does **not** call live OASIS services by default.
+
+6. **Smoke test hosted MCP** (optional, networked):
+   ```bash
+   npm run smoke:beta -- --skip-build --remote-mcp
+   ```
+
+   You can still run the narrower MCP-only check with `npm run test:mcp-remote`.
 
 If something still fails, see **Failure modes** below.
 
@@ -72,9 +81,47 @@ Packaged builds now **bake in** those public API / STAR / hosted MCP defaults. A
 
 ## Quick checklist before you invite others
 
+- [ ] Run `npm run smoke:beta` from `OASIS-IDE` on a clean checkout.
+- [ ] Confirm hosted MCP with `npm run smoke:beta -- --skip-build --remote-mcp`.
 - [ ] Confirm `https://api.oasisweb4.one` and `https://mcp.oasisweb4.one/health` are up.
 - [ ] One internal run: fresh clone, no `.env`, set API URL only via **Settings**, log in, run `oasis_health_check` from OASIS Tools.
+- [ ] Run the three non-destructive golden flows below in Agent mode before trying mint/publish/create flows.
 - [ ] Decide whether Composer needs OpenAI/Tavily for the beta; if not, say so in the invite email to avoid “broken” reports.
+
+---
+
+## Golden flows for beta smoke testing
+
+These are the first flows to run with testers because they prove the core product path without minting, publishing, or writing to production state.
+
+### Flow A — Hosted connectivity
+
+1. Open **Settings → Integrations**.
+2. Set API endpoint override to `https://api.oasisweb4.one` if the packaged default is not already using it.
+3. Open **OASIS Tools**, refresh tools, and run `oasis_health_check`.
+
+Expected result: tools are listed, `oasis_health_check` returns a healthy response, and the IDE does not ask for a local MCP build.
+
+### Flow B — Workspace-grounded Agent
+
+1. Open a small workspace folder.
+2. Switch Composer to **Agent** mode.
+3. Ask:
+   ```text
+   Read the README and package.json in this workspace, then tell me what this project does and what command verifies it.
+   ```
+
+Expected result: the activity feed shows file reads, the answer cites real workspace facts, and the agent does not claim a build/test passed unless it ran a command.
+
+### Flow C — STARNET/OAPP plan without mutation
+
+1. Stay in **Plan** mode.
+2. Ask:
+   ```text
+   Plan a small OAPP from available STARNET components for a community mission app. Use real catalog rows if they are available in context, label gaps as Proposed, and do not create or publish anything.
+   ```
+
+Expected result: the reply separates verified catalog items from proposed custom work and does not call create/publish/mint/save tools in Plan mode.
 
 ---
 

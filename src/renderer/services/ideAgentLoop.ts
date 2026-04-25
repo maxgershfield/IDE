@@ -65,8 +65,18 @@ export type ThreadBubbleForAgent = {
   imageDataUrls?: string[];
 };
 
-const PRIOR_USER_MAX = 12000;
-const PRIOR_ASSISTANT_MAX = 28000;
+export const DEFAULT_AGENT_PRIOR_THREAD_LIMITS = {
+  user: 12_000,
+  assistant: 28_000,
+  toolResult: 8_000
+} as const;
+
+/** Tighter limits when user enables Low input budget (reduces OpenAI tokens per request). */
+export const LOW_AGENT_PRIOR_THREAD_LIMITS = {
+  user: 6_000,
+  assistant: 12_000,
+  toolResult: 3_000
+} as const;
 
 function clampChars(s: string, max: number): string {
   const t = s.trim();
@@ -74,16 +84,28 @@ function clampChars(s: string, max: number): string {
   return `${t.slice(0, max)}\n…(truncated)`;
 }
 
+export type BuildAgentPriorThreadOptions = {
+  userMax?: number;
+  assistantMax?: number;
+  toolResultMax?: number;
+};
+
 /**
  * Map saved Composer messages to OpenAI-style user/assistant turns for ONODE agent/turn.
  * Tool results from a prior turn are inlined under the assistant message so follow-ups
  * (e.g. Solana signatures) stay addressable without re-running tools.
  */
-export function buildAgentPriorMessagesFromThread(past: ThreadBubbleForAgent[]): AgentChatMessage[] {
+export function buildAgentPriorMessagesFromThread(
+  past: ThreadBubbleForAgent[],
+  opts?: BuildAgentPriorThreadOptions
+): AgentChatMessage[] {
+  const userMax = opts?.userMax ?? DEFAULT_AGENT_PRIOR_THREAD_LIMITS.user;
+  const asstMax = opts?.assistantMax ?? DEFAULT_AGENT_PRIOR_THREAD_LIMITS.assistant;
+  const toolResultMax = opts?.toolResultMax ?? DEFAULT_AGENT_PRIOR_THREAD_LIMITS.toolResult;
   const out: AgentChatMessage[] = [];
   for (const m of past) {
     if (m.role === 'user') {
-      const text = clampChars(m.content ?? '', PRIOR_USER_MAX);
+      const text = clampChars(m.content ?? '', userMax);
       const urls = (m.imageDataUrls ?? []).filter(
         (u) => typeof u === 'string' && u.startsWith('data:') && u.includes(';base64,')
       );
@@ -108,12 +130,12 @@ export function buildAgentPriorMessagesFromThread(past: ThreadBubbleForAgent[]):
         } catch {
           snippet = String(tc.result);
         }
-        if (snippet.length > 8000) snippet = `${snippet.slice(0, 8000)}…`;
+        if (snippet.length > toolResultMax) snippet = `${snippet.slice(0, toolResultMax)}…`;
         parts.push(`- ${tc.tool}: ${snippet}`);
       }
       body = `${body}\n\n[Tool results from this assistant turn]\n${parts.join('\n')}`;
     }
-    out.push({ role: 'assistant', content: clampChars(body, PRIOR_ASSISTANT_MAX) });
+    out.push({ role: 'assistant', content: clampChars(body, asstMax) });
   }
   return out;
 }

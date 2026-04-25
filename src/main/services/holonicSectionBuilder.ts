@@ -133,6 +133,11 @@ body { background: var(--hs-bg); color: var(--hs-text); }
 .tracker-label { font-size:0.67rem; color:var(--hs-muted); }
 .tracker-step.done .tracker-label { color:var(--hs-text); }
 .tracker-step.active .tracker-label { color:var(--hs-accent); font-weight:700; }
+.delivery-flow { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.delivery-flow-card { background:var(--hs-surface); border:1px solid var(--hs-border); border-radius:10px; padding:12px; }
+.delivery-flow-card strong { display:block; font-size:0.8rem; color:var(--hs-text); margin-bottom:5px; }
+.delivery-flow-card span { display:block; font-size:0.68rem; color:var(--hs-muted); line-height:1.45; }
+.delivery-flow-code { margin-top:8px; font-family:ui-monospace,monospace; font-size:0.62rem; color:var(--hs-accent); }
 
 /* ── ThreadHolon ──────────────────────────────────────── */
 .thread-list { display:flex; flex-direction:column; gap:2px; }
@@ -328,6 +333,31 @@ function foodDeliverySection(isDark: boolean): string {
           <div class="tracker-dot"></div>
           <div class="tracker-label">Delivered</div>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Customer shell: screens backed by MCP holon operations -->
+  <section class="hs" aria-label="Holonic delivery shell">
+    <div class="hs-head">
+      <h2 class="hs-title">Low-tech delivery flow</h2>
+      <span class="hs-badge">CartHolon · CourierHolon · NotificationHolon</span>
+    </div>
+    <div class="delivery-flow">
+      <div class="delivery-flow-card">
+        <strong>1. Customer orders</strong>
+        <span>Browse VenueHolons, add MenuItemHolons, then checkout into a DeliveryOrderHolon.</span>
+        <div class="delivery-flow-code">holon_cart_checkout</div>
+      </div>
+      <div class="delivery-flow-card">
+        <strong>2. Courier accepts</strong>
+        <span>Telegram replies assign a CourierHolon and move the order into dispatch.</span>
+        <div class="delivery-flow-code">holon_delivery_assign_courier</div>
+      </div>
+      <div class="delivery-flow-card">
+        <strong>3. Holons settle</strong>
+        <span>Delivered orders update status, courier trust, karma, and optional receipt attestation.</span>
+        <div class="delivery-flow-code">holon_delivery_update_status</div>
       </div>
     </div>
   </section>`;

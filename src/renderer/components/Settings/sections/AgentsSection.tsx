@@ -169,6 +169,29 @@ export const AgentsSection: React.FC = () => {
             </select>
           </div>
         </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">Agent input budget</div>
+            <div className="settings-row-desc">
+              <strong>Normal</strong> is the default. Choose <strong>Low</strong> to shorten sent chat history, tool
+              result snippets, planning doc, workspace tree, and autoloaded rules (fewer tokens per request; helps
+              with OpenAI TPM rate limits).
+            </div>
+          </div>
+          <div className="settings-row-control">
+            <select
+              className="settings-select"
+              value={settings.agentInputBudget}
+              onChange={(e) =>
+                updateSettings({ agentInputBudget: e.target.value as 'normal' | 'low' })
+              }
+            >
+              <option value="normal">Normal</option>
+              <option value="low">Low (reduce tokens per request)</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <p className="settings-section-heading">Agent Review</p>

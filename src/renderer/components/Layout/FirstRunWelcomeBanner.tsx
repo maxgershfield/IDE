@@ -17,9 +17,9 @@ export function FirstRunWelcomeBanner() {
     <div className="first-run-welcome" role="region" aria-label="Getting started">
       <div className="first-run-welcome-inner">
         <div className="first-run-welcome-text">
-          <strong>Welcome to OASIS IDE.</strong> Sign in on the title bar, set the OASIS API / STARNET in
-          Settings if needed, then use the guided flow to add the sample <strong>Vite + ONODE</strong> app
-          (auth, wallet, mint), or open <strong>Templates</strong> in the activity bar.
+          <strong>Welcome to OASIS IDE.</strong> Start with the same calm loop every time:
+          open a workspace, ask <strong>Composer</strong> to build an OASIS app, then bring in
+          STARNET, templates, and tools from the <strong>Build</strong> rocket when you need them.
         </div>
         <div className="first-run-welcome-actions">
           <button
@@ -33,9 +33,9 @@ export function FirstRunWelcomeBanner() {
           <button
             type="button"
             className="first-run-welcome-linkish"
-            onClick={() => requestActivityView('templates')}
+            onClick={() => requestActivityView('build')}
           >
-            Templates
+            Build
           </button>
           <button
             type="button"

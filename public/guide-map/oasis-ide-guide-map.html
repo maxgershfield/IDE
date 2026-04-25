@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OASIS IDE Holonic Guide Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+:root {
+  --bg:       #030703;
+  --panel:    rgba(6,12,6,0.97);
+  --border:   rgba(74,155,74,0.22);
+  --border2:  rgba(74,155,74,0.08);
+  --text:     #e8f5e8;
+  --muted:    #5a7a5a;
+  --amber:    #c9a84c;
+  --amber2:   #e0c97a;
+  --green:    #4a9b4a;
+  --bright:   #7ddb7d;
+  --teal:     #4ecdc4;
+  --gold:     #c9a84c;
+  --blue:     #5ab4ff;
+  --mono:     "JetBrains Mono", monospace;
+  --serif:    "Cormorant Garamond", Georgia, serif;
+  --sans:     "Space Grotesk", sans-serif;
+  --display:  "Bebas Neue", var(--sans);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); overflow: hidden; font-family: var(--mono); color: var(--text); }
+
+/* ── MAP ────────────────────────────────────────────────────────── */
+#map { position: fixed; inset: 0; z-index: 0; }
+/* Apply dark/night filter to the base map tiles only */
+.maplibregl-map .maplibregl-canvas-container canvas {
+  filter: brightness(0.75) saturate(0.85);
+}
+/* Allow marker labels to overflow below their wrapper */
+.maplibregl-marker { overflow: visible !important; }
+
+.maplibregl-canvas { cursor: grab; }
+.maplibregl-canvas:active { cursor: grabbing; }
+.draft-marker {
+  width: 28px; height: 28px; border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg); background: #c9a84c; border: 2px solid #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.35); cursor: grab;
+}
+.draft-marker::after {
+  content: ''; position: absolute; width: 10px; height: 10px; border-radius: 50%;
+  background: #fff; left: 7px; top: 7px;
+}
+.draft-marker-label {
+  position: absolute; left: 17px; top: -8px; transform: rotate(45deg);
+  background: #fff; color: #1f2937; border: 1px solid rgba(15,23,42,0.18);
+  border-radius: 14px; padding: 3px 8px; font: 600 11px var(--sans);
+  white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+
+/* ── NAV ────────────────────────────────────────────────────────── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; height: 38px;
+  display: flex; align-items: center; gap: 0.5rem;
+  background: rgba(3,7,3,0.88); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.5rem; z-index: 200;
+  font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
+}
+.nav-brand  { color: var(--bright); font-weight: 700; white-space: nowrap; font-size: 0.7rem; }
+.nav-loc    { color: var(--amber); font-family: var(--serif); font-style: italic; font-size: 0.85rem; white-space: nowrap; }
+.nav-sep    { color: var(--border); }
+.nav-phase  { color: var(--muted); white-space: nowrap; }
+.nav-link {
+  padding: 3px 10px; font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); text-decoration: none; border-radius: 3px;
+  transition: all 0.2s; white-space: nowrap; font-family: var(--mono);
+}
+.nav-link:hover  { color: var(--text); background: rgba(74,155,74,0.07); }
+.nav-link.active { color: var(--bright); background: rgba(74,155,74,0.10); border: 1px solid rgba(74,155,74,0.25); }
+.nav-spacer { flex: 1; }
+.nav-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bright); box-shadow: 0 0 6px var(--bright); animation: pulse-dot 2s infinite; flex-shrink: 0; }
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── LOADING ────────────────────────────────────────────────────── */
+#loading {
+  position: fixed; inset: 0;
+  background: var(--bg); z-index: 500;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transition: opacity 0.8s;
+}
+.load-guide { font-family: var(--serif); font-style: italic; font-size: 1.05rem; color: var(--amber); letter-spacing: 0.04em; margin-bottom: 6px; opacity: 0.85; }
+.load-title { font-family: var(--display); font-size: 3rem; letter-spacing: 0.18em; color: var(--bright); line-height: 1; margin-bottom: 2px; }
+.load-sub   { font-family: var(--display); font-size: 1.35rem; letter-spacing: 0.22em; color: var(--amber2); margin-bottom: 28px; opacity: 0.9; }
+.load-bar-bg{ width: 260px; height: 2px; background: var(--border); border-radius: 2px; }
+#load-bar   { height: 2px; width: 0; background: var(--bright); border-radius: 2px; transition: width 0.12s linear; }
+.load-coord { font-size: 0.55rem; color: var(--muted); margin-top: 12px; letter-spacing: 0.1em; }
+
+/* ── FILTER PANEL ───────────────────────────────────────────────── */
+#filter-panel {
+  position: fixed; left: 16px; top: 48px; z-index: 150;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px; font-family: var(--mono);
+  font-size: 0.58rem; min-width: 148px; backdrop-filter: blur(8px);
+}
+.filter-label { color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.52rem; margin-bottom: 8px; }
+.filter-btn {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 3px 0; transition: color 0.2s; width: 100%; background: none; border: none;
+  font-family: var(--mono); font-size: 0.58rem; text-align: left; color: var(--muted);
+}
+.filter-btn:hover  { color: var(--text); }
+.filter-btn.active { color: var(--text); }
+.filter-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── MAP CONTROLS (bottom-left) ─────────────────────────────────── */
+#map-controls {
+  position: fixed; left: 16px; bottom: 40px; z-index: 150;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.ctrl-group { display: flex; gap: 4px; }
+.ctrl-btn {
+  font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.1em;
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--muted); padding: 4px 10px; border-radius: 3px; cursor: pointer;
+  transition: all 0.2s; text-transform: uppercase; white-space: nowrap;
+  backdrop-filter: blur(8px);
+}
+.ctrl-btn:hover  { color: var(--text); border-color: rgba(74,155,74,0.4); }
+.ctrl-btn.active { color: var(--bright); border-color: rgba(74,155,74,0.5); background: rgba(74,155,74,0.08); }
+
+/* ── INFO PANEL (right) ─────────────────────────────────────────── */
+#info-panel {
+  position: fixed; right: 0; top: 38px; bottom: 28px; width: 300px;
+  background: var(--panel); border-left: 1px solid var(--border);
+  overflow-y: auto; z-index: 150; font-family: var(--mono);
+  display: flex; flex-direction: column;
+  transition: transform 0.3s; backdrop-filter: blur(12px);
+}
+.ip-header { padding: 14px 16px 10px; border-bottom: 1px solid var(--border2); }
+.ip-name   { font-family: var(--display); font-size: 1.35rem; letter-spacing: 0.08em; line-height: 1.1; }
+.ip-sub    { font-size: 0.6rem; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.ip-type-badge {
+  display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 10px;
+  font-size: 0.56rem; letter-spacing: 0.1em; text-transform: uppercase;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+  color: var(--muted);
+}
+.ip-coords { font-size: 0.52rem; color: var(--muted); margin-top: 5px; letter-spacing: 0.08em; font-family: var(--mono); }
+.ip-body   { padding: 14px 16px; flex: 1; }
+.ip-desc   { font-size: 0.68rem; line-height: 1.7; color: var(--muted); margin-bottom: 14px; }
+
+.stat-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.stat-tile   { background: rgba(74,155,74,0.06); border: 1px solid rgba(74,155,74,0.14); border-radius: 6px; padding: 10px 12px; }
+.stat-tile.gold { background: rgba(201,168,76,0.06); border-color: rgba(201,168,76,0.18); }
+.stat-val  { display: block; font-size: 1.25rem; font-family: var(--display); letter-spacing: 0.05em; line-height: 1; color: var(--bright); }
+.stat-val.gold  { color: var(--gold); }
+.stat-val.teal  { color: var(--teal); }
+.stat-val.amber { color: var(--amber); }
+.stat-lbl  { display: block; font-size: 0.55rem; color: var(--muted); margin-top: 3px; letter-spacing: 0.08em; text-transform: uppercase; }
+.ip-links-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+/* STAR Holon block */
+.star-holon-block {
+  margin-top: 14px; padding: 10px 12px;
+  background: rgba(74,155,74,0.06);
+  border: 1px solid rgba(74,155,74,0.2);
+  border-radius: 6px;
+}
+.star-holon-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.star-dot { color: #7ddb7d; font-size: 0.7rem; }
+.star-label { font-family: var(--mono); font-size: 0.6rem; color: var(--bright); letter-spacing: 0.1em; text-transform: uppercase; }
+.star-id { font-family: var(--mono); font-size: 0.55rem; color: var(--muted); margin-left: auto; }
+.star-holon-footer { display: flex; gap: 6px; flex-wrap: wrap; }
+.star-api-btn { background: rgba(74,155,74,0.08); border: 1px solid rgba(74,155,74,0.25); color: var(--bright); }
+.star-api-btn:hover { background: rgba(74,155,74,0.18); }
+.star-live-btn { background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.25); color: var(--gold); }
+.star-live-btn:hover { background: rgba(201,168,76,0.18); }
+.star-holon-live { margin-top: 10px; }
+.sh-meta { font-family: var(--mono); font-size: 0.55rem; }
+.sh-row-head { display: flex; justify-content: space-between; color: var(--muted); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.sh-table { width: 100%; border-collapse: collapse; }
+.sh-table tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+.sh-key { color: var(--muted); padding: 1px 6px 1px 0; white-space: nowrap; }
+.sh-val { color: var(--fg); word-break: break-all; }
+.ip-link-btn {
+  font-size: 0.58rem; padding: 5px 10px; border-radius: 4px; text-decoration: none;
+  letter-spacing: 0.08em; text-transform: uppercase; transition: all 0.2s;
+  cursor: pointer; border: none; font-family: var(--mono);
+}
+.ip-link-green { background: rgba(74,155,74,0.12); border: 1px solid rgba(74,155,74,0.3); color: var(--bright); }
+.ip-link-green:hover { background: rgba(74,155,74,0.22); }
+.ip-link-gold  { background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.3); color: var(--gold); }
+.ip-link-gold:hover  { background: rgba(201,168,76,0.22); }
+.ip-link-muted { background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--muted); }
+.ip-link-muted:hover { color: var(--text); }
+.karma-bar-wrap { margin: 8px 0 4px; }
+.karma-bar-label { font-size: 0.56rem; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 4px; }
+.karma-bar-track { height: 3px; background: rgba(74,155,74,0.12); border-radius: 2px; }
+.karma-bar-fill  { height: 3px; background: var(--gold); border-radius: 2px; }
+.rank-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.62rem; color: var(--gold); background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.25); padding: 3px 8px; border-radius: 10px; margin-top: 6px; }
+.feature-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.feature-chip  { font-size: 0.5rem; padding: 2px 7px; border-radius: 10px; background: rgba(74,155,74,0.08); border: 1px solid rgba(74,155,74,0.2); color: var(--bright); letter-spacing: 0.06em; }
+.ip-tip { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 0.62rem; line-height: 2; }
+.ip-tip-icon { font-family: var(--serif); font-style: italic; font-size: 1.1rem; color: var(--green); display: block; margin-bottom: 10px; }
+
+/* ── TALLY STRIP ────────────────────────────────────────────────── */
+#tally {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 28px;
+  background: rgba(3,7,3,0.88); border-top: 1px solid var(--border);
+  display: flex; align-items: center; overflow: hidden;
+  z-index: 150; font-family: var(--mono); font-size: 0.58rem;
+  backdrop-filter: blur(8px);
+}
+.tally-item { padding: 0 12px; white-space: nowrap; border-right: 1px solid var(--border2); cursor: pointer; transition: color 0.2s; color: var(--muted); }
+.tally-item:hover { color: var(--bright); }
+
+/* ── MARKERS ────────────────────────────────────────────────────── */
+.marker-wrap {
+  /* sized to the dot only — keeps anchor:'center' pinned to the geo-coord */
+  position: relative; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.marker-dot {
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  background: rgba(0,0,0,0.5);
+  box-shadow: 0 0 14px currentColor, 0 0 28px currentColor;
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative; z-index: 2;
+}
+.marker-wrap:hover .marker-dot { transform: scale(1.35); }
+.marker-wrap.selected .marker-dot { transform: scale(1.4); }
+.marker-label {
+  /* hangs below the dot without affecting the wrapper's bounding box */
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono); font-size: 0.59rem; letter-spacing: 0.05em;
+  white-space: nowrap; pointer-events: none;
+  background: rgba(3,7,3,0.82); padding: 2px 7px; border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.09);
+  text-shadow: 0 0 8px currentColor;
+  line-height: 1.4; z-index: 3;
+}
+
+/* Marker size by type */
+.type-conservation .marker-dot { width: 14px; height: 14px; color: #7ddb7d; }
+.type-anchor       .marker-dot { width: 16px; height: 16px; color: #e0c97a; }
+.type-holon        .marker-dot { width: 14px; height: 14px; color: #7ddb7d; }
+.type-business     .marker-dot { width: 12px; height: 12px; color: #4ecdc4; }
+.type-geonft       .marker-dot { width: 13px; height: 13px; color: #c9a84c; }
+.type-project      .marker-dot { width: 12px; height: 12px; color: #5ab4ff; }
+
+/* Pulsing ring for conservation places */
+.marker-pulse-ring {
+  position: absolute; border-radius: 50%;
+  border: 2px solid #4a9b4a;
+  animation: expand-ring 2.4s ease-out infinite;
+  pointer-events: none; z-index: 1;
+}
+.marker-pulse-ring:nth-child(2) { animation-delay: 0.8s; }
+.marker-pulse-ring:nth-child(3) { animation-delay: 1.6s; }
+@keyframes expand-ring {
+  0%   { width: 24px; height: 24px; opacity: 0.7; }
+  100% { width: 72px; height: 72px; opacity: 0; }
+}
+
+/* Optional mapped area label */
+.pv-map-label {
+  position: absolute;
+  font-family: var(--display); letter-spacing: 0.12em; font-size: 0.75rem;
+  color: #7ddb7d; text-shadow: 0 0 12px #4a9b4a;
+  pointer-events: none; white-space: nowrap;
+  background: rgba(3,7,3,0.6); padding: 3px 8px; border-radius: 4px;
+  border: 1px solid rgba(74,155,74,0.3);
+}
+
+/* ── MODAL ──────────────────────────────────────────────────────── */
+.modal-back {
+  position: fixed; inset: 0; background: rgba(3,7,3,0.8); backdrop-filter: blur(4px);
+  z-index: 400; display: none; align-items: center; justify-content: center;
+}
+.modal-back.open { display: flex; }
+.modal-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; width: min(580px, 94vw); max-height: 80vh;
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.modal-head {
+  padding: 16px 20px 14px; border-bottom: 1px solid var(--border2);
+  display: flex; align-items: flex-start; justify-content: space-between;
+}
+.modal-head-title { font-family: var(--display); font-size: 1.6rem; letter-spacing: 0.08em; }
+.modal-head-sub   { font-size: 0.6rem; color: var(--muted); margin-top: 4px; }
+.modal-close      { font-family: var(--mono); font-size: 0.58rem; background: none; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 3px; cursor: pointer; }
+.modal-close:hover{ color: var(--text); }
+.modal-body       { padding: 16px 20px 20px; overflow-y: auto; font-family: var(--mono); font-size: 0.65rem; line-height: 1.7; }
+.modal-desc       { color: var(--muted); margin-bottom: 14px; }
+.modal-stat-grid  { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin: 10px 0; }
+.modal-stat-tile  { background: rgba(74,155,74,0.06); border: 1px solid var(--border2); border-radius: 6px; padding: 10px; text-align: center; }
+.modal-stat-val   { display: block; font-size: 1.1rem; font-family: var(--display); color: var(--bright); }
+.modal-stat-lbl   { display: block; font-size: 0.52rem; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.08em; }
+.modal-meta-row   { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border2); font-size: 0.6rem; }
+.modal-meta-key   { color: var(--muted); }
+.modal-meta-val   { color: var(--text); text-align: right; }
+.modal-nest       { margin-top: 10px; }
+.modal-nest summary { font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); cursor: pointer; padding: 6px 0; list-style: none; }
+.modal-nest summary::before { content: '▶ '; font-size: 0.5rem; }
+.modal-nest[open] summary::before { content: '▼ '; }
+.modal-lang-chip  { display: inline-block; font-size: 0.5rem; padding: 2px 7px; border-radius: 10px; background: rgba(74,155,74,0.08); border: 1px solid rgba(74,155,74,0.2); color: var(--bright); margin: 2px; }
+.modal-ext-link   { color: var(--bright); font-size: 0.62rem; text-decoration: none; }
+.modal-ext-link:hover { text-decoration: underline; }
+
+/* MapLibre overrides */
+.maplibregl-ctrl-bottom-right { bottom: 34px !important; }
+.maplibregl-ctrl-bottom-left  { bottom: 34px !important; left: 172px !important; }
+.maplibregl-ctrl-group { background: rgba(6,12,6,0.9) !important; border: 1px solid rgba(74,155,74,0.25) !important; }
+.maplibregl-ctrl-group button { background: none !important; }
+.maplibregl-ctrl-group button + button { border-top: 1px solid rgba(74,155,74,0.15) !important; }
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: brightness(0.7) sepia(1) hue-rotate(70deg) saturate(1.5); }
+.maplibregl-ctrl-attrib { background: rgba(3,7,3,0.8) !important; color: #3a5a3a !important; font-size: 0.48rem !important; }
+.maplibregl-ctrl-attrib a { color: #4a7a4a !important; }
+
+/* ── Info panel inner wrapper ────────────────────────────────── */
+#ip-handle {
+  display: none; /* visible on mobile only */
+  align-items: center; justify-content: space-between;
+  padding: 10px 16px 6px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border2);
+}
+.ip-handle-bar {
+  width: 36px; height: 4px; border-radius: 2px;
+  background: rgba(74,155,74,0.35); flex-shrink: 0;
+}
+#ip-close-btn {
+  font-family: var(--mono); font-size: 0.56rem; letter-spacing: 0.08em;
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  padding: 3px 10px; border-radius: 3px; cursor: pointer; transition: all 0.2s;
+}
+#ip-close-btn:hover { color: var(--text); }
+#ip-content { overflow-y: auto; flex: 1; }
+
+/* Filter toggle — hidden on desktop */
+#filter-toggle-btn {
+  display: none;
+  background: rgba(74,155,74,0.08); border: 1px solid var(--border);
+  color: var(--muted); font-size: 0.9rem; padding: 0 8px; height: 24px;
+  border-radius: 4px; cursor: pointer; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all 0.2s;
+}
+#filter-toggle-btn:hover,
+#filter-toggle-btn.active { color: var(--bright); border-color: rgba(74,155,74,0.4); }
+
+/* ── MOBILE ──────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+
+  /* Loading */
+  .load-guide { font-size: 0.8rem; }
+  .load-title { font-size: 2.2rem; letter-spacing: 0.14em; }
+  .load-sub   { font-size: 1rem;   letter-spacing: 0.18em; }
+  .load-bar-bg { width: 180px; }
+
+  /* Nav — strip down to essentials */
+  nav { padding: 0 0.75rem; gap: 0.35rem; height: 42px; }
+  .nav-sep, .nav-phase { display: none; }
+  .nav-loc {
+    font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis;
+    max-width: 38vw; display: block;
+  }
+  /* Hide all nav-links except the key Book link */
+  .nav-link { display: none; }
+  .nav-link-key { display: inline-flex; font-size: 0.55rem; padding: 3px 8px; }
+  #filter-toggle-btn { display: inline-flex; }
+
+  /* Tally — hidden on mobile */
+  #tally { display: none; }
+
+  /* Filter panel — full-width horizontal chip strip */
+  #filter-panel {
+    left: 0; right: 0; top: 42px; width: 100%;
+    min-width: unset;
+    border-radius: 0 0 10px 10px;
+    border-left: none; border-right: none; border-top: none;
+    display: none;
+    flex-direction: row; flex-wrap: wrap; gap: 5px; padding: 8px 12px 10px;
+  }
+  #filter-panel.open { display: flex; }
+  .filter-label { display: none; }
+  .filter-btn {
+    width: auto; padding: 4px 11px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+  }
+  .filter-btn.active { background: rgba(74,155,74,0.12); border-color: rgba(74,155,74,0.35); color: var(--text); }
+
+  /* Map controls — compact, bottom-left above the sheet gap */
+  #map-controls { left: 8px; bottom: 10px; }
+  .ctrl-btn { font-size: 0.5rem; padding: 5px 9px; }
+  .ctrl-group { gap: 4px; }
+
+  /* Info panel — bottom sheet */
+  #info-panel {
+    top: auto;
+    right: 0; left: 0; bottom: 0;
+    width: 100%; height: 70vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0;
+    transform: translateY(100%);
+    transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  #info-panel.sheet-open { transform: translateY(0); }
+
+  /* Show the drag handle on mobile */
+  #ip-handle { display: flex; }
+
+  /* Modal — 2-col stat grid, taller */
+  .modal-card { max-height: 90vh; border-radius: 14px 14px 0 0; }
+  .modal-stat-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* MapLibre controls reposition */
+  .maplibregl-ctrl-bottom-left  { bottom: 10px !important; left: 8px !important; }
+  .maplibregl-ctrl-bottom-right { bottom: 10px !important; right: 8px !important; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-brand">OASIS</span>
+  <span class="nav-sep">·</span>
+  <span class="nav-loc">Holonic Guide Map</span>
+  <span class="nav-sep">·</span>
+  <span class="nav-phase">VISUAL EDITOR</span>
+  <div class="nav-live-dot"></div>
+  <div class="nav-spacer"></div>
+  <a class="nav-link active" href="oasis-ide-guide-map.html">Guide Map</a>
+  <button id="filter-toggle-btn" onclick="toggleFilterPanel()" aria-label="Toggle filters">⊞</button>
+</nav>
+
+<div id="map"></div>
+
+<div id="loading">
+  <div class="load-guide">OASIS IDE</div>
+  <div class="load-title">HOLONIC</div>
+  <div class="load-sub">GUIDE MAP</div>
+  <div class="load-bar-bg"><div id="load-bar"></div></div>
+  <div class="load-coord">Click anywhere to draft a location · Save places into OASIS IDE</div>
+</div>
+
+<div id="filter-panel">
+  <div class="filter-label">Filter</div>
+  <button class="filter-btn active" onclick="filterPlaces('all')" data-filter="all">
+    <span class="filter-dot" style="background:#e8f5e8"></span> All
+  </button>
+  <button class="filter-btn" onclick="filterPlaces('holon')" data-filter="holon">
+    <span class="filter-dot" style="background:#7ddb7d"></span> Holons
+  </button>
+  <button class="filter-btn" onclick="filterPlaces('business')" data-filter="business">
+    <span class="filter-dot" style="background:#4ecdc4"></span> Businesses
+  </button>
+  <button class="filter-btn" onclick="filterPlaces('geonft')" data-filter="geonft">
+    <span class="filter-dot" style="background:#c9a84c"></span> GeoNFTs
+  </button>
+  <button class="filter-btn" onclick="filterPlaces('project')" data-filter="project">
+    <span class="filter-dot" style="background:#5ab4ff"></span> Projects
+  </button>
+  <button class="filter-btn" onclick="filterPlaces('conservation')" data-filter="conservation">
+    <span class="filter-dot" style="background:#4a9b4a"></span> Conservation
+  </button>
+  <button class="filter-btn" onclick="filterPlaces('anchor')" data-filter="anchor">
+    <span class="filter-dot" style="background:#e0c97a"></span> Regions
+  </button>
+</div>
+
+<div id="map-controls">
+  <div class="ctrl-group">
+    <button class="ctrl-btn active" id="conn-btn" onclick="toggleConnections()">Connections</button>
+    <button class="ctrl-btn active" id="lbl-btn"  onclick="toggleLabels()">Labels</button>
+  </div>
+  <div class="ctrl-group">
+    <button class="ctrl-btn" onclick="focusHolons()">↗ Focus Holons</button>
+    <button class="ctrl-btn" onclick="flyToAll()">↗ Fit All</button>
+  </div>
+</div>
+
+<div id="info-panel">
+  <div id="ip-handle">
+    <div class="ip-handle-bar"></div>
+    <button id="ip-close-btn" onclick="closeSheet()">✕ Close</button>
+  </div>
+  <div id="ip-content">
+    <div class="ip-tip">
+      <span class="ip-tip-icon">Visual Editor</span>
+      Click the map to draft a location in OASIS IDE.<br>
+      Saved holons, businesses, GeoNFTs, and projects appear here.<br>
+      Select a marker to review or update its linked metadata.
+    </div>
+  </div>
+</div>
+
+<div id="tally"></div>
+
+<div class="modal-back" id="sysModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <div class="modal-head-title" id="modal-title">—</div>
+        <div class="modal-head-sub"  id="modal-sub">—</div>
+      </div>
+      <button class="modal-close" id="modal-close-btn">Close</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="oasis-ide-guide-places.js"></script>
+<script>
+// ── Place data (lng, lat for MapLibre) ────────────────────────────────────────
+// OASIS IDE keeps this generic. The companion data file is populated by the IDE panel
+// and can include holons, businesses, GeoNFTs, projects, or any mapped place.
+const PLACES = window.OASIS_IDE_GUIDE_PLACES || [];
+
+// ── Optional connection ids are read from each place.linkedPlaceIds array ──────
+
+// ── Type colours ──────────────────────────────────────────────────────────────
+const TYPE_COLOR = {
+  holon:        '#7ddb7d',
+  business:     '#4ecdc4',
+  geonft:       '#c9a84c',
+  project:      '#5ab4ff',
+  conservation: '#4a9b4a',
+  anchor:       '#e0c97a',
+};
+const TYPE_LABEL = {
+  holon:        'Holon',
+  business:     'Business / Website',
+  geonft:       'GeoNFT',
+  project:      'Project / OAPP',
+  conservation: 'Conservation / Place',
+  anchor:       'Region Anchor',
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtNum(n) {
+  if (n == null || n === '') return '—';
+  if (typeof n === 'string') return n;
+  if (n >= 1000000) return (n/1000000).toFixed(1)+'M';
+  if (n >= 1000)    return (n/1000).toFixed(1)+'k';
+  return String(n);
+}
+function fmtCoords(coords) {
+  const lat = coords[1].toFixed(4);
+  const lng = coords[0].toFixed(4);
+  return `${lat > 0 ? lat+'°N' : (-lat)+'°S'}  ${lng < 0 ? (-lng)+'°W' : lng+'°E'}`;
+}
+
+// ── Map init ──────────────────────────────────────────────────────────────────
+const map = new maplibregl.Map({
+  container:  'map',
+  style:      'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  center:     [0, 20],
+  zoom:       1.7,
+  pitch:      52,
+  bearing:    -8,
+  antialias:  true,
+  dragRotate: false,
+  pitchWithRotate: false,
+});
+
+map.dragRotate.disable();
+map.touchZoomRotate.disableRotation();
+map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-left');
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+
+// ── Marker registry ───────────────────────────────────────────────────────────
+const markerMap   = {};   // id → maplibregl.Marker
+const markerElMap = {};   // id → DOM element
+let   showLabels  = true;
+let   showConns   = true;
+let   selectedId  = null;
+let   draftMarker = null;
+
+// ── Build custom marker element ───────────────────────────────────────────────
+function buildMarkerEl(place) {
+  const color  = TYPE_COLOR[place.type] || '#ffffff';
+  const wrap   = document.createElement('div');
+  wrap.className = `marker-wrap type-${place.type}`;
+  wrap.style.color = color;
+
+  if (place.type === 'conservation') {
+    for (let i = 0; i < 3; i++) {
+      const ring = document.createElement('div');
+      ring.className = 'marker-pulse-ring';
+      wrap.appendChild(ring);
+    }
+  }
+
+  const dot = document.createElement('div');
+  dot.className = 'marker-dot';
+  wrap.appendChild(dot);
+
+  const lbl = document.createElement('div');
+  lbl.className = 'marker-label';
+  lbl.style.color = color;
+  lbl.textContent = place.shortName;
+  wrap.appendChild(lbl);
+
+  wrap.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectPlace(place.id);
+  });
+
+  return wrap;
+}
+
+// ── Add connection lines source (updated as needed) ───────────────────────────
+function buildConnectionsGeoJSON() {
+  const byId = Object.fromEntries(PLACES.map(place => [place.id, place]));
+  const features = [];
+  PLACES.forEach(place => {
+    (place.linkedPlaceIds || []).forEach(linkedId => {
+      const linked = byId[linkedId];
+      if (!linked) return;
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [place.coords, linked.coords] },
+        properties: { from: place.id, to: linked.id }
+      });
+    });
+  });
+  return { type: 'FeatureCollection', features };
+}
+
+
+function postToIde(message) {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ source: 'oasis-ide-guide-map', ...message }, '*');
+  }
+}
+
+function buildDraftMarkerEl(label = 'Draft pin') {
+  const el = document.createElement('div');
+  el.className = 'draft-marker';
+  const text = document.createElement('div');
+  text.className = 'draft-marker-label';
+  text.textContent = label;
+  el.appendChild(text);
+  return el;
+}
+
+function setDraftMarker(coords, options = {}) {
+  if (!Array.isArray(coords) || coords.length !== 2) return;
+  const clean = [Number(coords[0]), Number(coords[1])];
+  if (!Number.isFinite(clean[0]) || !Number.isFinite(clean[1])) return;
+  if (!draftMarker) {
+    draftMarker = new maplibregl.Marker({ element: buildDraftMarkerEl(), draggable: true, anchor: 'bottom' })
+      .setLngLat(clean)
+      .addTo(map);
+    draftMarker.on('dragend', () => {
+      const ll = draftMarker.getLngLat();
+      const next = [Number(ll.lng.toFixed(6)), Number(ll.lat.toFixed(6))];
+      postToIde({ type: 'map-click', coords: next });
+    });
+  } else {
+    draftMarker.setLngLat(clean);
+  }
+  if (options.focus) {
+    map.flyTo({ center: clean, zoom: Math.max(map.getZoom(), options.zoom || 14), pitch: 52, bearing: -8, duration: 900, essential: true });
+  }
+}
+
+window.addEventListener('message', event => {
+  const data = event.data || {};
+  if (data.source !== 'oasis-ide-guide-panel') return;
+  if (data.type === 'draft-marker' || data.type === 'focus-coords') {
+    setDraftMarker(data.coords, { focus: data.type === 'focus-coords', zoom: data.zoom });
+  }
+  if (data.type === 'fit-all') window.flyToAll();
+});
+
+map.on('moveend', () => {
+  const c = map.getCenter();
+  postToIde({ type: 'map-center', coords: [Number(c.lng.toFixed(6)), Number(c.lat.toFixed(6))], zoom: Number(map.getZoom().toFixed(2)) });
+});
+
+// ── Tap map background → close mobile sheet & filter panel ───────────────────
+map.on('click', e => {
+  const coords = [Number(e.lngLat.lng.toFixed(6)), Number(e.lngLat.lat.toFixed(6))];
+  setDraftMarker(coords);
+  postToIde({ type: 'map-click', coords });
+  if (window.innerWidth <= 640) {
+    document.getElementById('info-panel').classList.remove('sheet-open');
+    document.getElementById('filter-panel').classList.remove('open');
+    document.getElementById('filter-toggle-btn').classList.remove('active');
+  }
+});
+
+// ── After map style loads ─────────────────────────────────────────────────────
+map.on('load', () => {
+
+  // 1. Optional connection lines between linked places
+  map.addSource('connections', { type:'geojson', data: buildConnectionsGeoJSON() });
+  map.addLayer({ id:'conn-lines', type:'line', source:'connections',
+    paint:{
+      'line-color':'#4a9b4a', 'line-width':1.2,
+      'line-opacity':0.40, 'line-dasharray':[4,5]
+    }
+  });
+
+  // 3. Try to add 3D buildings from the CARTO style
+  try {
+    const layers = map.getStyle().layers;
+    const bld = layers.find(l => l['source-layer'] === 'building');
+    if (bld) {
+      map.addLayer({
+        id: '3d-buildings', type: 'fill-extrusion',
+        source: bld.source, 'source-layer': 'building',
+        minzoom: 14,
+        paint: {
+          'fill-extrusion-color': '#0e2218',
+          'fill-extrusion-height': ['interpolate',['linear'],['zoom'],14,0,16,['coalesce',['get','render_height'],['get','height'],10]],
+          'fill-extrusion-base':   ['coalesce',['get','render_min_height'],0],
+          'fill-extrusion-opacity': 0.85,
+        }
+      }, bld.id);
+    }
+  } catch(_) {}
+
+  // 4. Place all markers
+  PLACES.forEach(place => {
+    const el     = buildMarkerEl(place);
+    const marker = new maplibregl.Marker({ element: el, anchor:'center' })
+      .setLngLat(place.coords)
+      .addTo(map);
+    markerMap[place.id]   = marker;
+    markerElMap[place.id] = el;
+  });
+
+
+  // Dismiss loading screen once tiles start rendering
+  const ld  = document.getElementById('loading');
+  const bar = document.getElementById('load-bar');
+  let pct = 0;
+  const timer = setInterval(() => {
+    pct += Math.random() * 25;
+    bar.style.width = Math.min(pct, 100) + '%';
+    if (pct >= 100) {
+      clearInterval(timer);
+      setTimeout(() => {
+        ld.style.opacity = '0';
+        setTimeout(() => ld.style.display = 'none', 800);
+      }, 300);
+    }
+  }, 70);
+
+});
+
+// ── Select a place ────────────────────────────────────────────────────────────
+function selectPlace(id) {
+  const place = PLACES.find(p => p.id === id);
+  if (!place) return;
+
+  // Deselect previous
+  if (selectedId && markerElMap[selectedId]) {
+    markerElMap[selectedId].classList.remove('selected');
+  }
+  selectedId = id;
+  if (markerElMap[id]) markerElMap[id].classList.add('selected');
+
+  map.flyTo({
+    center:   place.coords,
+    zoom:     Math.max(map.getZoom(), place.type === 'conservation' ? 12.5 : 11.5),
+    pitch:    52,
+    bearing:  -8,
+    duration: 1200,
+    essential: true,
+  });
+
+  renderInfoPanel(place);
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({
+      source: 'oasis-ide-guide-map',
+      type: 'place-select',
+      place
+    }, '*');
+  }
+
+  // On mobile, slide the sheet up
+  if (window.innerWidth <= 640) {
+    document.getElementById('info-panel').classList.add('sheet-open');
+  }
+}
+
+window.selectPlaceById = selectPlace;
+
+// ── Mobile: close bottom sheet ────────────────────────────────────────────────
+window.closeSheet = function() {
+  document.getElementById('info-panel').classList.remove('sheet-open');
+};
+
+// ── Mobile: filter panel toggle ───────────────────────────────────────────────
+window.toggleFilterPanel = function() {
+  const fp  = document.getElementById('filter-panel');
+  const btn = document.getElementById('filter-toggle-btn');
+  const open = fp.classList.toggle('open');
+  btn.classList.toggle('active', open);
+};
+
+// ── Info panel renderer ───────────────────────────────────────────────────────
+function statTiles(stats) {
+  const entries = Object.entries(stats || {}).filter(([, value]) => value != null && value !== '');
+  if (!entries.length) return '';
+  return `<div class="stat-grid-2">${entries.slice(0, 6).map(([key, value]) => `
+    <div class="stat-tile"><span class="stat-val">${esc(fmtNum(value))}</span><span class="stat-lbl">${esc(key)}</span></div>
+  `).join('')}</div>`;
+}
+
+function renderInfoPanel(place) {
+  const color  = TYPE_COLOR[place.type]  || '#e8f5e8';
+  const label  = TYPE_LABEL[place.type]  || place.type;
+  const stats  = place.localStats || {};
+  const features = Array.isArray(place.features)
+    ? place.features
+    : typeof place.features === 'string'
+      ? place.features.split(',').map(f => f.trim()).filter(Boolean)
+      : [];
+
+  let html = `
+    <div class="ip-header">
+      <div class="ip-name" style="color:${color}">${esc(place.name)}</div>
+      <div class="ip-sub">${esc(place.subtitle || 'Mapped from the OASIS IDE Guide Map panel')}</div>
+      <span class="ip-type-badge">${esc(label)}</span>
+      <div class="ip-coords">${fmtCoords(place.coords)}</div>
+    </div>
+    <div class="ip-body">
+      <p class="ip-desc">${esc(place.desc || 'No description yet. Use the IDE panel and Composer to enrich this mapped record.')}</p>
+      ${statTiles(stats)}
+  `;
+
+  if (features.length) {
+    html += `<div class="feature-chips">${features.map(f=>`<span class="feature-chip">${esc(f)}</span>`).join('')}</div>`;
+  }
+
+  html += `<div class="ip-links-row">`;
+  if (place.link) html += `<a class="ip-link-btn ip-link-gold" href="${esc(place.link)}" target="_blank">Open Link</a>`;
+  if (place.googleMaps) html += `<a class="ip-link-btn" href="${esc(place.googleMaps)}" target="_blank" style="color:var(--teal);border-color:rgba(78,205,196,0.3)">Map Source</a>`;
+  html += `<button class="ip-link-btn ip-link-muted" onclick="openModal('${place.id}')">Full Record</button></div>`;
+
+  if (place.starHolonId) {
+    const short = place.starHolonId.substring(0, 8) + '…';
+    html += `
+      <div class="star-holon-block" id="star-block-${place.id}">
+        <div class="star-holon-header">
+          <span class="star-dot">★</span>
+          <span class="star-label">STAR Holon</span>
+          <span class="star-id">${short}</span>
+        </div>
+        <div class="star-holon-footer">
+          <a class="ip-link-btn star-api-btn"
+             href="http://127.0.0.1:5001/api/Holons/${place.starHolonId}"
+             target="_blank">View Raw Holon</a>
+          <button class="ip-link-btn star-live-btn" onclick="loadStarHolon('${place.id}','${place.starHolonId}')">Load Live Data</button>
+        </div>
+        <div class="star-holon-live" id="star-live-${place.id}" style="display:none"></div>
+      </div>`;
+  }
+
+  html += `</div>`;
+  const ipContent = document.getElementById('ip-content');
+  if (ipContent) ipContent.innerHTML = html;
+  else document.getElementById('info-panel').innerHTML = html;
+}
+
+// ── Load live data from STAR API ─────────────────────────────────────────────
+window.loadStarHolon = async function(placeId, holonId) {
+  const liveEl = document.getElementById(`star-live-${placeId}`);
+  const btn = document.querySelector(`#star-block-${placeId} .star-live-btn`);
+  if (!liveEl) return;
+  liveEl.style.display = 'block';
+  liveEl.innerHTML = '<span style="color:var(--muted);font-size:0.6rem">Fetching from STAR API…</span>';
+  if (btn) { btn.textContent = '⟳ Loading…'; btn.disabled = true; }
+  try {
+    // Auth first
+    const authRes = await fetch('http://127.0.0.1:5001/api/Avatar/authenticate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username:'OASIS_ADMIN', password:'Uppermall1!'})
+    });
+    const authData = await authRes.json();
+    const jwt = authData?.result?.result?.jwtToken;
+    if (!jwt) throw new Error('Auth failed');
+    // Load holon
+    const res = await fetch(`http://127.0.0.1:5001/api/Holons/${holonId}`, {
+      headers: { 'Authorization': `Bearer ${jwt}` }
+    });
+    const data = await res.json();
+    const h = data?.result;
+    if (!h) throw new Error('No holon data');
+    const meta = h.metaData || {};
+    const created = h.createdDate ? new Date(h.createdDate).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const rows = Object.entries(meta)
+      .filter(([k]) => !['STARHolonDNAJSON','HolonDNAJSON','PublishedSTARNETHolon'].includes(k))
+      .map(([k,v]) => `<tr><td class="sh-key">${esc(String(k))}</td><td class="sh-val">${esc(String(v))}</td></tr>`).join('');
+    liveEl.innerHTML = `
+      <div class="sh-meta">
+        <div class="sh-row-head"><span>v${h.version||1} · Created ${created}</span><span style="color:var(--muted)">MongoDBOASIS</span></div>
+        ${rows ? `<table class="sh-table">${rows}</table>` : ''}
+      </div>`;
+  } catch(e) {
+    liveEl.innerHTML = `<span style="color:#ff6b6b;font-size:0.6rem">⚠ ${e.message}</span>`;
+  }
+  if (btn) { btn.textContent = '⟳ Refresh'; btn.disabled = false; }
+};
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+window.openModal = function(id) {
+  const place = PLACES.find(p => p.id === id);
+  if (!place) return;
+  const color  = TYPE_COLOR[place.type]  || '#e8f5e8';
+  const label  = TYPE_LABEL[place.type]  || place.type;
+  const stats  = place.localStats || {};
+  const features = Array.isArray(place.features)
+    ? place.features
+    : typeof place.features === 'string'
+      ? place.features.split(',').map(f => f.trim()).filter(Boolean)
+      : [];
+
+  document.getElementById('modal-title').innerHTML = `<span style="color:${color}">${esc(place.name)}</span>`;
+  document.getElementById('modal-sub').innerHTML = `
+    <span style="font-family:var(--mono);font-size:0.6rem;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(74,155,74,0.15);color:var(--muted)">${esc(label)}</span>
+    &nbsp;<span style="color:var(--muted)">${esc(place.subtitle||'')}</span>
+  `;
+
+  let body = `<p class="modal-desc">${esc(place.desc||'No description yet.')}</p>`;
+  body += `<details class="modal-nest" open><summary>Mapped Record</summary>
+    <div style="padding:6px 0 6px">
+      <div class="modal-meta-row"><span class="modal-meta-key">Type</span><span class="modal-meta-val" style="color:${color}">${esc(label)}</span></div>
+      <div class="modal-meta-row"><span class="modal-meta-key">Region</span><span class="modal-meta-val">${esc(place.region||'—')}</span></div>
+      <div class="modal-meta-row"><span class="modal-meta-key">Sector</span><span class="modal-meta-val">${esc(place.sector||'—')}</span></div>
+      <div class="modal-meta-row"><span class="modal-meta-key">Coordinates</span><span class="modal-meta-val">${fmtCoords(place.coords)}</span></div>
+      <div class="modal-meta-row"><span class="modal-meta-key">STAR Holon ID</span><span class="modal-meta-val">${esc(place.starHolonId||'—')}</span></div>
+    </div>
+  </details>`;
+
+  if (Object.keys(stats).length) {
+    body += `<details class="modal-nest" open><summary>Holonic Stats</summary>
+      <div style="padding:10px 0 6px"><div class="modal-stat-grid">
+        ${Object.entries(stats).slice(0, 8).map(([key, value]) => `<div class="modal-stat-tile"><span class="modal-stat-val" style="color:#7ddb7d">${esc(fmtNum(value))}</span><span class="modal-stat-lbl">${esc(key)}</span></div>`).join('')}
+      </div></div>
+    </details>`;
+  }
+
+  if (features.length) {
+    body += `<details class="modal-nest" open><summary>Capabilities / Tags</summary>
+      <div style="padding:8px 0 6px;display:flex;flex-wrap:wrap;gap:4px">
+        ${features.map(f=>`<span class="modal-lang-chip">${esc(f)}</span>`).join('')}
+      </div>
+    </details>`;
+  }
+
+  if (place.link) {
+    body += `<div style="margin-top:14px"><a class="modal-ext-link" href="${esc(place.link)}" target="_blank">Open ${esc(place.link.replace(/https?:\/\//,''))}</a></div>`;
+  }
+
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('sysModal').classList.add('open');
+};
+
+document.getElementById('modal-close-btn').addEventListener('click', () => {
+  document.getElementById('sysModal').classList.remove('open');
+});
+document.getElementById('sysModal').addEventListener('click', e => {
+  if (e.target.id === 'sysModal') document.getElementById('sysModal').classList.remove('open');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('sysModal').classList.remove('open');
+});
+
+// ── Filter ────────────────────────────────────────────────────────────────────
+window.filterPlaces = type => {
+  document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+  document.querySelector(`[data-filter="${type}"]`)?.classList.add('active');
+  PLACES.forEach(p => {
+    const show = type === 'all' || p.type === type;
+    const el = markerElMap[p.id];
+    if (el) el.style.display = show ? '' : 'none';
+  });
+};
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+window.toggleConnections = () => {
+  showConns = !showConns;
+  if (map.getLayer('conn-lines')) map.setLayoutProperty('conn-lines', 'visibility', showConns ? 'visible' : 'none');
+  document.getElementById('conn-btn').classList.toggle('active', showConns);
+};
+window.toggleLabels = () => {
+  showLabels = !showLabels;
+  document.querySelectorAll('.marker-label').forEach(el => el.style.display = showLabels ? '' : 'none');
+  document.getElementById('lbl-btn').classList.toggle('active', showLabels);
+};
+window.focusHolons = () => {
+  const holonic = PLACES.filter(p => p.starHolonId || p.type === 'holon' || p.type === 'geonft');
+  if (holonic.length === 0) return window.flyToAll();
+  const first = holonic[0];
+  map.flyTo({ center:first.coords, zoom:12, pitch:52, bearing:-8, duration:1200, essential:true });
+  selectPlace(first.id);
+};
+window.flyToAll = () => {
+  if (PLACES.length === 0) {
+    map.flyTo({ center:[0, 20], zoom:1.7, pitch:52, bearing:-8, duration:900, essential:true });
+    return;
+  }
+  const bounds = new maplibregl.LngLatBounds();
+  PLACES.forEach(p => bounds.extend(p.coords));
+  map.fitBounds(bounds, { pitch:52, bearing:-8, padding:{ top:70, bottom:60, left:80, right:340 }, duration:1000, maxZoom:14 });
+};
+
+// ── Tally strip ───────────────────────────────────────────────────────────────
+const tallyEl = document.getElementById('tally');
+PLACES.forEach(p => {
+  const div = document.createElement('div');
+  div.className = 'tally-item';
+  div.textContent = p.shortName;
+  div.style.color = TYPE_COLOR[p.type] || '#e8f5e8';
+  div.onclick = () => selectPlace(p.id);
+  tallyEl.appendChild(div);
+});
+
+</script>
+
+</body>
+</html>

@@ -6,10 +6,18 @@
  * **Search-first** (`getAgentContextPackSearchFirst`) omits long duplicate STARNET and planning prose so
  * the model relies on `workspace_grep` / `semantic_search` / `mcp_invoke` and uses fewer input tokens.
  */
-export const AGENT_CONTEXT_PACK_VERSION = '1.13.0';
+export const AGENT_CONTEXT_PACK_VERSION = '1.14.0';
 
 export function getAgentContextPack(): string {
   return `## OASIS IDE context pack (v${AGENT_CONTEXT_PACK_VERSION})
+
+> **⛔ ABSOLUTE PROHIBITION — read this before anything else:**
+> When the user's message contains action words (create, build, connect, link, show, generate, make) you **MUST execute all steps immediately** in this single turn.
+> **NEVER respond with a plan and ask "shall I proceed?" or "please confirm".**
+> Wrong: "Here is my plan… please confirm." ← forbidden
+> Wrong: "Next steps: … Let me know if you'd like to proceed." ← forbidden
+> Right: call all MCP tools now (create → connect → get_graph → emit diagram) then summarise what was done.
+> This applies to every holon sequence, scaffold, or graph request, no exceptions.
 
 ### Auto-loaded project instructions (IDE)
 The Composer may prepend **AGENTS.md** (workspace root and each directory along the path to the **active editor file**, with the path **nearest the file** winning on conflict) and bounded markdown under **\`.cursor/rules/\`** (\`.md\`, \`.mdc\`; YAML frontmatter stripped on \`.mdc\`) in addition to **\`.oasiside/rules.md\`** / **\`.OASIS_IDE/rules.md\`**. Treat them like first-class repo instructions. See **\`OASIS-IDE/docs/IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md\`**.
@@ -128,7 +136,7 @@ If the user says "create X, link it to Y, show me the graph" — do all of it no
 call \`holon_*_create\`, then \`holon_connect\`, then \`holon_get_graph\`, then emit \`<oasis_holon_diagram>\`.
 Do **not** stop after the first tool call to summarise or ask confirmation.
 
-**Rule 2 — Always emit `<oasis_holon_diagram>` JSON — NEVER plain Mermaid for holon relationships.**
+**Rule 2 — Always emit \`<oasis_holon_diagram>\` JSON — NEVER plain Mermaid for holon relationships.**
 The IDE renders a live React Flow graph **only** from the XML tag + JSON form:
 \`\`\`
 <oasis_holon_diagram>
@@ -138,7 +146,7 @@ The IDE renders a live React Flow graph **only** from the XML tag + JSON form:
 Mermaid (\`\`\`graph TD\`\`\`) or prose ("A → B") does NOT render as an interactive graph in the IDE.
 When the user asks to "show the graph" or "visualise" holons, you **must** emit this tag with valid JSON.
 
-**Rule 3 — Ground diagrams from `holon_get_graph`, not from memory.**
+**Rule 3 — Ground diagrams from \`holon_get_graph\`, not from memory.**
 After any create + connect sequence, call \`holon_get_graph({ rootHolonId: <root id> })\`.
 Use its \`nodes\` and \`edges\` output as the \`<oasis_holon_diagram>\` payload directly.
 The Canvas panel in the IDE updates automatically from real tool-call results.
@@ -229,6 +237,15 @@ Each node's **description** field should state the specific feature it serves in
  */
 export function getAgentContextPackSearchFirst(): string {
   return `## OASIS IDE context pack — search-first (v${AGENT_CONTEXT_PACK_VERSION})
+
+> **⛔ ABSOLUTE PROHIBITION — read this before anything else:**
+> When the user's message contains action words (create, build, connect, link, show, generate, make) you **MUST execute all steps immediately** in this single turn.
+> **NEVER respond with a plan and ask "shall I proceed?" or "please confirm".**
+> Wrong: "Here is my plan… please confirm." ← forbidden
+> Wrong: "Next steps: … Let me know if you'd like to proceed." ← forbidden
+> Right: call all MCP tools now (create → connect → get_graph → emit diagram) then summarise what was done.
+> This applies to every holon sequence, scaffold, or graph request, no exceptions.
+
 This pack is a **short** form. For STARNET inventory, file contents, and repo structure, use **read-only tools in this turn** — do not assume the full table was pre-attached.
 
 ### Auto-load & planning
@@ -268,11 +285,24 @@ Vite: \`"type": "module"\`, pin real npm packages, set dev **port** in \`vite.co
 ### STARNET in this turn
 A separate block may say **STARNET (search-first)** with no table. **Do not** claim the catalog is empty because no table is here — call \`mcp_invoke\` \`star_list_holons\` / \`star_list_oapps\` or use **Activity bar → STARNET**. For one row, \`star_get_holon\` / \`star_get_oapp\`. Do not send users to external marketing STARNET sites.
 
+### Recipe Holons — use these FIRST before creating individual holons
+A **RecipeHolon** is a pre-built composition template on STARNET. It encodes which holons to create, all edges, and activation hooks (e.g. karma on delivery completion, NFT attestation on order confirmed) — so no gap-filling code is needed.
+
+**Rule: before creating individual holons for a new app, check for a recipe:**
+1. Call \`mcp_invoke\` \`holon_recipe_list\` (optionally with \`category\`). If a recipe exists, call \`holon_compose_from_recipe({ category, appName, avatarId })\` **instead** of creating holons one by one.
+2. \`holon_compose_from_recipe\` creates all entity holons, wires all edges, and returns the full session graph in **a single tool call**. After it returns, call \`holon_session_graph()\` then emit \`<oasis_holon_diagram>\`.
+3. If **no recipe exists** for the category yet: create one with \`holon_recipe_create\`, then call \`holon_compose_from_recipe\`. The recipe is now published to STARNET — future agents reuse it automatically.
+4. \`holon_seed_food_delivery_recipe\` seeds the canonical food-delivery recipe once; safe to re-run.
+
+**Built-in categories (holon_compose_from_recipe has a built-in fallback, no seed required):**
+- \`food-delivery\` — VenueHolon · MenuItemHolon · CourierHolon · KarmaHolon (courier trust score) · NFTHolon (order attestation). Activations: karma +50 on delivered, attestation hint on confirmed.
+
 ### Holon wiring — CRITICAL RULES (all in one turn, no pausing)
-1. Create holons with \`holon_*_create\`, then **immediately** call \`holon_connect({ parentId, childId })\` in the same turn — do not stop to ask confirmation.
-2. After connect, call \`holon_get_graph({ rootHolonId })\` to read back the real edge data.
-3. Emit **\`<oasis_holon_diagram>\`** JSON with the graph output — **NOT** Mermaid \`graph TD\`. Only the XML tag form renders as a live graph in the IDE.
-4. Reuse ids from \`## Session holons\` block if present; call \`holon_session_graph()\` to check session state.
+1. **Prefer \`holon_compose_from_recipe\`** when a recipe exists. Fall back to individual \`holon_*_create\` only for holons not covered by any recipe.
+2. Create holons with \`holon_*_create\`, then **immediately** call \`holon_connect({ parentId, childId })\` in the same turn — do not stop to ask confirmation.
+3. After connect, call \`holon_get_graph({ rootHolonId })\` to read back the real edge data.
+4. Emit **\`<oasis_holon_diagram>\`** JSON with the graph output — **NOT** Mermaid \`graph TD\`. Only the XML tag form renders as a live graph in the IDE.
+5. Reuse ids from \`## Session holons\` block if present; call \`holon_session_graph()\` to check session state.
 
 ### Diagrams
 For **holon relationships**: always \`<oasis_holon_diagram>{nodes,edges}</oasis_holon_diagram>\` — Mermaid renders as a code block, not a live graph.

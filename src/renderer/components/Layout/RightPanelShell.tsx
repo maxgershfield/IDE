@@ -1,6 +1,4 @@
 import React from 'react';
-import { Mic, Gamepad2 } from 'lucide-react';
-import { useGameDev } from '../../contexts/GameDevContext';
 import { useA2A } from '../../contexts/A2AContext';
 import './RightPanelShell.css';
 
@@ -16,9 +14,7 @@ interface RightPanelShellProps {
 
 const TABS: { id: RightPanelTabId; label: React.ReactNode }[] = [
   { id: 'composer', label: 'Composer' },
-  { id: 'inbox',    label: 'A2A Inbox' },
   { id: 'tools',    label: 'OASIS Tools' },
-  { id: 'npc',      label: <span className="right-panel-tab-icon-label"><Mic size={12} strokeWidth={1.8} />NPC Voice</span> },
   { id: 'agents',   label: 'Agents' },
 ];
 
@@ -29,7 +25,6 @@ const TABS: { id: RightPanelTabId; label: React.ReactNode }[] = [
  */
 export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbox, tools, npcVoice, agents }) => {
   const { activeTab, setActiveTab } = useA2A();
-  const { isGameDevMode, toggleGameDevMode } = useGameDev();
 
   return (
     <div className="right-panel-shell">
@@ -47,22 +42,6 @@ export const RightPanelShell: React.FC<RightPanelShellProps> = ({ composer, inbo
           </button>
         ))}
         <div className="right-panel-shell-tabs-spacer" />
-        <button
-          type="button"
-          className={`right-panel-shell-gamedev-toggle${isGameDevMode ? ' is-on' : ''}`}
-          onClick={toggleGameDevMode}
-          title={
-            isGameDevMode
-              ? 'Game Dev mode on — click to disable. Agent uses metaverse game context: quests, NPCs, ElevenLabs voice, world engine templates.'
-              : 'Enable Game Dev mode — loads metaverse game developer context for quests, NPCs, ElevenLabs voice, Three.js/Hyperfy/Unity/Roblox.'
-          }
-          aria-pressed={isGameDevMode}
-        >
-          <span className="right-panel-tab-icon-label">
-            <Gamepad2 size={12} strokeWidth={1.8} />
-            {isGameDevMode ? 'Game Dev' : 'Game Dev'}
-          </span>
-        </button>
       </div>
       <div
         className="right-panel-shell-body"

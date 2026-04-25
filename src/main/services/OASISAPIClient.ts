@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import axios, { AxiosInstance, isAxiosError } from 'axios';
 import type { AgentChatMessage } from '../../shared/agentTurnTypes.js';
+import { DEV_LOCAL_OASIS_API_BASE } from '../../shared/oasisIdeBundleDefaults.js';
 
 export class OASISAPIClient {
   private client: AxiosInstance;
@@ -16,7 +17,7 @@ export class OASISAPIClient {
 
   constructor(baseURL?: string) {
     this.baseURL = OASISAPIClient.normalizeBaseUrl(
-      baseURL ?? process.env.OASIS_API_URL ?? 'http://127.0.0.1:5003'
+      baseURL ?? process.env.OASIS_API_URL ?? DEV_LOCAL_OASIS_API_BASE
     );
 
     this.client = axios.create({
@@ -94,6 +95,37 @@ export class OASISAPIClient {
       refreshToken: refreshToken ?? '',
       avatarId,
       username: usernameOut
+    };
+  }
+
+  private unwrapA2AResult(data: unknown): unknown {
+    if (!data || typeof data !== 'object') return data;
+    const record = data as Record<string, unknown>;
+    return record.result ?? record.Result ?? data;
+  }
+
+  private unwrapA2AList(data: unknown): any[] {
+    const result = this.unwrapA2AResult(data);
+    if (Array.isArray(result)) return result;
+    if (result && typeof result === 'object') {
+      const record = result as Record<string, unknown>;
+      if (Array.isArray(record.messages)) return record.messages as any[];
+      if (Array.isArray(record.items)) return record.items as any[];
+      if (Array.isArray(record.agents)) return record.agents as any[];
+    }
+    return [];
+  }
+
+  private buildA2AJsonRpcParams(
+    toAgentId: string,
+    params: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    const rest = { ...params };
+    delete rest.toAgentId;
+    delete rest.to_agent_id;
+    return {
+      ...rest,
+      to_agent_id: toAgentId
     };
   }
 
@@ -195,10 +227,7 @@ export class OASISAPIClient {
    */
   async getPendingA2AMessages(): Promise<any[]> {
     const response = await this.client.get('/api/a2a/messages');
-    const data = response.data ?? response;
-    const result = data.result ?? data;
-    const list = Array.isArray(result) ? result : result?.messages ?? result?.items ?? [];
-    return list;
+    return this.unwrapA2AList(response.data ?? response);
   }
 
   /**
@@ -215,9 +244,10 @@ export class OASISAPIClient {
     const response = await this.client.post('/api/a2a/jsonrpc', {
       jsonrpc: '2.0',
       method,
-      params: { toAgentId, ...params }
+      params: this.buildA2AJsonRpcParams(toAgentId, params),
+      id: randomUUID()
     });
-    return (response.data ?? response).result;
+    return this.unwrapA2AResult(response.data ?? response);
   }
 
   async healthCheck(): Promise<any> {
@@ -231,12 +261,12 @@ export class OASISAPIClient {
 
   async discoverAgents(serviceName?: string): Promise<any[]> {
     const url = serviceName
-      ? `/api/serv/agents/discover-serv?service=${encodeURIComponent(serviceName)}`
-      : '/api/serv/agents/discover-serv';
+      ? `/api/a2a/agents/discover-onet?service=${encodeURIComponent(serviceName)}`
+      : '/api/a2a/agents/discover-onet';
     
     try {
       const response = await this.client.get(url);
-      return response.data.result || [];
+      return this.unwrapA2AList(response.data ?? response);
     } catch (error: any) {
       console.error('[OASIS] Agent discovery error:', error);
       return [];
@@ -245,8 +275,8 @@ export class OASISAPIClient {
 
   async getAgentCard(agentId: string): Promise<any> {
     try {
-      const response = await this.client.get(`/api/serv/agent-card/${agentId}`);
-      return response.data.result;
+      const response = await this.client.get(`/api/a2a/agent-card/${agentId}`);
+      return this.unwrapA2AResult(response.data ?? response);
     } catch (error: any) {
       throw new Error(`Failed to get agent card: ${error.message}`);
     }
@@ -254,11 +284,13 @@ export class OASISAPIClient {
 
   async sendA2AMessage(toAgentId: string, message: any): Promise<any> {
     try {
-      const response = await this.client.post('/api/serv/jsonrpc', {
-        toAgentId,
-        ...message
+      const response = await this.client.post('/api/a2a/jsonrpc', {
+        jsonrpc: '2.0',
+        method: message?.method ?? 'service_request',
+        params: this.buildA2AJsonRpcParams(toAgentId, message?.params ?? message ?? {}),
+        id: message?.id ?? randomUUID()
       });
-      return response.data.result;
+      return this.unwrapA2AResult(response.data ?? response);
     } catch (error: any) {
       throw new Error(`Failed to send A2A message: ${error.message}`);
     }
@@ -276,7 +308,8 @@ export class OASISAPIClient {
     await this.client.post('/api/a2a/jsonrpc', {
       jsonrpc: '2.0',
       method,
-      params: { toAgentId, content }
+      params: this.buildA2AJsonRpcParams(toAgentId, { content }),
+      id: randomUUID()
     });
   }
 
@@ -286,11 +319,10 @@ export class OASISAPIClient {
    * Fire-and-forget — failure should not block login.
    */
   async registerAgentCapabilities(agentId: string, capabilities: string[]): Promise<void> {
-    await this.client.post('/api/a2a/agents/register', {
-      agentId,
-      capabilities,
-      agentType: 'ide',
-      description: 'OASIS IDE session'
+    await this.client.post('/api/a2a/agent/capabilities', {
+      services: capabilities,
+      skills: ['OASIS-IDE'],
+      description: `OASIS IDE session${agentId ? ` (${agentId})` : ''}`
     });
   }
 

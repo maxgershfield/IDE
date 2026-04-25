@@ -36,7 +36,11 @@ import {
   sanitizeOasisStarterFolderName
 } from './services/oasisOnboardStarterPath.js';
 import { applyOasisOnboardBranding } from './services/oasisOnboardBranding.js';
-import { BUNDLE_OASIS_API_BASE, BUNDLE_STAR_API_BASE } from '../shared/oasisIdeBundleDefaults.js';
+import {
+  BUNDLE_OASIS_API_BASE,
+  BUNDLE_STAR_API_BASE,
+  DEV_LOCAL_OASIS_API_BASE
+} from '../shared/oasisIdeBundleDefaults.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1327,6 +1331,9 @@ function readStarnetEndpointOverrideFromSettingsDisk(): string {
 
 function getEffectiveOasisApiEndpointFromSettingsDisk(): string {
   const from = readOasisApiEndpointFromSettingsDisk();
+  if (!app.isPackaged) {
+    if (!from || from === BUNDLE_OASIS_API_BASE) return DEV_LOCAL_OASIS_API_BASE;
+  }
   if (from) return from;
   if (app.isPackaged) return BUNDLE_OASIS_API_BASE;
   return '';
@@ -1362,7 +1369,12 @@ function mergeSettingsPayloadWithPackagedDefaults(
   disk: Record<string, unknown>
 ): Record<string, unknown> {
   if (!app.isPackaged) {
-    return disk;
+    const out: Record<string, unknown> = { ...disk };
+    const o = typeof out.oasisApiEndpoint === 'string' ? String(out.oasisApiEndpoint).trim() : '';
+    if (!o || o === BUNDLE_OASIS_API_BASE) {
+      out.oasisApiEndpoint = DEV_LOCAL_OASIS_API_BASE;
+    }
+    return out;
   }
   const out: Record<string, unknown> = { ...disk };
   if (typeof out.oasisApiEndpoint !== 'string' || !String(out.oasisApiEndpoint).trim()) {
@@ -1387,7 +1399,7 @@ function resolveOasisApiBaseUrl(): string {
   if (env) return OASISAPIClient.normalizeBaseUrl(env);
   const fromSettings = getEffectiveOasisApiEndpointFromSettingsDisk();
   if (fromSettings) return OASISAPIClient.normalizeBaseUrl(fromSettings);
-  return 'http://127.0.0.1:5003';
+  return DEV_LOCAL_OASIS_API_BASE;
 }
 
 ipcMain.handle('settings:get', () =>

@@ -1,5 +1,7 @@
 /** Max chars of planning file embedded in the IDE context pack (ONODE caps total pack size). */
-const PLANNING_DOC_CONTEXT_MAX_CHARS = 28_000;
+export const PLANNING_DOC_CONTEXT_MAX_CHARS = 28_000;
+/** Tighter default when `agentInputBudget` is "low" (tokens per request). */
+export const PLANNING_DOC_CONTEXT_MAX_CHARS_LOW = 8_000;
 
 /** Resolve one line from `.oasiside/planning-doc.path` against the workspace root. */
 export function resolveWorkspaceRelativePath(workspaceRoot: string, line: string): string {
@@ -44,14 +46,19 @@ export function resolveUserFilePathInput(workspaceRoot: string | null, input: st
 /**
  * Markdown block appended to the Composer context pack so ONODE sees the planning doc
  * without the user pasting it into chat.
+ * @param maxBodyChars - optional cap; defaults to {@link PLANNING_DOC_CONTEXT_MAX_CHARS} (or low-budget value from caller)
  */
-export function buildPlanningDocContextNote(sourcePath: string | null, content: string): string {
+export function buildPlanningDocContextNote(
+  sourcePath: string | null,
+  content: string,
+  maxBodyChars: number = PLANNING_DOC_CONTEXT_MAX_CHARS
+): string {
   const trimmed = content.trim();
   let body = trimmed;
-  if (body.length > PLANNING_DOC_CONTEXT_MAX_CHARS) {
+  const cap = maxBodyChars > 0 ? maxBodyChars : PLANNING_DOC_CONTEXT_MAX_CHARS;
+  if (body.length > cap) {
     body =
-      body.slice(0, PLANNING_DOC_CONTEXT_MAX_CHARS) +
-      '\n\n[IDE: planning document truncated for context size]';
+      body.slice(0, cap) + '\n\n[IDE: planning document truncated for context size]';
   }
   const meta = sourcePath
     ? `**Path:** \`${sourcePath}\``

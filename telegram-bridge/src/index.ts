@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { Bot, type Context } from 'grammy';
+import { DELIVERY_HELP, parseDeliveryCommand, type DeliveryCommand } from './deliveryCommands.js';
+import { callMcpTool, type McpToolResult } from './deliveryMcpClient.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +34,22 @@ const ALLOWED_CHAT_ID = process.env.TELEGRAM_ALLOWED_CHAT_ID
 const CONFIRM_MESSAGE =
   process.env.CONFIRM_MESSAGE?.trim() ||
   'Task received. The IDE is working on it.';
+
+const DELIVERY_BOT_ENABLED = /^(1|true|yes)$/i.test(process.env.DELIVERY_BOT_ENABLED ?? '');
+const DELIVERY_MCP_ENDPOINT = process.env.OASIS_MCP_HTTP_URL?.trim() || '';
+const DELIVERY_MCP_TOKEN = process.env.OASIS_MCP_HTTP_TOKEN?.trim() || undefined;
+
+const courierByChatId = new Map<number, string>(
+  (process.env.TELEGRAM_COURIER_MAP ?? '')
+    .split(',')
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const [chatId, courierHolonId] = pair.split(':').map((s) => s.trim());
+      return [Number(chatId), courierHolonId] as const;
+    })
+    .filter(([chatId, courierHolonId]) => Number.isFinite(chatId) && Boolean(courierHolonId))
+);
 
 if (ALLOWED_USER_IDS.size === 0) {
   console.warn('[Bridge] TELEGRAM_ALLOWED_USER_IDS is empty — ALL users can send tasks. Set it in .env to restrict access.');
@@ -82,6 +100,140 @@ async function replyUnauthorized(ctx: Context): Promise<void> {
   await ctx.reply(
     `Not authorized.\n\nYour Telegram user ID is: ${uid}\n\nAdd it to TELEGRAM_ALLOWED_USER_IDS in telegram-bridge/.env, then restart the bridge.`
   );
+}
+
+function findFirstId(value: unknown, depth = 0): string | null {
+  if (depth > 5 || value === null || value === undefined) return null;
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const id = record.id ?? record.Id;
+    if (typeof id === 'string' && id.length > 0) return id;
+    for (const child of Object.values(record)) {
+      const found = findFirstId(child, depth + 1);
+      if (found) return found;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const found = findFirstId(child, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function formatDeliveryResult(command: DeliveryCommand, result: McpToolResult): string {
+  if (result.error) {
+    return `Delivery command failed: ${result.message ?? 'Unknown MCP error'}`;
+  }
+
+  switch (command.kind) {
+    case 'registerCourier': {
+      const id = findFirstId(result) ?? '(id not returned)';
+      return `Courier registered: ${command.displayName}\nCourierHolon: ${id}\nUse /available ${id} to go online.`;
+    }
+    case 'setAvailability':
+      return command.isOnline
+        ? `Courier is online: ${command.courierHolonId}`
+        : `Courier is offline: ${command.courierHolonId}`;
+    case 'acceptOrder':
+      return `Order accepted.\nOrder: ${command.orderId}\nCourier: ${command.courierHolonId}`;
+    case 'updateStatus':
+      return `Order ${command.orderId} status updated to ${command.status}.`;
+    case 'dispatchPreview': {
+      const candidates = Array.isArray(result.candidates) ? result.candidates : [];
+      if (candidates.length === 0) return `No available couriers found for order ${command.orderId}.`;
+      const rows = candidates.slice(0, 5).map((candidate: any, index) => {
+        const distance = typeof candidate.distanceMeters === 'number'
+          ? ` · ${Math.round(candidate.distanceMeters)}m`
+          : '';
+        return `${index + 1}. ${candidate.displayName || candidate.courierHolonId}${distance} · trust ${candidate.trustScore ?? 0}`;
+      });
+      return [`Courier candidates for ${command.orderId}:`, ...rows].join('\n');
+    }
+    case 'unassignedOrders': {
+      const orders = Array.isArray(result.orders) ? result.orders : [];
+      if (orders.length === 0) return 'No unassigned placed/confirmed orders.';
+      const rows = orders.slice(0, 10).map((order: any, index) => {
+        const total = typeof order.totalAmount === 'number' ? ` · ${order.totalAmount} ${order.currency ?? ''}` : '';
+        return `${index + 1}. ${order.id} · ${order.status}${total} · ${order.deliveryAddress ?? ''}`;
+      });
+      return ['Unassigned orders:', ...rows].join('\n');
+    }
+    case 'help':
+      return DELIVERY_HELP;
+  }
+}
+
+async function executeDeliveryCommand(command: DeliveryCommand): Promise<McpToolResult> {
+  if (!DELIVERY_MCP_ENDPOINT) {
+    throw new Error('OASIS_MCP_HTTP_URL is not set. Start the MCP HTTP server and set the bridge env var.');
+  }
+
+  switch (command.kind) {
+    case 'help':
+      return { ok: true };
+    case 'registerCourier':
+      return callMcpTool(DELIVERY_MCP_ENDPOINT, 'holon_courier_create', {
+        avatarId: command.avatarId,
+        vehicleType: command.vehicleType,
+        displayName: command.displayName,
+      }, DELIVERY_MCP_TOKEN);
+    case 'setAvailability':
+      return callMcpTool(DELIVERY_MCP_ENDPOINT, 'holon_courier_set_availability', {
+        id: command.courierHolonId,
+        isOnline: command.isOnline,
+        lat: command.lat,
+        lng: command.lng,
+      }, DELIVERY_MCP_TOKEN);
+    case 'acceptOrder':
+      return callMcpTool(DELIVERY_MCP_ENDPOINT, 'holon_delivery_assign_courier', {
+        id: command.orderId,
+        courierHolonId: command.courierHolonId,
+        status: 'confirmed',
+      }, DELIVERY_MCP_TOKEN);
+    case 'updateStatus':
+      return callMcpTool(DELIVERY_MCP_ENDPOINT, 'holon_delivery_update_status', {
+        id: command.orderId,
+        status: command.status,
+      }, DELIVERY_MCP_TOKEN);
+    case 'dispatchPreview':
+      return callMcpTool(DELIVERY_MCP_ENDPOINT, 'holon_delivery_dispatch_preview', {
+        orderId: command.orderId,
+        maxCandidates: command.maxCandidates ?? 5,
+      }, DELIVERY_MCP_TOKEN);
+    case 'unassignedOrders':
+      return callMcpTool(DELIVERY_MCP_ENDPOINT, 'holon_delivery_unassigned_list', {}, DELIVERY_MCP_TOKEN);
+  }
+}
+
+async function tryHandleDeliveryText(ctx: Context, text: string): Promise<boolean> {
+  const command = parseDeliveryCommand(text);
+  if (!command) return false;
+
+  if (!DELIVERY_BOT_ENABLED) {
+    await ctx.reply('Delivery bot mode is disabled. Set DELIVERY_BOT_ENABLED=true to handle courier commands.');
+    return true;
+  }
+
+  if (command.kind === 'help') {
+    await ctx.reply(DELIVERY_HELP);
+    return true;
+  }
+
+  try {
+    await ctx.replyWithChatAction('typing');
+    const result = await executeDeliveryCommand(command);
+    if (command.kind === 'setAvailability' || command.kind === 'acceptOrder') {
+      const courierHolonId = command.kind === 'setAvailability' ? command.courierHolonId : command.courierHolonId;
+      if (ctx.chat?.id) courierByChatId.set(ctx.chat.id, courierHolonId);
+    }
+    await ctx.reply(formatDeliveryResult(command, result));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await ctx.reply(`Delivery command failed: ${msg}`);
+  }
+  return true;
 }
 
 // ── /start ────────────────────────────────────────────────────────────────────
@@ -145,7 +297,13 @@ bot.on('message:text', async (ctx) => {
   }
 
   const text = ctx.message.text.trim();
-  if (!text || text.startsWith('/')) return;
+  if (!text) return;
+
+  if (await tryHandleDeliveryText(ctx, text)) {
+    return;
+  }
+
+  if (text.startsWith('/')) return;
 
   const taskId = `tg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -168,6 +326,42 @@ bot.on('message:text', async (ctx) => {
     await ctx.reply(
       'Could not reach the OASIS IDE right now. Make sure the IDE is open and try again.'
     );
+  }
+});
+
+// ── Courier live location → CourierHolon ───────────────────────────────────────
+bot.on('message:location', async (ctx) => {
+  if (!isAuthorized(ctx)) {
+    await replyUnauthorized(ctx);
+    return;
+  }
+
+  if (!DELIVERY_BOT_ENABLED) {
+    await ctx.reply('Delivery bot mode is disabled. Set DELIVERY_BOT_ENABLED=true to handle courier location updates.');
+    return;
+  }
+
+  const courierHolonId = ctx.chat?.id ? courierByChatId.get(ctx.chat.id) : undefined;
+  if (!courierHolonId) {
+    await ctx.reply('No CourierHolon is linked to this chat. Send /available <courierHolonId> first.');
+    return;
+  }
+  if (!DELIVERY_MCP_ENDPOINT) {
+    await ctx.reply('OASIS_MCP_HTTP_URL is not set. Start the MCP HTTP server and set the bridge env var.');
+    return;
+  }
+
+  try {
+    const location = ctx.message.location;
+    await callMcpTool(DELIVERY_MCP_ENDPOINT, 'holon_courier_update_location', {
+      id: courierHolonId,
+      lat: location.latitude,
+      lng: location.longitude,
+    }, DELIVERY_MCP_TOKEN);
+    await ctx.reply('Location updated.');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await ctx.reply(`Could not update location: ${msg}`);
   }
 });
 

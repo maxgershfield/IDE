@@ -179,6 +179,9 @@ export class MCPServerManager {
     if (this.oasisJwtToken) {
       headers.Authorization = `Bearer ${this.oasisJwtToken}`;
     }
+    if (this.oasisAvatarId) {
+      headers['X-Avatar-Id'] = this.oasisAvatarId;
+    }
     return headers;
   }
 

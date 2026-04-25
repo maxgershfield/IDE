@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import * as monaco from 'monaco-editor';
+import type * as Monaco from 'monaco-editor';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import { useGameDev } from '../../contexts/GameDevContext';
@@ -28,7 +28,9 @@ function languageFromPath(filePath: string): string {
 
 export const Editor: React.FC = () => {
   const editorRef = useRef<HTMLDivElement>(null);
-  const monacoEditorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoApiRef = useRef<typeof Monaco | null>(null);
+  const monacoEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [monacoReady, setMonacoReady] = useState(false);
   const { fileContent, openFilePath, setFileContent, save, dirty, starWorkspaceConfig } = useWorkspace();
   const {
     activeBuilderTab,
@@ -66,34 +68,43 @@ export const Editor: React.FC = () => {
   // Create Monaco once
   useEffect(() => {
     if (!editorRef.current) return;
+    let disposed = false;
+    let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
 
-    const editor = monaco.editor.create(editorRef.current, {
-      value: '',
-      language: 'plaintext',
-      theme: 'vs-dark',
-      automaticLayout: true,
-      minimap: { enabled: true },
-      fontSize: 14,
-      wordWrap: 'on',
-      lineNumbers: 'on',
-      roundedSelection: false,
-      scrollBeyondLastLine: false,
-      readOnly: false,
-      cursorStyle: 'line',
-      fontFamily: "'Fira Code', 'Consolas', 'Monaco', monospace",
+    void import('monaco-editor').then((monaco) => {
+      if (disposed || !editorRef.current) return;
+      monacoApiRef.current = monaco;
+      editor = monaco.editor.create(editorRef.current, {
+        value: '',
+        language: 'plaintext',
+        theme: 'vs-dark',
+        automaticLayout: true,
+        minimap: { enabled: true },
+        fontSize: 14,
+        wordWrap: 'on',
+        lineNumbers: 'on',
+        roundedSelection: false,
+        scrollBeyondLastLine: false,
+        readOnly: false,
+        cursorStyle: 'line',
+        fontFamily: "'Fira Code', 'Consolas', 'Monaco', monospace",
+      });
+      monacoEditorRef.current = editor;
+      setMonacoReady(true);
     });
 
-    monacoEditorRef.current = editor;
-
     return () => {
-      editor.dispose();
+      disposed = true;
+      editor?.dispose();
       monacoEditorRef.current = null;
+      monacoApiRef.current = null;
     };
   }, []);
 
   // Sync editor content when open file or fileContent (from open) changes
   useEffect(() => {
     const editor = monacoEditorRef.current;
+    const monaco = monacoApiRef.current;
     if (!editor) return;
     const model = editor.getModel();
     if (!model) return;
@@ -107,8 +118,8 @@ export const Editor: React.FC = () => {
     }
 
     const lang = openFilePath ? languageFromPath(openFilePath) : 'plaintext';
-    monaco.editor.setModelLanguage(model, lang);
-  }, [openFilePath, fileContent]);
+    monaco?.editor.setModelLanguage(model, lang);
+  }, [openFilePath, fileContent, monacoReady]);
 
   // Subscribe to content changes and Cmd+S
   useEffect(() => {
@@ -135,7 +146,7 @@ export const Editor: React.FC = () => {
       disposable.dispose();
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [setFileContent, save]);
+  }, [setFileContent, save, monacoReady]);
 
   const fileLabel = openFilePath ? openFilePath.replace(/^.*[/\\]/, '') : 'Untitled';
   const showBuilder = activeBuilderTab !== null;

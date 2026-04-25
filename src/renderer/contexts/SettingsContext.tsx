@@ -47,6 +47,11 @@ export interface OASISSettings {
    * **full** — larger pack + full STARNET table every turn; higher API token use.
    */
   agentContextPacking: 'searchFirst' | 'full';
+  /**
+   * **normal** — default thread/pack sizes for the agent.
+   * **low** — shorter history, smaller tool result snippets, tighter autoload/pack caps (reduces OpenAI tokens per request).
+   */
+  agentInputBudget: 'normal' | 'low';
 
   // Models
   enabledModels: string[];
@@ -148,6 +153,7 @@ export const DEFAULT_SETTINGS: OASISSettings = {
   agentAutocomplete: true,
   startAgentReviewOnCommit: false,
   agentContextPacking: 'searchFirst',
+  agentInputBudget: 'normal',
 
   // Models
   enabledModels: [
@@ -166,7 +172,7 @@ export const DEFAULT_SETTINGS: OASISSettings = {
     elevenlabs: '',
   },
 
-  // Integrations
+  // Integrations — `settings:get` (main) fills the real default: local ONODE in dev, public API when packaged.
   oasisApiEndpoint: '',
   portalBaseUrl: 'https://oasisweb4.one/portal/',
   portalActivityNotify: false,
@@ -238,7 +244,18 @@ interface SettingsContextType {
   setActiveSection: (s: string) => void;
 }
 
-const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
+const SETTINGS_CONTEXT_KEY = '__OASIS_IDE_SETTINGS_CONTEXT__';
+
+type SettingsContextGlobal = typeof globalThis & {
+  [SETTINGS_CONTEXT_KEY]?: React.Context<SettingsContextType | undefined>;
+};
+
+// Vite HMR can briefly load provider and consumer from different module instances.
+// Keep the context identity stable so existing consumers remain under the provider.
+const settingsContextGlobal = globalThis as SettingsContextGlobal;
+const SettingsContext =
+  settingsContextGlobal[SETTINGS_CONTEXT_KEY] ??
+  (settingsContextGlobal[SETTINGS_CONTEXT_KEY] = createContext<SettingsContextType | undefined>(undefined));
 
 function mergeWithDefaults(raw: Record<string, unknown>): OASISSettings {
   const onChainDefaultChain = isMintWorkflowChainId(raw.onChainDefaultChain)
@@ -259,11 +276,15 @@ function mergeWithDefaults(raw: Record<string, unknown>): OASISSettings {
     raw.agentContextPacking === 'full' || raw.agentContextPacking === 'searchFirst'
       ? raw.agentContextPacking
       : DEFAULT_SETTINGS.agentContextPacking;
-
+  const agentInputBudget =
+    raw.agentInputBudget === 'low' || raw.agentInputBudget === 'normal'
+      ? raw.agentInputBudget
+      : DEFAULT_SETTINGS.agentInputBudget;
   return {
     ...DEFAULT_SETTINGS,
     ...raw,
     agentContextPacking,
+    agentInputBudget,
     portalActivityPollSec,
     onChainDefaultChain,
     onChainSolanaCluster,

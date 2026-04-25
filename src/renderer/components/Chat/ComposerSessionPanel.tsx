@@ -17,6 +17,7 @@ import { useGameDev } from '../../contexts/GameDevContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import {
   buildAgentPriorMessagesFromThread,
+  LOW_AGENT_PRIOR_THREAD_LIMITS,
   emitActivityMetaAsFeed,
   runIdeAgentGatherPresentSequence,
   runIdeAgentLoop,
@@ -34,6 +35,7 @@ import type { AgentActivityFeedItem } from '../../../shared/agentActivityFeed';
 import { ComposerActivityFeedRow } from './ComposerActivityFeedRow';
 import { ComposerMarkdownBody } from './ComposerMarkdownBody';
 import { GameToolPalette } from './GameToolPalette';
+import { DomainPackQuickPalette } from './DomainPackQuickPalette';
 import { useStarnetCatalog } from '../../contexts/StarnetCatalogContext';
 import {
   buildStarnetIdeContextNote,
@@ -55,13 +57,20 @@ import { useProjectMemory } from '../../contexts/ProjectMemoryContext';
 import { loadWorkspaceRulesText } from '../../utils/workspaceRules';
 import { loadIdeAgentInstructions } from '../../utils/ideAgentInstructions';
 import { extractLastOasisBuildPlan, stripOasisBuildPlanFences } from '../../utils/parseOasisBuildPlan';
-import { buildPlanningDocContextNote } from '../../utils/buildPlanningDocContextNote';
+import {
+  buildPlanningDocContextNote,
+  PLANNING_DOC_CONTEXT_MAX_CHARS,
+  PLANNING_DOC_CONTEXT_MAX_CHARS_LOW
+} from '../../utils/buildPlanningDocContextNote';
 import { buildHolonAnnotatedWorkspaceNote } from '../../utils/holonWorkspaceAnnotation';
 import { useWorkspaceHolonScan } from '../../hooks/useWorkspaceHolonScan';
 import { useWorkspaceIndex } from '../../contexts/WorkspaceIndexContext';
 import { useOappBuildPlan } from '../../contexts/OappBuildPlanContext';
 import { useHolonicCanvas } from '../../contexts/HolonicCanvasContext';
+import { useDomainPacks } from '../../contexts/DomainPackContext';
 import { buildOnChainAgentContextNote } from '../../constants/onChainQuickPrompts';
+import { buildDomainPackContextNote } from '../../utils/domainPackAgentContext';
+import type { DomainPackQuickAction } from '../../../shared/domainPackTypes';
 import {
   buildPathScopedContextNote,
   rootDirNamesFromTree,
@@ -167,6 +176,7 @@ const INITIAL_MESSAGE: Message = {
     '**Agent** and **Game Dev** (Activity bar or Game Dev toggle in the right panel):\n' +
     '- **Agent**: OpenAI or Grok with a **workspace folder** open. Use **Plan** for read-only exploration and a chip handoff, or **Execute** for writes, STAR, npm, and MCP.\n' +
     '- **Game Dev**: Same tool loop as Agent, with metaverse game context pre-loaded (quests, NPCs, GeoNFTs, ElevenLabs voice, engine templates).\n\n' +
+    '**Domains**: Pick a domain from the Composer tab bar, such as **Genomic Medicine**, to load its Holon schemas, safety rules, and quick-start prompts into this chat.\n\n' +
     'With a folder open, the model auto-includes **AGENTS.md** (root and nested toward the open file), **`.cursor/rules`**, and **`.oasiside` / `.OASIS_IDE` rules** in the context pack sent to the model.\n\n' +
     '**Paste images** (Ctrl/Cmd+V) into the composer to ask about screenshots, diagrams, or logos. Use vision-capable models (for example GPT-4o) via ONODE when available.\n\n' +
     '**+** opens another tab with its own history.',
@@ -309,9 +319,13 @@ function buildLocalIdeContextPrefix(
   referencedPaths: string[],
   projectMemory?: string | null,
   starnetNote?: string | null,
+  domainPackNote?: string | null,
   extras?: {
     workspaceRules?: string | null;
     autoLoadedProjectInstructions?: string | null;
+    /** Chars; defaults match historical IDE caps (6k / 8k) */
+    workspaceRulesMax?: number;
+    autoloadMax?: number;
   }
 ): string {
   const lines: string[] = [
@@ -324,19 +338,24 @@ function buildLocalIdeContextPrefix(
   let block = `[IDE context]\n${lines.join('\n')}\n\n`;
   if (extras?.workspaceRules?.trim()) {
     const wr = extras.workspaceRules.trim();
-    block += `## Workspace rules (.oasiside or .OASIS_IDE)\n${wr.slice(0, 6000)}${
-      wr.length > 6000 ? '\n…(truncated)' : ''
+    const wMax = extras.workspaceRulesMax ?? 6000;
+    block += `## Workspace rules (.oasiside or .OASIS_IDE)\n${wr.slice(0, wMax)}${
+      wr.length > wMax ? '\n…(truncated)' : ''
     }\n\n`;
   }
   if (extras?.autoLoadedProjectInstructions?.trim()) {
     const al = extras.autoLoadedProjectInstructions.trim();
-    block += `${al.slice(0, 8000)}${al.length > 8000 ? '\n\n…(truncated)' : ''}\n\n`;
+    const aMax = extras.autoloadMax ?? 8000;
+    block += `${al.slice(0, aMax)}${al.length > aMax ? '\n\n…(truncated)' : ''}\n\n`;
   }
   if (projectMemory?.trim()) {
     block += `[Project memory]\n${projectMemory.trim()}\n\n`;
   }
   if (starnetNote?.trim()) {
     block += `${starnetNote.trim()}\n\n`;
+  }
+  if (domainPackNote?.trim()) {
+    block += `${domainPackNote.trim()}\n\n`;
   }
   return block;
 }
@@ -433,6 +452,12 @@ function buildSessionHolonsNote(
   );
 }
 
+function capContextBlock(s: string, maxChars: number, _kind: string): string {
+  const t = s.trim();
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars)}\n\n…(truncated)`;
+}
+
 function buildIdeComposerContextPack(opts: {
   workspaceRules: string | null;
   /** Root + nested AGENTS.md and `.cursor/rules` (bounded); see `docs/IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md` */
@@ -441,6 +466,8 @@ function buildIdeComposerContextPack(opts: {
   basePack: string;
   onChainNote?: string | null;
   starnetNote?: string | null;
+  /** Active domain pack selected in Composer */
+  domainPackNote?: string | null;
   /** Full planning index markdown (Build plan tab); injected every agent turn */
   planningDocNote?: string | null;
   /** Pre-read workspace tree (from WorkspaceContext) — injected once to reduce list_directory round-trips */
@@ -451,41 +478,84 @@ function buildIdeComposerContextPack(opts: {
   pathFocusNote?: string | null;
   /** Holons created during this session, extracted from thread tool results */
   sessionHolonsNote?: string | null;
+  /** Tighter per-section caps to reduce API tokens (Settings → Agent input budget) */
+  inputBudget?: 'normal' | 'low';
 }): string {
   const hasLocalHolonContext =
     Boolean(opts.workspaceTreeNote?.trim()) ||
     Boolean(opts.relevantHolonsNote?.trim()) ||
     Boolean(opts.pathFocusNote?.trim());
-  const parts: string[] = [];
+
+  const low = opts.inputBudget === 'low';
+
+  // ⛔ This MUST be the very first thing the model reads — do not move it down.
+  const EXECUTE_NOW_PREFIX =
+    '> ⛔ MANDATORY BEHAVIOUR — applies to every turn, no exceptions:\n' +
+    '> When the user message contains action words (create, build, connect, link, show, generate, make)\n' +
+    '> you MUST execute ALL steps in THIS turn using tool calls — do not write a plan and ask "shall I proceed?".\n' +
+    '> WRONG: "Here is my plan… shall I proceed?" — this is forbidden.\n' +
+    '> WRONG: "Please confirm if you\'d like to proceed." — this is forbidden.\n' +
+    '> RIGHT: call mcp_invoke tools now (create → connect → get_graph → emit <oasis_holon_diagram>), then summarise what was done.\n' +
+    '> If you are unsure about a detail, pick the most sensible default and proceed — ask afterwards if needed.';
+
+  const parts: string[] = [EXECUTE_NOW_PREFIX];
   if (opts.workspaceRules?.trim()) {
-    parts.push(`## Workspace rules (.oasiside or .OASIS_IDE)\n${opts.workspaceRules.trim()}`);
+    parts.push(
+      `## Workspace rules (.oasiside or .OASIS_IDE)\n${capContextBlock(
+        opts.workspaceRules,
+        low ? 3_000 : 12_000,
+        'rules'
+      )}`
+    );
   }
   if (opts.autoLoadedProjectInstructions?.trim()) {
-    parts.push(opts.autoLoadedProjectInstructions.trim());
+    parts.push(capContextBlock(opts.autoLoadedProjectInstructions, low ? 4_000 : 20_000, 'autoload'));
   }
   if (opts.projectMemoryText.trim()) {
-    parts.push(`## Project memory (workspace notes)\n${opts.projectMemoryText.trim()}`);
+    const pm = low
+      ? capContextBlock(opts.projectMemoryText, 3_000, 'memory')
+      : opts.projectMemoryText.trim();
+    parts.push(`## Project memory (workspace notes)\n${pm}`);
   }
   if (opts.pathFocusNote?.trim()) {
-    parts.push(opts.pathFocusNote.trim());
+    parts.push(
+      low ? capContextBlock(opts.pathFocusNote, 2_000, 'path') : opts.pathFocusNote.trim()
+    );
   }
   if (opts.workspaceTreeNote?.trim()) {
-    parts.push(opts.workspaceTreeNote.trim());
+    parts.push(
+      low ? capContextBlock(opts.workspaceTreeNote, 4_000, 'tree') : opts.workspaceTreeNote.trim()
+    );
   }
   if (opts.relevantHolonsNote?.trim()) {
-    parts.push(opts.relevantHolonsNote.trim());
+    parts.push(
+      low
+        ? capContextBlock(opts.relevantHolonsNote, 1_200, 'holon index')
+        : opts.relevantHolonsNote.trim()
+    );
   }
   if (opts.planningDocNote?.trim()) {
-    parts.push(opts.planningDocNote.trim());
+    parts.push(
+      low ? capContextBlock(opts.planningDocNote, 6_000, 'planning') : opts.planningDocNote.trim()
+    );
   }
   if (opts.starnetNote?.trim()) {
     if (hasLocalHolonContext) {
       parts.push(LOCAL_VS_STARNET_ROUTING_NOTE);
     }
-    parts.push(opts.starnetNote.trim());
+    parts.push(
+      low ? capContextBlock(opts.starnetNote, 12_000, 'starnet') : opts.starnetNote.trim()
+    );
+  }
+  if (opts.domainPackNote?.trim()) {
+    parts.push(
+      low ? capContextBlock(opts.domainPackNote, 8_000, 'domain pack') : opts.domainPackNote.trim()
+    );
   }
   if (opts.sessionHolonsNote?.trim()) {
-    parts.push(opts.sessionHolonsNote.trim());
+    parts.push(
+      low ? capContextBlock(opts.sessionHolonsNote, 2_000, 'session holons') : opts.sessionHolonsNote.trim()
+    );
   }
   if (opts.onChainNote?.trim()) {
     parts.push(`## On-chain defaults (IDE)\n${opts.onChainNote.trim()}`);
@@ -601,6 +671,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     composerDraftInjection,
     acknowledgeComposerDraftInjection
   } = useIdeChat();
+  const { activePack } = useDomainPacks();
+  const domainPackContextNote = useMemo(() => buildDomainPackContextNote(activePack), [activePack]);
   const { snapshot: starnetCatalogSnapshot } = useStarnetCatalog();
   const starnetContextNote = useMemo(() => {
     if (settings.agentContextPacking === 'searchFirst') {
@@ -732,6 +804,14 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   });
   const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
   const pendingWriteResolveRef = useRef<((accepted: boolean) => void) | null>(null);
+  const draftDomainPackAction = useCallback((action: DomainPackQuickAction) => {
+    setAgentExecutionMode(action.mode);
+    setBuildPlanGuide((o) => ({ ...o, open: false }));
+    setOasisOnboardGuide((o) => ({ ...o, open: false }));
+    setOnChainWorkflow(null);
+    setGameQuickWorkflow(null);
+    setInput(action.prompt);
+  }, []);
   /** Text from `.oasiside/rules.md` or `.OASIS_IDE/rules.md`, if present. */
   const [workspaceRules, setWorkspaceRules] = useState<string | null>(null);
   /** AGENTS.md (nested) + `.cursor/rules`; refreshed with workspace and active editor file. */
@@ -748,8 +828,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
   const planningContextNote = useMemo(() => {
     if (!planningDocContent?.trim()) return null;
-    return buildPlanningDocContextNote(planningDocPath ?? null, planningDocContent);
-  }, [planningDocPath, planningDocContent]);
+    return buildPlanningDocContextNote(
+      planningDocPath ?? null,
+      planningDocContent,
+      settings.agentInputBudget === 'low' ? PLANNING_DOC_CONTEXT_MAX_CHARS_LOW : PLANNING_DOC_CONTEXT_MAX_CHARS
+    );
+  }, [planningDocPath, planningDocContent, settings.agentInputBudget]);
 
   /**
    * Tier 2: background file-content scan.
@@ -1239,7 +1323,6 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     !!electronApi?.agentExecuteTool;
   const canSend = !!(defaultAgentId || hasLLM || aiAssistant || agentToolLoopReady);
   const conversationId = threadKey;
-  const MAX_HISTORY = 20;
 
   /** Whenever OpenAI/Grok + workspace agent tools are available, user can choose Plan (read-only) vs Execute. */
   const showPlanExecuteToggle = agentToolLoopReady;
@@ -1409,7 +1492,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     const effectiveExecutionMode: AgentExecutionModeId =
       agentLoopWillUseOpenAiTools && agentExecutionMode === 'plan' ? 'plan' : 'execute';
 
-    const historyForApi = [...threadBefore, userMessage].slice(-MAX_HISTORY).map((m) => ({
+    const isLowInputBudget = settings.agentInputBudget === 'low';
+    const maxChatHistory = isLowInputBudget ? 8 : 20;
+
+    const historyForApi = [...threadBefore, userMessage].slice(-maxChatHistory).map((m) => ({
       role: m.role,
       content: m.content
     }));
@@ -1560,12 +1646,19 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
       if (useAgentToolLoop) {
         const priorForAgent = buildAgentPriorMessagesFromThread(
-          threadBefore.slice(-(MAX_HISTORY - 1)).map((m) => ({
+          threadBefore.slice(-(maxChatHistory - 1)).map((m) => ({
             role: m.role,
             content: m.content,
             toolCalls: m.toolCalls,
             imageDataUrls: m.role === 'user' ? m.imageDataUrls : undefined
-          }))
+          })),
+          isLowInputBudget
+            ? {
+                userMax: LOW_AGENT_PRIOR_THREAD_LIMITS.user,
+                assistantMax: LOW_AGENT_PRIOR_THREAD_LIMITS.assistant,
+                toolResultMax: LOW_AGENT_PRIOR_THREAD_LIMITS.toolResult
+              }
+            : undefined
         );
         const basePack = isGameMode
           ? getGameDevContextPack(starWorkspaceConfig?.gameEngine)
@@ -1573,6 +1666,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
         /* Search the holonic index for holons relevant to this specific message */
         const leanContext = settings.agentContextPacking === 'searchFirst';
+        const indexQueryLimit = isLowInputBudget ? 3 : leanContext ? 5 : 8;
+        const indexTopScored = isLowInputBudget ? 2 : leanContext ? 4 : 6;
+        const indexExcerptLen = isLowInputBudget ? 80 : leanContext ? 120 : 240;
+        const sessionHolonRowCap = isLowInputBudget ? 6 : leanContext ? 12 : 40;
         let relevantHolonsNote: string | null = null;
         if (indexStatus.phase === 'ready' && currentInput.trim()) {
           try {
@@ -1584,15 +1681,15 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             const indexQuery = lastSeg
               ? `${currentInput}\n${lastSeg}`
               : currentInput;
-            const hits = await searchHolons(indexQuery, leanContext ? 5 : 8);
-            const scored = hits.filter((h) => h.score > 0).slice(0, leanContext ? 4 : 6);
+            const hits = await searchHolons(indexQuery, indexQueryLimit);
+            const scored = hits.filter((h) => h.score > 0).slice(0, indexTopScored);
             if (scored.length > 0) {
               const lines = scored.map((h, i) => {
                 const excerpt = h.excerpt
                   .replace(/^Holon:\s*\S+\s*/i, '')
                   .replace(/\n+/g, ' ')
                   .trim()
-                  .slice(0, leanContext ? 120 : 240);
+                  .slice(0, indexExcerptLen);
                 return `${i + 1}. **${h.dirName}** — ${excerpt}`;
               });
               relevantHolonsNote =
@@ -1612,13 +1709,15 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           basePack,
           onChainNote: onChainContextNote,
           starnetNote: starnetContextNote,
+          domainPackNote: domainPackContextNote,
           planningDocNote: planningContextNote,
           pathFocusNote,
           workspaceTreeNote,
           relevantHolonsNote,
+          inputBudget: settings.agentInputBudget,
           sessionHolonsNote: buildSessionHolonsNote(threadBefore, {
-            maxRows: leanContext ? 12 : 40,
-          }),
+            maxRows: sessionHolonRowCap
+          })
         });
         const agentLoopBase = {
           userText: currentInput,
@@ -1688,20 +1787,24 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       if (defaultAgentId && api?.chatWithAgent) {
         /* Search holonic index for OASIS agent path too */
         const leanCtxAgent = settings.agentContextPacking === 'searchFirst';
+        const oIndexLimit = isLowInputBudget ? 3 : leanCtxAgent ? 4 : 6;
+        const oScored = isLowInputBudget ? 2 : leanCtxAgent ? 3 : 5;
+        const oExcerpt = isLowInputBudget ? 80 : leanCtxAgent ? 100 : 200;
+        const oSessionRows = isLowInputBudget ? 6 : leanCtxAgent ? 12 : 40;
         let agentHolonsNote: string | null = null;
         if (indexStatus.phase === 'ready' && currentInput.trim()) {
           try {
             const lastSeg = resolvedPathForIndex?.split('/').filter(Boolean).pop() ?? '';
             const indexQuery = lastSeg ? `${currentInput}\n${lastSeg}` : currentInput;
-            const hits = await searchHolons(indexQuery, leanCtxAgent ? 4 : 6);
-            const scored = hits.filter((h) => h.score > 0).slice(0, leanCtxAgent ? 3 : 5);
+            const hits = await searchHolons(indexQuery, oIndexLimit);
+            const scored = hits.filter((h) => h.score > 0).slice(0, oScored);
             if (scored.length > 0) {
               const lines = scored.map((h, i) => {
                 const excerpt = h.excerpt
                   .replace(/^Holon:\s*\S+\s*/i, '')
                   .replace(/\n+/g, ' ')
                   .trim()
-                  .slice(0, leanCtxAgent ? 100 : 200);
+                  .slice(0, oExcerpt);
                 return `${i + 1}. **${h.dirName}** — ${excerpt}`;
               });
               agentHolonsNote =
@@ -1727,13 +1830,15 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
               settings.agentContextPacking === 'searchFirst' ? getAgentContextPackSearchFirst() : getAgentContextPack(),
             onChainNote: onChainContextNote,
             starnetNote: starnetContextNote,
+            domainPackNote: domainPackContextNote,
             planningDocNote: planningContextNote,
             pathFocusNote,
             workspaceTreeNote,
             relevantHolonsNote: agentHolonsNote,
+            inputBudget: settings.agentInputBudget,
             sessionHolonsNote: buildSessionHolonsNote(threadBefore, {
-              maxRows: leanCtxAgent ? 12 : 40,
-            }),
+              maxRows: oSessionRows
+            })
           })
         );
         if (!result.error && (result.content || (result.toolCalls && result.toolCalls.length > 0))) {
@@ -1750,9 +1855,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           refPathsForTurn,
           projectMemoryText,
           starnetContextNote,
+          domainPackContextNote,
           {
             workspaceRules,
-            autoLoadedProjectInstructions: agentAutoloadInstructions
+            autoLoadedProjectInstructions: agentAutoloadInstructions,
+            workspaceRulesMax: isLowInputBudget ? 3_000 : 6_000,
+            autoloadMax: isLowInputBudget ? 4_000 : 8_000
           }
         );
         const localUser =
@@ -1774,9 +1882,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           refPathsForTurn,
           projectMemoryText,
           starnetContextNote,
+          domainPackContextNote,
           {
             workspaceRules,
-            autoLoadedProjectInstructions: agentAutoloadInstructions
+            autoLoadedProjectInstructions: agentAutoloadInstructions,
+            workspaceRulesMax: isLowInputBudget ? 3_000 : 6_000,
+            autoloadMax: isLowInputBudget ? 4_000 : 8_000
           }
         );
         const response = await aiAssistant.processMessage(
@@ -2087,12 +2198,26 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
                 </span>
               </>
             )}
+            {activePack ? (
+              <>
+                <span>·</span>
+                <span title={`Active domain pack: ${activePack.label}`}>
+                  {activePack.label}
+                </span>
+              </>
+            ) : null}
           </span>
         </summary>
         <div className="composer-context-body">
           Right-click a file or folder in the Explorer to add it to this chat or start a new chat. Attached
           paths are sent to ONODE with each message. @-mentions and full workspace indexing can extend this
           later.
+          {activePack ? (
+            <p>
+              Active domain pack: <strong>{activePack.label}</strong>. Composer will use its Holon schemas,
+              recipes, relationship vocabulary, and safety rules as background context.
+            </p>
+          ) : null}
         </div>
       </details>
 
@@ -2145,6 +2270,14 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           }}
         />
       )}
+
+      {activePack ? (
+        <DomainPackQuickPalette
+          packLabel={activePack.label}
+          actions={activePack.quickActions}
+          onDraftAction={draftDomainPackAction}
+        />
+      ) : null}
 
       {!loggedIn ? (
         <div className="composer-onchain-login-hint" role="note">

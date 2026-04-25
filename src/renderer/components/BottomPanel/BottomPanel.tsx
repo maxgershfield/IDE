@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
-import { TerminalPanel } from '../Terminal/TerminalPanel';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import './BottomPanel.css';
 
 type BottomTabId = 'problems' | 'output' | 'debug' | 'terminal' | 'ports';
+
+const TerminalPanel = lazy(() =>
+  import('../Terminal/TerminalPanel').then((m) => ({ default: m.TerminalPanel }))
+);
 
 const TABS: { id: BottomTabId; label: string }[] = [
   { id: 'problems', label: 'Problems' },
@@ -14,6 +17,12 @@ const TABS: { id: BottomTabId; label: string }[] = [
 
 export const BottomPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<BottomTabId>('terminal');
+
+  useEffect(() => {
+    if (!TABS.some((tab) => tab.id === activeTab)) {
+      setActiveTab('terminal');
+    }
+  }, [activeTab]);
 
   return (
     <div className="bottom-panel-wrapper">
@@ -30,7 +39,17 @@ export const BottomPanel: React.FC = () => {
         ))}
       </div>
       <div className="bottom-panel-content">
-        {activeTab === 'terminal' && <TerminalPanel />}
+        {activeTab === 'terminal' && (
+          <Suspense
+            fallback={
+              <div className="bottom-panel-placeholder">
+                <p>Loading terminal…</p>
+              </div>
+            }
+          >
+            <TerminalPanel />
+          </Suspense>
+        )}
         {activeTab === 'output' && (
           <div className="bottom-panel-placeholder">
             <p>Output from build and tasks will appear here.</p>

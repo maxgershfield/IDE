@@ -6,6 +6,48 @@ Each flow highlights something no other IDE can do.
 
 ---
 
+## Beta smoke flows first (non-destructive)
+
+Before running the live create / publish / mint flows below, run these three checks. They prove the IDE, agent loop, and hosted OASIS surfaces are healthy without writing production state.
+
+### Smoke 0 — Local build gate
+
+From `OASIS-IDE`:
+
+```bash
+npm run smoke:beta
+```
+
+Optional hosted MCP check:
+
+```bash
+npm run smoke:beta -- --skip-build --remote-mcp
+```
+
+Expected: tests pass, production build artifacts exist, and the optional hosted MCP check lists tools plus `oasis_health_check`.
+
+### Smoke 1 — Workspace-grounded Agent answer
+
+Open a small workspace, switch Composer to **Agent**, then paste:
+
+```text
+Read the README and package.json in this workspace, then tell me what this project does and what command verifies it. Do not claim any command passed unless you actually run it.
+```
+
+Expected: file reads appear in the activity feed, the answer cites real files, and verification claims are grounded in tool output.
+
+### Smoke 2 — STARNET plan without mutation
+
+Switch Composer to **Plan**, then paste:
+
+```text
+Plan a small OAPP from available STARNET components for a community mission app. Use real catalog rows if they are available in context, label gaps as Proposed, and do not create, publish, mint, or save anything.
+```
+
+Expected: the agent uses the catalog/context if available, labels custom gaps clearly, and Plan mode blocks mutating tools.
+
+---
+
 ## What you can do with an NPC like Martinez (plain English)
 
 You now have **two live handles**, not just a text file:

@@ -320,6 +320,20 @@ export function mergeHolonCatalogView(instances: StarHolonRecord[], oapps: OAPPR
   return withInstances;
 }
 
+/** For STARNET "Holons" stat: explain merged rows (instances vs OAPPTemplate library rows). */
+export function countHolonCatalogBySource(merged: StarHolonRecord[]): {
+  fromLibrary: number;
+  fromInstances: number;
+} {
+  let fromLibrary = 0;
+  let fromInstances = 0;
+  for (const h of merged) {
+    if (h.metaData?.catalogSource === CATALOG_SOURCE_OAPP_TEMPLATE) fromLibrary += 1;
+    else fromInstances += 1;
+  }
+  return { fromLibrary, fromInstances };
+}
+
 // ─── In-memory list cache (renderer) ─────────────────────────────────────────
 
 /**
@@ -344,6 +358,9 @@ function hashString(s: string): number {
   return h | 0;
 }
 
+/** Bump when list merge semantics change (busts stale in-memory + disk list cache). */
+const HOLON_LIST_CACHE_BUSTER = 'v2-merge-both-lists';
+
 function listCacheKey(
   kind: 'oapps' | 'holons',
   baseUrl: string,
@@ -353,6 +370,9 @@ function listCacheKey(
   const norm = baseUrl.replace(/\/$/, '');
   const aid = (avatarId ?? '').trim();
   const tid = token ? `t:${token.length}:${hashString(token)}` : 't:none';
+  if (kind === 'holons') {
+    return `${kind}|${HOLON_LIST_CACHE_BUSTER}|${norm}|${aid}|${tid}`;
+  }
   return `${kind}|${norm}|${aid}|${tid}`;
 }
 
@@ -551,8 +571,10 @@ async function fetchHolonListFromEndpoint(
 }
 
 /**
- * Load STAR holon instances for the current avatar via `GET /api/Holons/load-all-for-avatar`.
- * When `forceRefresh` is true, also merges `GET /api/Holons` for legacy rows that only appear on the generic list.
+ * Load STAR holon instances for the current avatar via `GET /api/Holons/load-all-for-avatar`
+ * and **merge** with `GET /api/Holons` (global list) by id, so the IDE shows the same holon
+ * universe the server returns for listing/dedup tools — not only the avatar-scoped list.
+ * `forceRefresh` bypasses the short-lived list cache and re-fetches both.
  * Does not cache an empty result (avoids a stuck empty list after seeding or slow first load).
  */
 export async function fetchAllHolons(
@@ -573,7 +595,7 @@ export async function fetchAllHolons(
     avatarId
   );
   let out: StarHolonRecord[];
-  if (options?.forceRefresh) {
+  {
     const allHolons = await fetchHolonListFromEndpoint(
       baseUrl,
       '/api/Holons',
@@ -586,8 +608,6 @@ export async function fetchAllHolons(
       if (!byId.has(h.id)) byId.set(h.id, h);
     }
     out = Array.from(byId.values());
-  } else {
-    out = [...forAvatar];
   }
   out.sort((a, b) =>
     (a.name ?? a.id).localeCompare(b.name ?? b.id, undefined, { sensitivity: 'base' })

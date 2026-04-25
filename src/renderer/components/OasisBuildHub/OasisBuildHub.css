@@ -1,0 +1,125 @@
+.oasis-build-hub {
+  height: 100%;
+  overflow: auto;
+  padding: 28px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.oasis-build-hub-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(0, 122, 204, 0.13), rgba(78, 201, 176, 0.07));
+}
+
+.oasis-build-hub-kicker {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.oasis-build-hub h1 {
+  margin: 0;
+  max-width: 720px;
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.oasis-build-hub p {
+  max-width: 760px;
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.oasis-build-hub-mode {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.oasis-build-hub-mode:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.oasis-build-hub-loop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.oasis-build-hub-loop span {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  font-size: 12px;
+}
+
+.oasis-build-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.oasis-build-hub-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 190px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: inherit;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.oasis-build-hub-card:hover {
+  border-color: rgba(0, 122, 204, 0.65);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.oasis-build-hub-card-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--accent);
+  background: rgba(0, 122, 204, 0.12);
+}
+
+.oasis-build-hub-card-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.oasis-build-hub-card-desc {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.oasis-build-hub-card-cta {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}

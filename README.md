@@ -1,12 +1,12 @@
 # OASIS IDE
 
-AI-powered code editor with native **OASIS MCP** (100+ tools) and **agent integration**. Built with Electron, React, and TypeScript.
+Cursor-like editor for building **OASIS** and **STARNET** apps with one Composer that can read your workspace, call OASIS MCP tools, and compose holons. Built with Electron, React, and TypeScript.
 
 **Repo:** [github.com/NextGenSoftwareUK/IDE](https://github.com/NextGenSoftwareUK/IDE)
 
 ---
 
-## For Jade — Getting started
+## For Jade - Getting started
 
 ### 1. Clone and install
 
@@ -45,9 +45,20 @@ export OASIS_API_URL=http://127.0.0.1:5003
 npm run dev
 ```
 
-This opens the Electron window. You can log in with your OASIS avatar (username/password) if the API is running; the AI chat uses the OASIS IDE Assistant agent.
+This opens the Electron window. The default shell keeps the first-run surface focused on Explorer, Search, Build, STARNET, IDE Passes, Composer, and Terminal. Press the **Build** rocket to expand templates, holonic suites, and guide-map surfaces in the left bar when you need them.
 
-### 4. Embedded terminal (if you use it)
+You can log in with your OASIS avatar (username/password) if the API is running; Composer uses the OASIS IDE Assistant agent.
+
+### 4. Golden path
+
+1. Open a workspace.
+2. Ask Composer to build or wire an OASIS app.
+3. Use **Build** to inspect STARNET suggestions, start from a template, or open OASIS tools.
+4. Run and verify from the embedded Terminal.
+
+Advanced verticals such as Game / Metaverse, Research / XPRIZE, and Holonic Medicine are treated as domain packs or lab surfaces rather than first-run navigation.
+
+### 5. Embedded terminal (if you use it)
 
 The in-app terminal uses **node-pty**. If you see "posix_spawnp failed" or similar:
 
@@ -62,7 +73,7 @@ python3 -m pip install setuptools
 npm run rebuild:terminal
 ```
 
-### 5. Collaborating (workflow)
+### 6. Collaborating (workflow)
 
 - Work on a **branch** for your feature: `git checkout -b your-feature`
 - Push and open a **Pull Request** when ready.

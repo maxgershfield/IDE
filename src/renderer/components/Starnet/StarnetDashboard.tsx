@@ -36,6 +36,7 @@ import {
   publishOapp,
   isOappListedForStarnetDiscover,
   mergeHolonCatalogView,
+  countHolonCatalogBySource,
   CATALOG_SOURCE_OAPP_TEMPLATE,
   type OAPPRecord,
   type StarHolonRecord,
@@ -76,12 +77,13 @@ const StatusPill: React.FC<{ status: StarApiStatus }> = ({ status }) => {
   );
 };
 
-const StatChip: React.FC<{ icon: React.ReactNode; label: string; value: number | string }> = ({
+const StatChip: React.FC<{ icon: React.ReactNode; label: string; value: number | string; title?: string }> = ({
   icon,
   label,
   value,
+  title,
 }) => (
-  <div className="sn-stat-chip">
+  <div className="sn-stat-chip" title={title}>
     <span className="sn-stat-icon">{icon}</span>
     <span className="sn-stat-value">{value}</span>
     <span className="sn-stat-label">{label}</span>
@@ -482,6 +484,10 @@ export const StarnetDashboard: React.FC = () => {
 
   /** Instances from GET /api/Holons plus OAPPTemplate rows (same library as register_starnet_component_holons.mjs). */
   const holonCatalogRows = useMemo(() => mergeHolonCatalogView(holons, oapps), [holons, oapps]);
+  const holonCountParts = useMemo(
+    () => countHolonCatalogBySource(holonCatalogRows),
+    [holonCatalogRows]
+  );
 
   useEffect(() => {
     if (!loggedIn) return;
@@ -558,9 +564,14 @@ export const StarnetDashboard: React.FC = () => {
           <StatChip icon={<Package size={12} />} label="OAPPs" value={oapps.length} />
           <StatChip
             icon={<Layers size={12} />}
-            label="Holons"
+            label="Catalog rows"
+            title="Total rows in the Holons tab: STAR holon instances (inst) plus OAPPTemplate OAPPs shown as “Library template” (lib). Not the same as raw GET /api/Holons count alone."
             value={
-              loadingHolons ? '…' : holonsCatalogReady ? holonCatalogRows.length : '—'
+              loadingHolons
+                ? '…'
+                : holonsCatalogReady
+                  ? `${holonCatalogRows.length} (${holonCountParts.fromInstances} inst · ${holonCountParts.fromLibrary} lib)`
+                  : '—'
             }
           />
           <StatChip icon={<Globe size={12} />} label="on STARNET" value={publishedCount} />

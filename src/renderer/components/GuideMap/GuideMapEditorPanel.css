@@ -1,0 +1,267 @@
+.gm-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.gm-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.gm-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.gm-title strong {
+  display: block;
+  font-size: 12px;
+}
+
+.gm-title span,
+.gm-muted {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.gm-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.gm-sidebar {
+  width: 340px;
+  min-width: 300px;
+  overflow: auto;
+  padding: 10px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.gm-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.gm-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.gm-search-row,
+.gm-action-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.gm-search-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.gm-action-row .gm-btn {
+  flex: 1;
+}
+
+.gm-coord-pill {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-align: center;
+}
+
+.gm-advanced {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  padding: 7px 8px;
+}
+
+.gm-advanced summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gm-card label {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gm-card input,
+.gm-card select,
+.gm-card textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.gm-card textarea {
+  resize: vertical;
+}
+
+.gm-place-list {
+  display: grid;
+  gap: 6px;
+}
+
+.gm-place-row {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.gm-place-row:hover {
+  border-color: var(--accent);
+}
+
+.gm-place-row strong,
+.gm-place-row span {
+  display: block;
+}
+
+.gm-place-row strong {
+  font-size: 12px;
+}
+
+.gm-place-row span {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.gm-btn,
+.gm-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary, var(--bg-primary));
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.gm-btn:hover,
+.gm-primary:hover {
+  border-color: var(--accent);
+}
+
+.gm-primary {
+  width: 100%;
+  margin-top: 10px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.gm-btn:disabled,
+.gm-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.gm-btn-wide {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.gm-status,
+.gm-error {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.gm-status {
+  border: 1px solid rgba(78, 201, 176, 0.25);
+  background: rgba(78, 201, 176, 0.1);
+  color: #4ec9b0;
+}
+
+.gm-error {
+  border: 1px solid rgba(244, 71, 71, 0.25);
+  background: rgba(244, 71, 71, 0.1);
+  color: #f47171;
+}
+
+.gm-preview {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: #030703;
+}
+
+.gm-preview iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.gm-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--text-secondary);
+  font-size: 12px;
+}

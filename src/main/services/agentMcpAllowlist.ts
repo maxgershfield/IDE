@@ -1,7 +1,8 @@
 /**
  * MCP tools the IDE agent may invoke via `mcp_invoke`.
- * Must stay in sync with tools implemented in `MCP/src/tools/*` (names only).
- * Omit destructive / session-rotation tools from the agent surface.
+ * `holon_*` is allowed by prefix (see isAgentMcpToolAllowed) — all component-holon tools
+ * in `MCP/src/tools/componentHolonTools.ts`. Aliases are resolved in AgentToolExecutor.mcpInvoke.
+ * Omit dangerous non-holon server tools from the allow surface separately if added.
  */
 const AGENT_MCP_ALLOWLIST = new Set<string>([
   // OASIS (ONODE) — identity, holons, NFTs, GeoNFTs
@@ -16,6 +17,18 @@ const AGENT_MCP_ALLOWLIST = new Set<string>([
   'oasis_search_holons',
   'oasis_load_all_holons',
   'oasis_get_avatar_detail',
+  // A2A / ONET agent discovery and messaging
+  'oasis_get_agent_card',
+  'oasis_get_all_agents',
+  'oasis_get_agents_by_service',
+  'oasis_register_agent_capabilities',
+  'oasis_register_agent_as_serv_service',
+  'oasis_discover_agents_via_serv',
+  'oasis_send_a2a_jsonrpc_request',
+  'oasis_get_pending_a2a_messages',
+  'oasis_mark_a2a_message_processed',
+  'oasis_register_openserv_agent',
+  'oasis_execute_ai_workflow',
   // GeoNFT tools (all live in oasisTools.ts — not star_*; three names below were wrong)
   'oasis_place_geo_nft',
   'oasis_get_geo_nfts',
@@ -81,9 +94,24 @@ const AGENT_MCP_ALLOWLIST = new Set<string>([
   'unity_play_mode_stop'
 ]);
 
-export function isAgentMcpToolAllowed(toolName: string): boolean {
+/** Map common model hallucinations / old names to real MCP tool ids before allowlist + invoke. */
+export const AGENT_MCP_TOOL_ALIASES: Readonly<Record<string, string>> = {
+  // Model invents a STAR name; real tool is in component holon graph primitives
+  star_connect_holons: 'holon_connect',
+  star_get_holon_graph: 'holon_get_graph',
+};
+
+export function resolveAgentMcpToolAlias(toolName: string): string {
   const n = (toolName || '').trim();
-  return n.length > 0 && AGENT_MCP_ALLOWLIST.has(n);
+  return AGENT_MCP_TOOL_ALIASES[n] ?? n;
+}
+
+export function isAgentMcpToolAllowed(toolName: string): boolean {
+  const n = resolveAgentMcpToolAlias((toolName || '').trim());
+  if (n.length === 0) return false;
+  if (AGENT_MCP_ALLOWLIST.has(n)) return true;
+  if (n.startsWith('holon_')) return true;
+  return false;
 }
 
 /**
@@ -95,6 +123,10 @@ const AGENT_MCP_PLAN_READONLY = new Set<string>([
   'oasis_get_holon',
   'oasis_search_holons',
   'oasis_get_avatar_detail',
+  'oasis_get_agent_card',
+  'oasis_get_all_agents',
+  'oasis_get_agents_by_service',
+  'oasis_discover_agents_via_serv',
   'oasis_get_geo_nfts',
   'oasis_get_all_geo_nfts',
   'oasis_get_geo_nfts_for_mint_address',
@@ -116,12 +148,34 @@ const AGENT_MCP_PLAN_READONLY = new Set<string>([
   'star_list_npcs',
   'star_get_npc',
   'star_list_items',
-  'star_get_item'
+  'star_get_item',
+  // Read-only graph / session introspection (Plan mode)
+  'holon_get_graph',
+  'holon_session_graph',
+  'holon_search',
+  'holon_search_index',
 ]);
 
+/**
+ * In Plan mode, `holon_*` creates/updates are blocked. Allow read-like holons by
+ * name suffix; keep holon_get_graph / holon_session_graph in AGENT_MCP_PLAN_READONLY above.
+ */
+function isHolonToolPlanReadOnlyByName(n: string): boolean {
+  if (n === 'holon_search' || n === 'holon_search_index' || n === 'holon_activity_get') {
+    return true;
+  }
+  if (n.endsWith('_get') || n.endsWith('_list') || n.endsWith('_inbox')) return true;
+  return false;
+}
+
 export function isAgentMcpToolPlanReadOnly(toolName: string): boolean {
-  const n = (toolName || '').trim();
-  return n.length > 0 && AGENT_MCP_PLAN_READONLY.has(n);
+  const n = resolveAgentMcpToolAlias((toolName || '').trim());
+  if (n.length === 0) return false;
+  if (AGENT_MCP_PLAN_READONLY.has(n)) return true;
+  if (n.startsWith('holon_')) {
+    return isHolonToolPlanReadOnlyByName(n);
+  }
+  return false;
 }
 
 export function listAgentMcpToolNames(): string[] {

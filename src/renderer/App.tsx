@@ -1,16 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import { Layout } from './components/Layout/Layout';
 import { RightPanelShell } from './components/Layout/RightPanelShell';
 import { StatusBar } from './components/Layout/StatusBar';
-import { ChatInterface } from './components/Chat/ChatInterface';
 import { FileExplorer } from './components/FileExplorer/FileExplorer';
-import { Editor } from './components/Editor/Editor';
-import { OASISToolsPanel } from './components/OASISTools/OASISToolsPanel';
-import { NPCVoicePanel } from './components/NPC/NPCVoicePanel';
-import { MetaverseTemplatePanel } from './components/Templates/MetaverseTemplatePanel';
-import { AgentPanel } from './components/Agents/AgentPanel';
-import { BottomPanel } from './components/BottomPanel/BottomPanel';
-import { InboxPanel } from './components/Inbox/InboxPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { MCPProvider } from './contexts/MCPContext';
 import { AgentProvider } from './contexts/AgentContext';
@@ -29,17 +21,82 @@ import { ActivityBar, ActivityView } from './components/Layout/ActivityBar';
 import { TitleBar } from './components/Layout/TitleBar';
 import { FirstRunWelcomeBanner } from './components/Layout/FirstRunWelcomeBanner';
 import { PortalActivityBanner } from './components/Layout/PortalActivityBanner';
-import { SearchPanel } from './components/FileExplorer/SearchPanel';
-import { StarnetDashboard } from './components/Starnet/StarnetDashboard';
-import { EntitlementSlotsPanel } from './components/Entitlements/EntitlementSlotsPanel';
 import { SettingsProvider } from './contexts/SettingsContext';
-import { SettingsModal } from './components/Settings/SettingsModal';
 import { A2AProvider } from './contexts/A2AContext';
+import { DomainPackProvider } from './contexts/DomainPackContext';
 import type { ElevenLabsVoice, ElevenLabsAgentParams } from '../shared/elevenLabsTypes';
 import type { AgentActivityMeta } from '../shared/agentTurnTypes';
 import type { ContentTemplateMeta } from '../shared/templateTypes';
 import { useStarnetCatalogLoader } from './hooks/useStarnetCatalogLoader';
 import { OASIS_SET_ACTIVITY_VIEW } from './utils/activityViewBridge';
+
+const ChatInterface = lazy(() =>
+  import('./components/Chat/ChatInterface').then((m) => ({ default: m.ChatInterface }))
+);
+const Editor = lazy(() =>
+  import('./components/Editor/Editor').then((m) => ({ default: m.Editor }))
+);
+const BottomPanel = lazy(() =>
+  import('./components/BottomPanel/BottomPanel').then((m) => ({ default: m.BottomPanel }))
+);
+const InboxPanel = lazy(() =>
+  import('./components/Inbox/InboxPanel').then((m) => ({ default: m.InboxPanel }))
+);
+const OASISToolsPanel = lazy(() =>
+  import('./components/OASISTools/OASISToolsPanel').then((m) => ({ default: m.OASISToolsPanel }))
+);
+const NPCVoicePanel = lazy(() =>
+  import('./components/NPC/NPCVoicePanel').then((m) => ({ default: m.NPCVoicePanel }))
+);
+const AgentPanel = lazy(() =>
+  import('./components/Agents/AgentPanel').then((m) => ({ default: m.AgentPanel }))
+);
+const SearchPanel = lazy(() =>
+  import('./components/FileExplorer/SearchPanel').then((m) => ({ default: m.SearchPanel }))
+);
+const MetaverseTemplatePanel = lazy(() =>
+  import('./components/Templates/MetaverseTemplatePanel').then((m) => ({ default: m.MetaverseTemplatePanel }))
+);
+const StarnetDashboard = lazy(() =>
+  import('./components/Starnet/StarnetDashboard').then((m) => ({ default: m.StarnetDashboard }))
+);
+const GuideMapEditorPanel = lazy(() =>
+  import('./components/GuideMap/GuideMapEditorPanel').then((m) => ({ default: m.GuideMapEditorPanel }))
+);
+const HolonicSuitesDashboard = lazy(() =>
+  import('./components/HolonicSuites/HolonicSuitesDashboard').then((m) => ({ default: m.HolonicSuitesDashboard }))
+);
+const EntitlementSlotsPanel = lazy(() =>
+  import('./components/Entitlements/EntitlementSlotsPanel').then((m) => ({ default: m.EntitlementSlotsPanel }))
+);
+const OasisBuildHub = lazy(() =>
+  import('./components/OasisBuildHub/OasisBuildHub').then((m) => ({ default: m.OasisBuildHub }))
+);
+const SettingsModal = lazy(() =>
+  import('./components/Settings/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+);
+
+function LoadingPane({ label }: { label: string }) {
+  return (
+    <div
+      role="status"
+      style={{
+        height: '100%',
+        minHeight: 120,
+        display: 'grid',
+        placeItems: 'center',
+        color: 'var(--text-secondary)',
+        fontSize: 13
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
+function suspense(label: string, node: React.ReactNode): React.ReactElement {
+  return <Suspense fallback={<LoadingPane label={label} />}>{node}</Suspense>;
+}
 
 /** Mounts the always-on STARNET catalog loader so the snapshot is populated for the Composer
  *  even when the STARNET activity view is not visible. */
@@ -314,6 +371,7 @@ function AppInner() {
                   <ProjectMemoryProvider>
                   <IdeChatProvider>
                     <OappBuildPlanProvider>
+                    <DomainPackProvider>
                     <HolonicCanvasProvider>
                     <StarnetCatalogProvider>
                     <StarnetCatalogLoaderMount />
@@ -331,37 +389,44 @@ function AppInner() {
                           }
                           omitRightPanel={activeView === 'passes'}
                           centerSlot={
-                            activeView === 'starnet' ? (
-                              <StarnetDashboard />
+                            activeView === 'build' ? (
+                              suspense('Loading OASIS Build…', <OasisBuildHub />)
+                            ) : activeView === 'starnet' ? (
+                              suspense('Loading STARNET…', <StarnetDashboard />)
+                            ) : activeView === 'guide' ? (
+                              suspense('Loading Guide Map…', <GuideMapEditorPanel />)
+                            ) : activeView === 'suites' ? (
+                              suspense('Loading Holonic Suites…', <HolonicSuitesDashboard />)
                             ) : activeView === 'passes' ? (
-                              <EntitlementSlotsPanel />
+                              suspense('Loading passes…', <EntitlementSlotsPanel />)
                             ) : undefined
                           }
                         >
                           {activeView === 'search' ? (
-                            <SearchPanel />
+                            suspense('Loading search…', <SearchPanel />)
                           ) : activeView === 'templates' ? (
-                            <MetaverseTemplatePanel inline />
+                            suspense('Loading templates…', <MetaverseTemplatePanel inline />)
                           ) : (
                             <FileExplorer />
                           )}
-                          <Editor />
+                          {suspense('Loading editor…', <Editor />)}
                           <RightPanelShell
-                            composer={<ChatInterface />}
-                            inbox={<InboxPanel embedded />}
-                            tools={<OASISToolsPanel embedded />}
-                            npcVoice={<NPCVoicePanel />}
-                            agents={<AgentPanel />}
+                            composer={suspense('Loading Composer…', <ChatInterface />)}
+                            inbox={suspense('Loading A2A inbox…', <InboxPanel embedded />)}
+                            tools={suspense('Loading OASIS tools…', <OASISToolsPanel embedded />)}
+                            npcVoice={suspense('Loading NPC voice studio…', <NPCVoicePanel />)}
+                            agents={suspense('Loading agents…', <AgentPanel />)}
                           />
-                          <BottomPanel />
+                          {suspense('Loading terminal…', <BottomPanel />)}
                         </Layout>
                       </div>
                       <StatusBar />
                       {/* Settings overlay sits inside app-shell-workspace so TitleBar stays visible */}
-                      <SettingsModal />
+                      {suspense('Loading settings…', <SettingsModal />)}
                     </div>
                     </StarnetCatalogProvider>
                     </HolonicCanvasProvider>
+                    </DomainPackProvider>
                     </OappBuildPlanProvider>
                   </IdeChatProvider>
                   </ProjectMemoryProvider>
