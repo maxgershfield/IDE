@@ -27,8 +27,16 @@ function routeFromModelId(modelId: string): 'openai' | 'anthropic' | 'google' | 
   return 'openai';
 }
 
-function isOpenAIGpt5Model(modelId: string): boolean {
-  return (modelId || '').trim().toLowerCase().startsWith('gpt-5');
+function usesOpenAINewTokenParameter(modelId: string): boolean {
+  const normalized = (modelId || '').trim().toLowerCase();
+  return (
+    normalized.startsWith('gpt-5') ||
+    normalized.includes('/gpt-5') ||
+    normalized.startsWith('o1') ||
+    normalized.includes('/o1') ||
+    normalized.startsWith('o3') ||
+    normalized.includes('/o3')
+  );
 }
 
 export class ChatService {
@@ -110,7 +118,7 @@ export class ChatService {
       model,
       messages: apiMessages,
     };
-    if (isOpenAIGpt5Model(model)) {
+    if (usesOpenAINewTokenParameter(model)) {
       request.max_completion_tokens = 2048;
     } else {
       request.max_tokens = 2048;
