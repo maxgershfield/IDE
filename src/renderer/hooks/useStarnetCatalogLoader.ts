@@ -76,14 +76,25 @@ export function useStarnetCatalogLoader() {
       pushSnapshot();
     }
 
-    // Full network fetch (parallel)
-    const [holons, oapps] = await Promise.allSettled([
-      fetchAllHolons(baseUrl, tok, avatarId, {}),
-      fetchMyOapps(baseUrl, tok, avatarId, {}),
+    // Full network fetch: each path updates the snapshot as it finishes so OAPPs are not
+    // held behind a slow holon list (and `onHolonListPartial` paints avatar holons early).
+    await Promise.allSettled([
+      (async () => {
+        const h = await fetchAllHolons(baseUrl, tok, avatarId, {
+          onHolonListPartial: (rows) => {
+            holonsRef.current = rows;
+            pushSnapshot();
+          },
+        });
+        holonsRef.current = h;
+        pushSnapshot();
+      })(),
+      (async () => {
+        const o = await fetchMyOapps(baseUrl, tok, avatarId, {});
+        oappsRef.current = o;
+        pushSnapshot();
+      })(),
     ]);
-    if (holons.status === 'fulfilled') holonsRef.current = holons.value;
-    if (oapps.status === 'fulfilled') oappsRef.current = oapps.value;
-    pushSnapshot();
   }, [loggedIn, baseUrl, avatarId, pushSnapshot]);
 
   // Run on login / avatar / baseUrl change

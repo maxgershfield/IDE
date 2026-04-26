@@ -385,7 +385,12 @@ export const StarnetDashboard: React.FC = () => {
 
       const runHolons = async () => {
         try {
-          const h = await fetchAllHolons(baseUrl, tok, avatarId, fetchOpts);
+          const h = await fetchAllHolons(baseUrl, tok, avatarId, {
+            ...fetchOpts,
+            onHolonListPartial: (rows) => {
+              setHolons(rows);
+            },
+          });
           setHolons(h);
         } catch (e: unknown) {
           setHolonError(e instanceof Error ? e.message : 'Failed to load holons from STAR');
@@ -396,7 +401,7 @@ export const StarnetDashboard: React.FC = () => {
         }
       };
 
-      await Promise.all([runOapps(), runHolons()]);
+      await Promise.allSettled([runOapps(), runHolons()]);
     },
     [baseUrl, avatarId]
   );

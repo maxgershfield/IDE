@@ -455,6 +455,12 @@ function setListCache<T>(map: Map<string, ListCacheEntry<T>>, key: string, data:
 export type StarListFetchOptions = {
   /** Skip cache and replace stored entry (Refresh, after publish/install). */
   forceRefresh?: boolean;
+  /**
+   * Fired as soon as the avatar holon list is available, and again after merging with
+   * `GET /api/Holons` when that path runs. Lets the UI / agent context update before
+   * the full merge finishes (faster than waiting on both serially).
+   */
+  onHolonListPartial?: (rows: StarHolonRecord[], phase: 'avatar' | 'complete') => void;
 };
 
 /** Drop cached OAPP and holon lists (e.g. after logout or endpoint switch). */
@@ -466,10 +472,12 @@ export function invalidateStarnetListCache(): void {
 
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
-/** First calls after STAR WebAPI start can block on OASIS boot (Holons, OAPPs, etc.). 15s was too short and surfaced as "The user aborted a request." */
-// Keep this relatively short: STAR endpoints can hang when downstream dependencies are misconfigured.
-// If you need longer for heavy lists, prefer pagination/streaming rather than multi-minute UI stalls.
-const STAR_API_FETCH_TIMEOUT_MS = 30_000;
+/**
+ * List reads can run long on first cold OASIS boot; mutations should complete quickly
+ * or fail with a clear error. Tunable per `starFetch` call.
+ */
+const STAR_API_DEFAULT_TIMEOUT_MS = 45_000;
+const STAR_API_LIST_READ_TIMEOUT_MS = 60_000;
 
 function isAbortError(e: unknown): boolean {
   return (
@@ -506,7 +514,8 @@ async function starFetch<T>(
   endpoint: string,
   token: string | null,
   options: RequestInit = {},
-  avatarId?: string | null
+  avatarId?: string | null,
+  timeoutMs: number = STAR_API_DEFAULT_TIMEOUT_MS
 ): Promise<T> {
   const url = `${baseUrl}${endpoint}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -514,7 +523,7 @@ async function starFetch<T>(
   // STAR WebAPI resolves avatar context from the Bearer token, and some deployments can hang
   // when X-Avatar-Id is present. Prefer JWT-only and never send X-Avatar-Id to STAR.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), STAR_API_FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(url, { ...options, headers, signal: controller.signal });
@@ -524,7 +533,7 @@ async function starFetch<T>(
       // eslint-disable-next-line no-console
       console.warn('[STAR] request timed out', {
         url,
-        timeoutMs: STAR_API_FETCH_TIMEOUT_MS,
+        timeoutMs,
         hasToken: Boolean(token),
         avatarIdProvided: Boolean(avatarId?.trim()),
       });
@@ -559,6 +568,12 @@ async function starFetch<T>(
   return json as T;
 }
 
+function sortHolonRows(rows: StarHolonRecord[]): StarHolonRecord[] {
+  return [...rows].sort((a, b) =>
+    (a.name ?? a.id).localeCompare(b.name ?? b.id, undefined, { sensitivity: 'base' })
+  );
+}
+
 /**
  * Pull one holon list endpoint. Logic errors (OASISResult isError) propagate from starFetch.
  */
@@ -566,9 +581,10 @@ async function fetchHolonListFromEndpoint(
   baseUrl: string,
   endpoint: string,
   token: string | null,
-  avatarId?: string | null
+  avatarId?: string | null,
+  timeoutMs: number = STAR_API_LIST_READ_TIMEOUT_MS
 ): Promise<StarHolonRecord[]> {
-  const data = await starFetch<unknown>(baseUrl, endpoint, token, {}, avatarId);
+  const data = await starFetch<unknown>(baseUrl, endpoint, token, {}, avatarId, timeoutMs);
   const raw = unwrapHolonListPayload(data);
   const out: StarHolonRecord[] = [];
   for (const item of raw) {
@@ -596,43 +612,57 @@ export async function fetchAllHolons(
     const hit = getListCache(holonsListCache, key);
     if (hit && hit.length > 0) return hit;
   }
-  const forAvatar = await fetchHolonListFromEndpoint(
+  const onPartial = options?.onHolonListPartial;
+
+  // Some hosted STAR deployments have had issues with the global list; keep a safe default.
+  const shouldSkipGlobal =
+    baseUrl.includes('star.oasisweb4.one') || baseUrl.includes('oasisweb4.one/star');
+
+  const avatarP = fetchHolonListFromEndpoint(
     baseUrl,
     '/api/Holons/load-all-for-avatar',
     token,
-    avatarId
+    avatarId,
+    STAR_API_LIST_READ_TIMEOUT_MS
   );
-  // Some STAR deployments hang on the global list (`GET /api/Holons`) even when the avatar-scoped
-  // list is healthy. Prefer returning something (avatar list) over stalling the IDE for 30s+.
-  //
-  // Heuristic: the hosted STAR API currently hangs on `/api/Holons`, so skip it entirely there.
-  let out: StarHolonRecord[] = forAvatar;
-  const shouldSkipGlobal =
-    baseUrl.includes('star.oasisweb4.one') ||
-    baseUrl.includes('oasisweb4.one/star');
-  if (!shouldSkipGlobal) {
-    try {
-      const allHolons = await fetchHolonListFromEndpoint(
-        baseUrl,
-        '/api/Holons',
-        token,
-        avatarId
+
+  if (onPartial) {
+    void avatarP.then((rows) => {
+      onPartial(
+        sortHolonRows(rows),
+        shouldSkipGlobal ? 'complete' : 'avatar'
       );
-      const byId = new Map<string, StarHolonRecord>();
-      for (const h of forAvatar) byId.set(h.id, h);
-      for (const h of allHolons) {
-        if (!byId.has(h.id)) byId.set(h.id, h);
-      }
-      out = Array.from(byId.values());
-    } catch (e: unknown) {
-      // Keep the avatar list; caller will still render and snapshot.
+    });
+  }
+
+  let forAvatar: StarHolonRecord[];
+  let out: StarHolonRecord[];
+
+  if (shouldSkipGlobal) {
+    forAvatar = await avatarP;
+    out = sortHolonRows(forAvatar);
+  } else {
+    const globalP = fetchHolonListFromEndpoint(
+      baseUrl,
+      '/api/Holons',
+      token,
+      avatarId,
+      STAR_API_LIST_READ_TIMEOUT_MS
+    ).catch((e: unknown) => {
       // eslint-disable-next-line no-console
       console.warn('[STAR] fetchAllHolons: /api/Holons failed; using avatar list only:', e);
+      return [] as StarHolonRecord[];
+    });
+    const [av, allHolons] = await Promise.all([avatarP, globalP]);
+    forAvatar = av;
+    const byId = new Map<string, StarHolonRecord>();
+    for (const h of forAvatar) byId.set(h.id, h);
+    for (const h of allHolons) {
+      if (!byId.has(h.id)) byId.set(h.id, h);
     }
+    out = sortHolonRows(Array.from(byId.values()));
+    onPartial?.(out, 'complete');
   }
-  out.sort((a, b) =>
-    (a.name ?? a.id).localeCompare(b.name ?? b.id, undefined, { sensitivity: 'base' })
-  );
   if (out.length > 0) {
     setListCache(holonsListCache, key, out);
     void writeStarnetListToDisk(key, 'holons', out);
@@ -662,7 +692,8 @@ export async function fetchMyOapps(
     '/api/OAPPs/load-all-for-avatar',
     token,
     {},
-    avatarId
+    avatarId,
+    STAR_API_LIST_READ_TIMEOUT_MS
   );
   const arr = Array.isArray(data) ? data : [];
   setListCache(oappsListCache, key, arr);
@@ -679,7 +710,7 @@ export async function publishOapp(
   token: string | null,
   avatarId?: string | null
 ): Promise<void> {
-  await starFetch<unknown>(baseUrl, `/api/OAPPs/${oappId}/publish`, token, { method: 'POST' }, avatarId);
+  await starFetch<unknown>(baseUrl, `/api/OAPPs/${oappId}/publish`, token, { method: 'POST' }, avatarId, STAR_API_DEFAULT_TIMEOUT_MS);
 }
 
 /**
@@ -699,7 +730,8 @@ export async function downloadOapp(
       method: 'POST',
       body: JSON.stringify({}),
     },
-    avatarId
+    avatarId,
+    STAR_API_DEFAULT_TIMEOUT_MS
   );
 }
 
