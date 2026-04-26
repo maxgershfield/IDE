@@ -141,6 +141,19 @@ export interface StarHolonRecord {
   metaData?: Record<string, string>;
 }
 
+interface StarHolonCatalogPage {
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  hasMore?: boolean;
+  items?: unknown[];
+  Page?: number;
+  PageSize?: number;
+  Total?: number;
+  HasMore?: boolean;
+  Items?: unknown[];
+}
+
 function pickStr(r: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const k of keys) {
     const v = r[k];
@@ -478,6 +491,8 @@ export function invalidateStarnetListCache(): void {
  */
 const STAR_API_DEFAULT_TIMEOUT_MS = 45_000;
 const STAR_API_LIST_READ_TIMEOUT_MS = 60_000;
+const STAR_CATALOG_PAGE_SIZE = 200;
+const STAR_CATALOG_MAX_PAGES = 25;
 
 function isAbortError(e: unknown): boolean {
   return (
@@ -594,6 +609,85 @@ async function fetchHolonListFromEndpoint(
   return out;
 }
 
+function normalizeHolonList(raw: unknown[] | undefined): StarHolonRecord[] {
+  const out: StarHolonRecord[] = [];
+  for (const item of raw ?? []) {
+    const n = normalizeHolonRecord(item);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+function parseHolonCatalogPage(data: unknown): {
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+  items: StarHolonRecord[];
+} {
+  const r = (data ?? {}) as StarHolonCatalogPage;
+  const page = Number(r.page ?? r.Page ?? 1);
+  const pageSize = Number(r.pageSize ?? r.PageSize ?? STAR_CATALOG_PAGE_SIZE);
+  const total = Number(r.total ?? r.Total ?? 0);
+  const hasMore = Boolean(r.hasMore ?? r.HasMore);
+  const items = normalizeHolonList(
+    Array.isArray(r.items) ? r.items : Array.isArray(r.Items) ? r.Items : []
+  );
+  return {
+    page: Number.isFinite(page) && page > 0 ? page : 1,
+    pageSize: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : STAR_CATALOG_PAGE_SIZE,
+    total: Number.isFinite(total) && total >= 0 ? total : items.length,
+    hasMore,
+    items,
+  };
+}
+
+async function fetchAvatarCatalogPages(
+  baseUrl: string,
+  token: string | null,
+  avatarId?: string | null,
+  options?: StarListFetchOptions
+): Promise<StarHolonRecord[]> {
+  const byId = new Map<string, StarHolonRecord>();
+  const onPartial = options?.onHolonListPartial;
+
+  let page = 1;
+  let hasMore = true;
+  while (hasMore && page <= STAR_CATALOG_MAX_PAGES) {
+    const force = options?.forceRefresh === true && page === 1;
+    const endpoint =
+      `/api/Holons/catalog/load-all-for-avatar?page=${page}` +
+      `&pageSize=${STAR_CATALOG_PAGE_SIZE}&forceRefresh=${force ? 'true' : 'false'}`;
+    const rawPage = await starFetch<unknown>(
+      baseUrl,
+      endpoint,
+      token,
+      {},
+      avatarId,
+      STAR_API_LIST_READ_TIMEOUT_MS
+    );
+    const parsed = parseHolonCatalogPage(rawPage);
+    for (const h of parsed.items) {
+      if (!byId.has(h.id)) byId.set(h.id, h);
+    }
+    onPartial?.(sortHolonRows(Array.from(byId.values())), 'avatar');
+    hasMore = parsed.hasMore;
+    if (parsed.items.length === 0) break;
+    page += 1;
+  }
+
+  // Fallback guard if pagination metadata is stale and we reached the cap.
+  if (page > STAR_CATALOG_MAX_PAGES && hasMore) {
+    // eslint-disable-next-line no-console
+    console.warn('[STAR] avatar catalog pagination hit max pages; returning partial list', {
+      maxPages: STAR_CATALOG_MAX_PAGES,
+      pageSize: STAR_CATALOG_PAGE_SIZE,
+    });
+  }
+
+  return sortHolonRows(Array.from(byId.values()));
+}
+
 /**
  * Load STAR holon instances for the current avatar via `GET /api/Holons/load-all-for-avatar`
  * and **merge** with `GET /api/Holons` (global list) by id, so the IDE shows the same holon
@@ -618,13 +712,22 @@ export async function fetchAllHolons(
   const shouldSkipGlobal =
     baseUrl.includes('star.oasisweb4.one') || baseUrl.includes('oasisweb4.one/star');
 
-  const avatarP = fetchHolonListFromEndpoint(
-    baseUrl,
-    '/api/Holons/load-all-for-avatar',
-    token,
-    avatarId,
-    STAR_API_LIST_READ_TIMEOUT_MS
-  );
+  const avatarP = (async () => {
+    try {
+      return await fetchAvatarCatalogPages(baseUrl, token, avatarId, options);
+    } catch (e: unknown) {
+      // Backward compatible for older STAR servers that don't yet expose catalog paging.
+      // eslint-disable-next-line no-console
+      console.warn('[STAR] paged avatar catalog failed; falling back to /api/Holons/load-all-for-avatar:', e);
+      return fetchHolonListFromEndpoint(
+        baseUrl,
+        '/api/Holons/load-all-for-avatar',
+        token,
+        avatarId,
+        STAR_API_LIST_READ_TIMEOUT_MS
+      );
+    }
+  })();
 
   if (onPartial) {
     void avatarP.then((rows) => {
