@@ -36,11 +36,7 @@ import {
   sanitizeOasisStarterFolderName
 } from './services/oasisOnboardStarterPath.js';
 import { applyOasisOnboardBranding } from './services/oasisOnboardBranding.js';
-import {
-  BUNDLE_OASIS_API_BASE,
-  BUNDLE_STAR_API_BASE,
-  DEV_LOCAL_OASIS_API_BASE
-} from '../shared/oasisIdeBundleDefaults.js';
+import { BUNDLE_OASIS_API_BASE, BUNDLE_STAR_API_BASE } from '../shared/oasisIdeBundleDefaults.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -309,9 +305,9 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  // Packaged installs: default to hosted Streamable MCP so testers are not required to run or build
-  // local MCP, and the transport matches a remote OASIS API. Dev override: set OASIS_MCP_TRANSPORT.
-  if (app.isPackaged && !process.env.OASIS_MCP_TRANSPORT?.trim()) {
+  // When unset, use hosted Streamable MCP (matches default remote OASIS API; no local `MCP/dist` or ONODE
+  // required). Override: `OASIS_MCP_TRANSPORT=stdio` in `.env` for monorepo local stdio MCP.
+  if (!process.env.OASIS_MCP_TRANSPORT?.trim()) {
     process.env.OASIS_MCP_TRANSPORT = 'http';
   }
 
@@ -1331,12 +1327,9 @@ function readStarnetEndpointOverrideFromSettingsDisk(): string {
 
 function getEffectiveOasisApiEndpointFromSettingsDisk(): string {
   const from = readOasisApiEndpointFromSettingsDisk();
-  if (!app.isPackaged) {
-    if (!from || from === BUNDLE_OASIS_API_BASE) return DEV_LOCAL_OASIS_API_BASE;
-  }
   if (from) return from;
-  if (app.isPackaged) return BUNDLE_OASIS_API_BASE;
-  return '';
+  /** Unset Integrations field: public API (same as packaged). Set Local in Settings or OASIS_API_URL for a local ONODE. */
+  return BUNDLE_OASIS_API_BASE;
 }
 
 function getEffectiveStarnetEndpointFromSettingsDisk(): string {
@@ -1371,8 +1364,8 @@ function mergeSettingsPayloadWithPackagedDefaults(
   if (!app.isPackaged) {
     const out: Record<string, unknown> = { ...disk };
     const o = typeof out.oasisApiEndpoint === 'string' ? String(out.oasisApiEndpoint).trim() : '';
-    if (!o || o === BUNDLE_OASIS_API_BASE) {
-      out.oasisApiEndpoint = DEV_LOCAL_OASIS_API_BASE;
+    if (!o) {
+      out.oasisApiEndpoint = BUNDLE_OASIS_API_BASE;
     }
     return out;
   }
@@ -1390,16 +1383,16 @@ function mergeSettingsPayloadWithPackagedDefaults(
 }
 
 /**
- * Same ONODE base for `OASISAPIClient` and stdio OASIS MCP.
- * Precedence: `OASIS_API_URL` env, then Settings (Integrations) override (or packaged public default),
- * then `http://127.0.0.1:5003` when unset in unpackaged dev.
+ * Same ONODE base for `OASISAPIClient` and OASIS MCP.
+ * Precedence: `OASIS_API_URL` env, then Settings (Integrations) override, then public
+ * `https://api.oasisweb4.one` (local ONODE: set `http://127.0.0.1:5003` in Settings or env).
  */
 function resolveOasisApiBaseUrl(): string {
   const env = process.env.OASIS_API_URL?.trim();
   if (env) return OASISAPIClient.normalizeBaseUrl(env);
   const fromSettings = getEffectiveOasisApiEndpointFromSettingsDisk();
   if (fromSettings) return OASISAPIClient.normalizeBaseUrl(fromSettings);
-  return DEV_LOCAL_OASIS_API_BASE;
+  return BUNDLE_OASIS_API_BASE;
 }
 
 ipcMain.handle('settings:get', () =>

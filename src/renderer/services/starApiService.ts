@@ -467,7 +467,9 @@ export function invalidateStarnetListCache(): void {
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
 /** First calls after STAR WebAPI start can block on OASIS boot (Holons, OAPPs, etc.). 15s was too short and surfaced as "The user aborted a request." */
-const STAR_API_FETCH_TIMEOUT_MS = 180_000;
+// Keep this relatively short: STAR endpoints can hang when downstream dependencies are misconfigured.
+// If you need longer for heavy lists, prefer pagination/streaming rather than multi-minute UI stalls.
+const STAR_API_FETCH_TIMEOUT_MS = 30_000;
 
 function isAbortError(e: unknown): boolean {
   return (
@@ -509,10 +511,8 @@ async function starFetch<T>(
   const url = `${baseUrl}${endpoint}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const aid = avatarId?.trim();
-  const headerAvatar =
-    aid && GUID_RE.test(aid) ? aid : tryAvatarIdFromJwt(token);
-  if (headerAvatar) headers['X-Avatar-Id'] = headerAvatar;
+  // STAR WebAPI resolves avatar context from the Bearer token, and some deployments can hang
+  // when X-Avatar-Id is present. Prefer JWT-only and never send X-Avatar-Id to STAR.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STAR_API_FETCH_TIMEOUT_MS);
   let res: Response;
@@ -520,6 +520,14 @@ async function starFetch<T>(
     res = await fetch(url, { ...options, headers, signal: controller.signal });
   } catch (e: unknown) {
     if (isAbortError(e)) {
+      // High-signal debug for IDE users: tells us exactly which endpoint stalled.
+      // eslint-disable-next-line no-console
+      console.warn('[STAR] request timed out', {
+        url,
+        timeoutMs: STAR_API_FETCH_TIMEOUT_MS,
+        hasToken: Boolean(token),
+        avatarIdProvided: Boolean(avatarId?.trim()),
+      });
       throw new Error(
         'STAR API request timed out while loading. If the API just started, wait for OASIS boot to finish, then click Refresh.'
       );
@@ -594,20 +602,33 @@ export async function fetchAllHolons(
     token,
     avatarId
   );
-  let out: StarHolonRecord[];
-  {
-    const allHolons = await fetchHolonListFromEndpoint(
-      baseUrl,
-      '/api/Holons',
-      token,
-      avatarId
-    );
-    const byId = new Map<string, StarHolonRecord>();
-    for (const h of forAvatar) byId.set(h.id, h);
-    for (const h of allHolons) {
-      if (!byId.has(h.id)) byId.set(h.id, h);
+  // Some STAR deployments hang on the global list (`GET /api/Holons`) even when the avatar-scoped
+  // list is healthy. Prefer returning something (avatar list) over stalling the IDE for 30s+.
+  //
+  // Heuristic: the hosted STAR API currently hangs on `/api/Holons`, so skip it entirely there.
+  let out: StarHolonRecord[] = forAvatar;
+  const shouldSkipGlobal =
+    baseUrl.includes('star.oasisweb4.one') ||
+    baseUrl.includes('oasisweb4.one/star');
+  if (!shouldSkipGlobal) {
+    try {
+      const allHolons = await fetchHolonListFromEndpoint(
+        baseUrl,
+        '/api/Holons',
+        token,
+        avatarId
+      );
+      const byId = new Map<string, StarHolonRecord>();
+      for (const h of forAvatar) byId.set(h.id, h);
+      for (const h of allHolons) {
+        if (!byId.has(h.id)) byId.set(h.id, h);
+      }
+      out = Array.from(byId.values());
+    } catch (e: unknown) {
+      // Keep the avatar list; caller will still render and snapshot.
+      // eslint-disable-next-line no-console
+      console.warn('[STAR] fetchAllHolons: /api/Holons failed; using avatar list only:', e);
     }
-    out = Array.from(byId.values());
   }
   out.sort((a, b) =>
     (a.name ?? a.id).localeCompare(b.name ?? b.id, undefined, { sensitivity: 'base' })
@@ -683,12 +704,12 @@ export async function downloadOapp(
 }
 
 /**
- * Ping: hits /api/Avatar/current which always responds quickly (200 or 401).
- * Never uses /api/OAPPs which hangs for unauthenticated requests.
+ * Ping: prefer /api/Health which does not depend on downstream WEB4 calls.
+ * (Some STAR deployments can return 400 for /api/Avatar/current when WEB4 is misconfigured.)
  */
 export async function pingStarApi(baseUrl: string): Promise<boolean> {
   try {
-    await fetch(`${baseUrl}/api/Avatar/current`, {
+    await fetch(`${baseUrl}/api/Health`, {
       method: 'GET',
       signal: AbortSignal.timeout(3000),
     });

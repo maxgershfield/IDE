@@ -146,8 +146,10 @@ export const IntegrationsSection: React.FC = () => {
             <div className="settings-row-desc">
               ONODE base URL (paths use <code style={{ fontSize: 11 }}>/api/...</code>). If{' '}
               <code style={{ fontSize: 11 }}>OASIS_API_URL</code> is set in{' '}
-              <code style={{ fontSize: 11 }}>.env</code>, it wins over this field. Leave blank for local{' '}
-              <code style={{ fontSize: 11 }}>127.0.0.1:5003</code> when env is unset.
+              <code style={{ fontSize: 11 }}>.env</code>, it wins over this field. Leave blank to use the
+              public API ({' '}
+              <code style={{ fontSize: 11 }}>api.oasisweb4.one</code>) when env is unset; use Local for a
+              dev ONODE.
             </div>
           </div>
           <div className="settings-row-control" style={{ width: 280 }}>

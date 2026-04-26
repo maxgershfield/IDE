@@ -33,6 +33,8 @@ This guide is the **canonical place** to return to for wiring a **local** large 
 
 Use this when chat/agent requests go through ONODE (`/api/ide/chat`, `/api/ide/agent/turn`).
 
+**Hosted `https://api.oasisweb4.one`:** the ONODE that serves that URL must have an OpenAI key (or a compatible `BaseUrl`) in **its** environment or DNA. The IDE does not send your key to the server. Operators: set `OASIS_ONODE_OPENAI_API_KEY` or `OPENAI_API_KEY` in ECS (prefer Secrets Manager) as described in **`docker/DEPLOYMENT_UPDATE.md`** (section *OASIS IDE: OpenAI*), then redeploy the `oasis-api-service` task.
+
 ### Steps
 
 1. **Start your local LLM server**  

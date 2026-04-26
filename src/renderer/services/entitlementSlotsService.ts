@@ -5,11 +5,12 @@ import {
   type IdeEntitlementSlotsApiResponse,
 } from '../../shared/entitlementSlotsTypes';
 import { ENTITLEMENT_SLOTS_CATALOG } from '../../shared/entitlementSlotsCatalog';
+import { BUNDLE_OASIS_API_BASE } from '../../shared/oasisIdeBundleDefaults.js';
 
 function resolveOasisBaseUrl(oasisApiEndpoint: string | undefined): string {
   const t = (oasisApiEndpoint ?? '').trim();
   if (t) return t.replace(/\/$/, '');
-  return 'http://127.0.0.1:5003';
+  return BUNDLE_OASIS_API_BASE;
 }
 
 function normalizeStates(body: IdeEntitlementSlotsApiResponse | null): Record<

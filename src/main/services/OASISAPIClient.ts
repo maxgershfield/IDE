@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import axios, { AxiosInstance, isAxiosError } from 'axios';
 import type { AgentChatMessage } from '../../shared/agentTurnTypes.js';
-import { DEV_LOCAL_OASIS_API_BASE } from '../../shared/oasisIdeBundleDefaults.js';
+import { BUNDLE_OASIS_API_BASE } from '../../shared/oasisIdeBundleDefaults.js';
 
 export class OASISAPIClient {
   private client: AxiosInstance;
@@ -9,6 +9,7 @@ export class OASISAPIClient {
   private authToken: string | null = null;
   /** OASIS refresh token (not the JWT); used with POST /api/avatar/refresh-token */
   private refreshToken: string | null = null;
+  private readonly debug: boolean;
 
   /** Normalize ONODE base URL (no trailing slash). */
   static normalizeBaseUrl(url: string): string {
@@ -16,8 +17,9 @@ export class OASISAPIClient {
   }
 
   constructor(baseURL?: string) {
+    this.debug = process.env.NODE_ENV !== 'production';
     this.baseURL = OASISAPIClient.normalizeBaseUrl(
-      baseURL ?? process.env.OASIS_API_URL ?? DEV_LOCAL_OASIS_API_BASE
+      baseURL ?? process.env.OASIS_API_URL ?? BUNDLE_OASIS_API_BASE
     );
 
     this.client = axios.create({
@@ -28,6 +30,13 @@ export class OASISAPIClient {
       timeout: 30000,
       validateStatus: (status) => status < 500
     });
+
+    if (this.debug) {
+      // Helps diagnose when the main process is using a different base than the renderer UI shows.
+      console.log(
+        `[OASISAPIClient] baseURL=${this.baseURL} (constructor arg=${baseURL ?? ''} env.OASIS_API_URL=${process.env.OASIS_API_URL ?? ''})`
+      );
+    }
   }
 
   /** Point the client at a different ONODE base (e.g. after Settings > Integrations override). */
@@ -733,6 +742,7 @@ export class OASISAPIClient {
     | { ok: false; error: string }
   > {
     try {
+      const endpoint = '/api/ide/agent/turn';
       const response = await this.client.post<{
         kind?: string;
         content?: string;
@@ -740,7 +750,7 @@ export class OASISAPIClient {
         toolCalls?: Array<{ id?: string; name?: string; argumentsJson?: string }>;
         error?: string;
       }>(
-        '/api/ide/agent/turn',
+        endpoint,
         {
           model: body.model,
           messages: body.messages.map((m) => {
@@ -785,6 +795,13 @@ export class OASISAPIClient {
       const data = response.data as Record<string, unknown>;
       if (response.status >= 400) {
         const err = (data?.error as string) || `Agent turn failed (${response.status})`;
+        if (this.debug) {
+          console.error(
+            `[OASISAPIClient.agentTurn] ${response.status} ${this.baseURL}${endpoint} error=${err} response=${JSON.stringify(
+              data
+            )}`
+          );
+        }
         return { ok: false, error: err };
       }
 
@@ -822,6 +839,18 @@ export class OASISAPIClient {
         if (d.error) return { ok: false, error: d.error };
       }
       const msg = err instanceof Error ? err.message : String(err);
+      if (this.debug) {
+        const status = isAxiosError(err) ? err.response?.status : undefined;
+        const data =
+          isAxiosError(err) && err.response?.data && typeof err.response.data === 'object'
+            ? JSON.stringify(err.response.data)
+            : undefined;
+        console.error(
+          `[OASISAPIClient.agentTurn] failed baseURL=${this.baseURL} status=${status ?? ''} message=${msg}${
+            data ? ` response=${data}` : ''
+          }`
+        );
+      }
       return { ok: false, error: msg };
     }
   }

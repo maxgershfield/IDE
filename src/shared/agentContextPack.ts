@@ -32,7 +32,7 @@ When the context pack includes **\`## Planning document (IDE — user-set)\`** w
 ### Runtimes the IDE talks to
 | Surface | Role | Typical base URL |
 |--------|------|-------------------|
-| **ONODE** | Avatars + JWT, data holons, IDE assistant HTTP (\`/api/ide/chat\`, \`/api/ide/agent/turn\`), much graph + wallet + SERV wiring | \`http://127.0.0.1:5003\` (dev) |
+| **ONODE** | Avatars + JWT, data holons, IDE assistant HTTP (\`/api/ide/chat\`, \`/api/ide/agent/turn\`), much graph + wallet + SERV wiring | Default \`https://api.oasisweb4.one\` (local: Settings or \`OASIS_API_URL\` → \`http://127.0.0.1:5003\`) |
 | **STAR WebAPI** | OAPP / zome / STARNET operations used by **\`star_*\`** MCP tools | IDE **Settings → STARNET** (then \`STAR_API_URL\` / env); **hosted** MCP uses the MCP host's STAR base, not yours — local **stdio** MCP aligns \`star_*\` with the STARNET panel |
 | **Unified MCP** (stdio in Electron) | **\`oasis_*\`**, **\`star_*\`**, smart-contract helpers — one server; ONODE + STAR behind it | Started by IDE main; \`OASIS_API_URL\` often ONODE |
 

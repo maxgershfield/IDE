@@ -9,6 +9,8 @@
   "scripts": {
     "onode:api": "dotnet run --project \"../ONODE/NextGenSoftware.OASIS.API.ONODE.WebAPI/NextGenSoftware.OASIS.API.ONODE.WebAPI.csproj\" --launch-profile OASIS_API",
     "dev": "concurrently -k \"npm run dev:main\" \"npm run dev:renderer\" \"npm run dev:electron-vite\"",
+    "dev:cloud": "cross-env OASIS_API_URL=https://api.oasisweb4.one npm run dev",
+    "dev:local": "cross-env OASIS_API_URL=http://127.0.0.1:5003 npm run dev",
     "dev:dist": "concurrently -k \"npm run dev:main\" \"npm run dev:renderer:watch\" \"npm run dev:electron-desktop\"",
     "dev:electron-desktop": "wait-on dist/main/index.js dist/main/preload.js dist/renderer/index.html && cross-env OASIS_IDE_DEV=1 electron .",
     "dev:vite": "concurrently -k \"npm run dev:main\" \"npm run dev:renderer\" \"npm run dev:electron-vite\"",

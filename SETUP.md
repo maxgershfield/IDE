@@ -33,10 +33,19 @@
    npm run dev
    ```
 
+Tip: easy switching between **cloud** and **local** ONODE in dev:
+
+```bash
+npm run dev:cloud   # uses https://api.oasisweb4.one
+npm run dev:local   # uses http://127.0.0.1:5003
+```
+
 This will:
 - Start Electron main process (watching for changes)
 - Start Vite dev server on http://localhost:3000
 - Open OASIS IDE window
+
+**Composer Agent mode** (when the IDE is pointed at the public API) requires the **remote** ONODE process to have a configured OpenAI path (key or `BaseUrl` for a compatible server). That is an **operator** setting, not a field in the IDE. See `docker/DEPLOYMENT_UPDATE.md` in the repo (section *OASIS IDE: OpenAI*), and `docs/LOCAL_LLM_AND_GOOSE_STYLE_SETUP.md` for how ONODE uses DNA vs environment variables.
 
 ## 📁 Project Structure
 

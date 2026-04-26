@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { getResolvedStarApiBaseUrl } from './starApiUrlResolve.js';
 import { normalizeStarApiBaseUrl } from '../../shared/starApiBaseUrl.js';
+import { BUNDLE_OASIS_API_BASE } from '../../shared/oasisIdeBundleDefaults.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -48,17 +49,12 @@ function useStdioMcpTransport(): boolean {
   if (t === 'stdio' || t === 'local') return true;
   if (t === 'http' || t === 'remote') return false;
   /**
-   * When unset: prefer **local stdio** if the built MCP entry exists (monorepo / dev installs).
-   * Then `STAR_API_URL` in the child process matches the IDE’s `resolveStarApiBaseUrl` (Settings → STARNET
-   * wins over `.env`). **Hosted** MCP runs `star_*` on the remote host with *its* STAR URL — so the STARNET
-   * tab can show remote holons while `star_list_holons` still hits `127.0.0.1:50564` on that host.
-   * Set `OASIS_MCP_TRANSPORT=http` to force hosted MCP even when `MCP/dist` is present.
+   * Do not auto-pick stdio when `MCP/dist` exists; that used to match an old monorepo default and
+   * stranded users on a stale local tool list (e.g. 200 tools) while production hosted MCP updated.
+   * `app.whenReady` sets `OASIS_MCP_TRANSPORT=http` when unset. Opt into stdio only via
+   * `OASIS_MCP_TRANSPORT=stdio` in `.env` (or `local`).
    */
-  try {
-    return fs.existsSync(getMCPServerPath());
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 /**
@@ -137,7 +133,7 @@ export class MCPServerManager {
     const apiUrl =
       this.oasisApiUrlResolved ||
       process.env.OASIS_API_URL?.trim() ||
-      'http://127.0.0.1:5003';
+      BUNDLE_OASIS_API_BASE;
     env.OASIS_API_URL = apiUrl;
     if (this.oasisJwtToken) {
       env.OASIS_JWT_TOKEN = this.oasisJwtToken;
@@ -209,9 +205,9 @@ export class MCPServerManager {
         throw new Error(error);
       }
 
-      if (stdio && !process.env.OASIS_MCP_TRANSPORT?.trim()) {
+      if (stdio) {
         console.log(
-          '[MCP] Using local stdio MCP (MCP/dist found). STAR_* tools use the same STAR base as Settings → STARNET. Set OASIS_MCP_TRANSPORT=http to force hosted MCP.'
+          '[MCP] Local stdio MCP (OASIS_MCP_TRANSPORT=stdio|local). STAR_* uses the same base as Settings → STARNET. For hosted tools matching production, remove that env line or set OASIS_MCP_TRANSPORT=http, then restart the IDE.'
         );
       }
 
@@ -274,7 +270,17 @@ export class MCPServerManager {
     if (!conn || conn.status === 'stopped') {
       throw new Error(`Server ${serverName} is not running`);
     }
-    return conn.tools;
+    // Always re-list from the MCP client so the UI/Refresh see the current tool surface (hosted deploys,
+    // or rebuilt local `MCP/dist`), not only the snapshot from startup.
+    try {
+      const listResult = await conn.client.listTools();
+      const tools = listResult.tools || [];
+      conn.tools = tools;
+      return tools;
+    } catch (e: any) {
+      console.error('[MCP] listTools: live list failed, using last cache:', e?.message || e);
+      return conn.tools;
+    }
   }
 
   async executeTool(toolName: string, args: any): Promise<any> {
