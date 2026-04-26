@@ -545,7 +545,52 @@ export function formatToolResultLine(name: string, ok: boolean, detail: string):
   return snip ? `${sym} ${name} — ${snip}` : `${sym} ${name}`;
 }
 
-/** OASIS_IDE-style inner-monologue before a tool runs. Terse, technical. */
+function explainWorkspaceCommandPurpose(argv: string[]): string {
+  const exe = (argv[0] ?? '').toLowerCase();
+  const sub = (argv[1] ?? '').toLowerCase();
+  const script = (argv[2] ?? '').toLowerCase();
+  const joined = argv.join(' ').toLowerCase();
+
+  if (exe === 'npm' || exe === 'pnpm' || exe === 'yarn') {
+    if (sub === 'install' || sub === 'i' || sub === 'ci') {
+      return 'install dependencies so the project can be built or run locally';
+    }
+    if (sub === 'run' && script === 'build') {
+      return 'verify the app compiles cleanly before I call the work done';
+    }
+    if (sub === 'run' && (script === 'dev' || script === 'start')) {
+      return 'start the local dev server and capture the actual URL it prints';
+    }
+    if (sub === 'test' || (sub === 'run' && script.includes('test'))) {
+      return 'run the focused test suite for this change';
+    }
+  }
+
+  if (exe === 'npx' && /\b(vite|serve|expo)\b/.test(joined)) {
+    return 'launch a local preview using the requested tool';
+  }
+  if (exe === 'dotnet' && /\b(build|test|run)\b/.test(joined)) {
+    return 'verify or run the .NET surface touched by this task';
+  }
+  if (exe === 'git') {
+    return 'inspect repository state without changing files';
+  }
+  if (exe === 'find' || exe === 'grep' || exe === 'rg') {
+    return 'inspect the workspace from the command line for exact evidence';
+  }
+
+  return 'perform the next verification or project operation requested by the task';
+}
+
+function explainStarCommandPurpose(argv: string[]): string {
+  const sub = argv.slice(1).join(' ').toLowerCase();
+  if (/\bstatus\b|\bhealth\b/.test(sub)) return 'check STAR connectivity before using OAPP tools';
+  if (/\bbeam\b|\blogin\b|\bauth\b/.test(sub)) return 'authenticate with STAR before OAPP operations';
+  if (/\boapp\b|\bstarnet\b/.test(sub)) return 'query or update STAR OAPP/STARNET state through the documented CLI';
+  return 'run a documented STAR CLI step for this OASIS workflow';
+}
+
+/** OASIS_IDE-style explanation before a tool runs. User-facing, so explain intent as well as action. */
 export function narrateBeforeTool(name: string, argumentsJson: string): string {
   try {
     const args = JSON.parse(argumentsJson || '{}') as Record<string, unknown>;

@@ -124,9 +124,43 @@ export class ChatService {
       request.max_tokens = 2048;
       request.temperature = 0.7;
     }
-    const response = await this.openai.chat.completions.create(request);
+    const response = await this.createOpenAIChatCompletionWithTokenParamRepair(this.openai, request);
     const content = response.choices?.[0]?.message?.content?.trim() ?? '';
     return { content };
+  }
+
+  private async createOpenAIChatCompletionWithTokenParamRepair(
+    client: OpenAI,
+    request: any
+  ): Promise<OpenAI.Chat.ChatCompletion> {
+    try {
+      return await client.chat.completions.create(request);
+    } catch (err: any) {
+      const message = String(err?.message ?? err ?? '');
+      const code = String(err?.code ?? '');
+      const unsupportedParameter =
+        /unsupported[_ ]parameter/i.test(message) || /unsupported[_ ]parameter/i.test(code);
+      const unsupportedMaxTokens = /max_tokens/i.test(message);
+      const unsupportedMaxCompletionTokens = /max_completion_tokens/i.test(message);
+      if (!unsupportedParameter || (!unsupportedMaxTokens && !unsupportedMaxCompletionTokens)) {
+        throw err;
+      }
+
+      const retryRequest = { ...request };
+      if (unsupportedMaxTokens && retryRequest.max_tokens !== undefined) {
+        retryRequest.max_completion_tokens = retryRequest.max_tokens;
+        delete retryRequest.max_tokens;
+        delete retryRequest.temperature;
+        return await client.chat.completions.create(retryRequest);
+      }
+      if (unsupportedMaxCompletionTokens && retryRequest.max_completion_tokens !== undefined) {
+        retryRequest.max_tokens = retryRequest.max_completion_tokens;
+        delete retryRequest.max_completion_tokens;
+        retryRequest.temperature ??= 0.7;
+        return await client.chat.completions.create(retryRequest);
+      }
+      throw err;
+    }
   }
 
   private async completeXai(
