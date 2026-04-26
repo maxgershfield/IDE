@@ -27,6 +27,10 @@ function routeFromModelId(modelId: string): 'openai' | 'anthropic' | 'google' | 
   return 'openai';
 }
 
+function isOpenAIGpt5Model(modelId: string): boolean {
+  return (modelId || '').trim().toLowerCase().startsWith('gpt-5');
+}
+
 export class ChatService {
   private openai: OpenAI | null = null;
   private xai: OpenAI | null = null;
@@ -59,7 +63,7 @@ export class ChatService {
     options?: { model?: string }
   ): Promise<{ content: string; error?: string }> {
     const model =
-      (options?.model || process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini').trim();
+      (options?.model || process.env.OPENAI_CHAT_MODEL || 'gpt-5.5').trim();
     const route = routeFromModelId(model);
 
     try {
@@ -102,12 +106,17 @@ export class ChatService {
         apiMessages.push({ role: m.role, content: m.content });
       }
     }
-    const response = await this.openai.chat.completions.create({
+    const request: any = {
       model,
       messages: apiMessages,
-      max_tokens: 2048,
-      temperature: 0.7
-    });
+    };
+    if (isOpenAIGpt5Model(model)) {
+      request.max_completion_tokens = 2048;
+    } else {
+      request.max_tokens = 2048;
+      request.temperature = 0.7;
+    }
+    const response = await this.openai.chat.completions.create(request);
     const content = response.choices?.[0]?.message?.content?.trim() ?? '';
     return { content };
   }

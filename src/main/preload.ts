@@ -234,6 +234,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('holon-index:delete', workspaceRoot),
   holonicIndexSearch: (workspaceRoot: string, query: string, limit?: number) =>
     ipcRenderer.invoke('holon-index:search', workspaceRoot, query, limit),
+  holonicIndexAllowlistGet: (workspaceRoot: string) =>
+    ipcRenderer.invoke('holon-allowlist:get', workspaceRoot) as Promise<{
+      filePath: string;
+      names: string[];
+    }>,
+  holonicIndexAllowlistSet: (
+    workspaceRoot: string,
+    names: string[]
+  ) =>
+    ipcRenderer.invoke('holon-allowlist:set', workspaceRoot, names) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
   onHolonicIndexProgress: (callback: (status: unknown) => void) => {
     const handler = (_: unknown, status: unknown) => callback(status);
     ipcRenderer.on('holon-index:progress', handler);

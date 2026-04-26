@@ -164,8 +164,8 @@ export const AgentsSection: React.FC = () => {
                 updateSettings({ agentContextPacking: e.target.value as 'searchFirst' | 'full' })
               }
             >
-              <option value="searchFirst">Search-first (lower token use)</option>
-              <option value="full">Full (preloaded STARNET + long pack)</option>
+              <option value="searchFirst">Search-first (omits full STARNET table — use if tokens matter)</option>
+              <option value="full">Full (recommended — STARNET list from IDE in context)</option>
             </select>
           </div>
         </div>

@@ -45,7 +45,7 @@ export OASIS_API_URL=http://127.0.0.1:5003
 npm run dev
 ```
 
-This opens the Electron window. The default shell keeps the first-run surface focused on Explorer, Search, Build, STARNET, IDE Passes, Composer, and Terminal. Press the **Build** rocket to expand templates, holonic suites, and guide-map surfaces in the left bar when you need them.
+This opens the Electron window. The default shell keeps the first-run surface focused on Explorer, Search, STARNET, IDE Passes, Composer, and Terminal. Use the **chevron under IDE Passes** in the left bar to expand templates, holonic suites, and guide map when you need them.
 
 You can log in with your OASIS avatar (username/password) if the API is running; Composer uses the OASIS IDE Assistant agent.
 
@@ -53,7 +53,7 @@ You can log in with your OASIS avatar (username/password) if the API is running;
 
 1. Open a workspace.
 2. Ask Composer to build or wire an OASIS app.
-3. Use **Build** to inspect STARNET suggestions, start from a template, or open OASIS tools.
+3. Use **STARNET** or the **chevron under IDE Passes** for templates and related surfaces, and open **OASIS Tools** in Composer when you need tools.
 4. Run and verify from the embedded Terminal.
 
 Advanced verticals such as Game / Metaverse, Research / XPRIZE, and Holonic Medicine are treated as domain packs or lab surfaces rather than first-run navigation.

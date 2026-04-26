@@ -19,21 +19,49 @@ export const StatusBar: React.FC = () => {
   const { settings, updateSettings, openSettings } = useSettings();
   const { tools, loading: mcpLoading } = useMCP();
   const [oasisHealth, setOasisHealth] = useState<OasisHealth>('unknown');
+  const [onodeHealthMeta, setOnodeHealthMeta] = useState<{
+    resolvedBaseUrl: string;
+    lastError?: string;
+    envOasisApiUrlSet: boolean;
+    settingsOasisOverrideActive: boolean;
+  }>({ resolvedBaseUrl: '', envOasisApiUrlSet: false, settingsOasisOverrideActive: false });
 
   useEffect(() => {
     let cancelled = false;
     const ping = async () => {
       try {
         if (window.electronAPI?.healthCheck) {
-          const h = await window.electronAPI.healthCheck();
+          const h = await window.electronAPI.healthCheck() as {
+            status?: string;
+            error?: string;
+            resolvedBaseUrl?: string;
+            envOasisApiUrlSet?: boolean;
+            settingsOasisOverrideActive?: boolean;
+          };
           if (!cancelled) {
             setOasisHealth(h?.status === 'healthy' ? 'healthy' : 'down');
+            setOnodeHealthMeta({
+              resolvedBaseUrl: typeof h?.resolvedBaseUrl === 'string' ? h.resolvedBaseUrl : '',
+              lastError: typeof h?.error === 'string' ? h.error : undefined,
+              envOasisApiUrlSet: Boolean(h?.envOasisApiUrlSet),
+              settingsOasisOverrideActive: Boolean(h?.settingsOasisOverrideActive)
+            });
           }
         } else {
-          if (!cancelled) setOasisHealth('unknown');
+          if (!cancelled) {
+            setOasisHealth('unknown');
+            setOnodeHealthMeta({
+              resolvedBaseUrl: '',
+              envOasisApiUrlSet: false,
+              settingsOasisOverrideActive: false
+            });
+          }
         }
       } catch {
-        if (!cancelled) setOasisHealth('down');
+        if (!cancelled) {
+          setOasisHealth('down');
+          setOnodeHealthMeta((m) => ({ ...m, lastError: 'health check failed' }));
+        }
       }
     };
     void ping();
@@ -42,7 +70,7 @@ export const StatusBar: React.FC = () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, []);
+  }, [settings.oasisApiEndpoint]);
 
   if (!settings.showStatusBar) {
     return null;
@@ -62,12 +90,22 @@ export const StatusBar: React.FC = () => {
     }
   };
 
-  const onodeTitle =
-    oasisHealth === 'healthy'
-      ? 'ONODE reachable'
-      : oasisHealth === 'down'
-        ? 'ONODE not reachable'
-        : 'ONODE status unknown';
+  const onodeTitle = (() => {
+    const { resolvedBaseUrl, lastError, envOasisApiUrlSet, settingsOasisOverrideActive } = onodeHealthMeta;
+    const path = resolvedBaseUrl ? `${resolvedBaseUrl}/api/health` : 'ONODE base URL (unknown)';
+    const sourceHint = settingsOasisOverrideActive
+      ? 'ONODE base from saved Settings (API Endpoint); that wins over OASIS_API_URL when both are set. '
+      : envOasisApiUrlSet
+        ? 'ONODE base from OASIS_API_URL. '
+        : 'ONODE base: built-in public API (no OASIS_API_URL, no non-empty saved API Endpoint). ';
+    if (oasisHealth === 'healthy') {
+      return `${sourceHint}ONODE health OK. GET ${path}`;
+    }
+    if (oasisHealth === 'down') {
+      return `${sourceHint}ONODE not reachable. Tried: GET ${path}${lastError ? ` — ${lastError}` : ''}`;
+    }
+    return 'ONODE status not yet known';
+  })();
 
   return (
     <div className="ide-status-bar" role="status">

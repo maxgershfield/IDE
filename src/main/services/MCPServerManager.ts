@@ -35,6 +35,15 @@ function parseEnvFile(filePath: string): Record<string, string> {
 
 type McpClientTransport = StdioClientTransport | StreamableHTTPClientTransport;
 
+function safeWarn(message: string, error?: unknown): void {
+  try {
+    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error ?? '');
+    console.warn(detail ? `${message} ${detail}` : message);
+  } catch {
+    // Console streams can be closed during Electron dev-server teardown; do not crash on EPIPE.
+  }
+}
+
 interface MCPServerConnection {
   client: Client;
   transport: McpClientTransport;
@@ -76,8 +85,8 @@ export class MCPServerManager {
   /** Streamable HTTP endpoint (hosted); same tool surface as local stdio (shared MCP serverFactory). */
   private remoteMcpUrl: string;
   /**
-   * Resolved ONODE base URL (from env + Settings); when set, overrides `process.env.OASIS_API_URL`
-   * for the stdio MCP child so it matches `OASISAPIClient`.
+   * Resolved ONODE base URL (same order as `resolveOasisApiBaseUrl` in `main/index.ts`); when set,
+   * overrides the raw `process.env.OASIS_API_URL` copy in the stdio MCP child so it matches `OASISAPIClient`.
    */
   private oasisApiUrlResolved: string | null = null;
   /** JWT for ONODE-backed oasis_* MCP tools; applied on next MCP process start. */
@@ -256,7 +265,7 @@ export class MCPServerManager {
       // Streamable HTTP may emit onerror for non-fatal SSE noise (disconnect/reconnect). Do not set
       // status to 'error' or listTools() and the UI break while callTool POST may still work.
       transport.onerror = (error: unknown) => {
-        console.error('[MCP] Transport error (logged; connection still usable):', error);
+        safeWarn('[MCP] Transport error (logged; connection still usable):', error);
       };
     } catch (error: any) {
       console.error('[MCP] Failed to start server:', error);

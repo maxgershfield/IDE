@@ -4,14 +4,20 @@ import type {
   OappBuildPlanPayload,
   OappTemplateRecommendation
 } from '../../shared/oappBuildPlanTypes';
+import type { OappCompositionPlan } from '../../shared/oappCompositionPlanTypes';
+import type { HolonicAppBuildContract } from '../../shared/holonicAppBuildTypes';
 import { useWorkspace } from './WorkspaceContext';
 import { resolveWorkspaceRelativePath } from '../utils/buildPlanningDocContextNote';
 
 interface OappBuildPlanContextValue {
   template: OappTemplateRecommendation | null;
   holonRows: OappBuildPlanHolonRow[];
+  compositionPlan: OappCompositionPlan | null;
+  buildContract: HolonicAppBuildContract | null;
   lastIngestedAt: number | null;
   applyPayload: (payload: OappBuildPlanPayload) => void;
+  applyCompositionPlan: (plan: OappCompositionPlan) => void;
+  applyBuildContract: (contract: HolonicAppBuildContract) => void;
   clearPlan: () => void;
   toggleHolon: (id: string) => void;
   setHolonSelected: (id: string, selected: boolean) => void;
@@ -55,6 +61,8 @@ export const OappBuildPlanProvider: React.FC<{ children: React.ReactNode }> = ({
   const { workspacePath } = useWorkspace();
   const [template, setTemplate] = useState<OappTemplateRecommendation | null>(null);
   const [holonRows, setHolonRows] = useState<OappBuildPlanHolonRow[]>([]);
+  const [compositionPlan, setCompositionPlan] = useState<OappCompositionPlan | null>(null);
+  const [buildContract, setBuildContract] = useState<HolonicAppBuildContract | null>(null);
   const [lastIngestedAt, setLastIngestedAt] = useState<number | null>(null);
 
   const [planningDocPath, setPlanningDocPath] = useState<string | null>(null);
@@ -195,9 +203,43 @@ export const OappBuildPlanProvider: React.FC<{ children: React.ReactNode }> = ({
     setLastIngestedAt(Date.now());
   }, []);
 
+  const applyCompositionPlan = useCallback((plan: OappCompositionPlan) => {
+    const normalizedPlan: OappCompositionPlan = {
+      ...plan,
+      nodes: Array.isArray(plan.nodes) ? plan.nodes : [],
+      edges: Array.isArray(plan.edges) ? plan.edges : [],
+      capabilityLanes: Array.isArray(plan.capabilityLanes) ? plan.capabilityLanes : [],
+      surfaces: Array.isArray(plan.surfaces) ? plan.surfaces : [],
+      gaps: Array.isArray(plan.gaps) ? plan.gaps : [],
+      buildSteps: Array.isArray(plan.buildSteps) ? plan.buildSteps : [],
+      verification: Array.isArray(plan.verification) ? plan.verification : [],
+    };
+    setCompositionPlan(normalizedPlan);
+    if (normalizedPlan.nodes.length > 0) {
+      setHolonRows(
+        normalizedPlan.nodes.map((n) => ({
+          id: n.id,
+          catalogHolonName: n.name,
+          catalogId: n.catalogId,
+          feature: n.notes || n.role,
+          roleInApp: n.role,
+          selected: true,
+        }))
+      );
+    }
+    setLastIngestedAt(Date.now());
+  }, []);
+
+  const applyBuildContract = useCallback((contract: HolonicAppBuildContract) => {
+    setBuildContract(contract);
+    setLastIngestedAt(Date.now());
+  }, []);
+
   const clearPlan = useCallback(() => {
     setTemplate(null);
     setHolonRows([]);
+    setCompositionPlan(null);
+    setBuildContract(null);
     setLastIngestedAt(null);
   }, []);
 
@@ -228,6 +270,30 @@ export const OappBuildPlanProvider: React.FC<{ children: React.ReactNode }> = ({
       if (template.rationale) lines.push(`- Rationale: ${template.rationale}`);
       lines.push('');
     }
+    if (compositionPlan) {
+      lines.push('## Composition contract');
+      lines.push(`- Intent: ${compositionPlan.intent}`);
+      lines.push(`- App type: ${compositionPlan.appType}`);
+      lines.push(`- Nodes: ${compositionPlan.nodes.length}`);
+      lines.push(`- Edges: ${compositionPlan.edges.length}`);
+      lines.push('');
+      lines.push('```oasis-composition-plan');
+      lines.push(JSON.stringify(compositionPlan));
+      lines.push('```');
+      lines.push('');
+    }
+    if (buildContract) {
+      lines.push('## Holonic app build contract');
+      lines.push(`- Project path: \`${buildContract.projectPath}\``);
+      lines.push(`- Stack: ${buildContract.stack}`);
+      lines.push(`- Required files: ${buildContract.requiredFiles.map((f) => f.path).join(', ')}`);
+      lines.push(`- Validate before npm: \`validate_holonic_app_scaffold\``);
+      lines.push('');
+      lines.push('```oasis-holonic-build-contract');
+      lines.push(JSON.stringify(buildContract));
+      lines.push('```');
+      lines.push('');
+    }
     const chosen = holonRows.filter((r) => r.selected);
     lines.push('## Holons to include');
     if (chosen.length === 0) {
@@ -243,14 +309,18 @@ export const OappBuildPlanProvider: React.FC<{ children: React.ReactNode }> = ({
     lines.push('');
     lines.push('Use MCP / workspace tools as needed. Do not add holons outside this list unless the user asks.');
     return lines.join('\n');
-  }, [template, holonRows]);
+  }, [template, holonRows, compositionPlan, buildContract]);
 
   const value: OappBuildPlanContextValue = useMemo(
     () => ({
       template,
       holonRows,
+      compositionPlan,
+      buildContract,
       lastIngestedAt,
       applyPayload,
+      applyCompositionPlan,
+      applyBuildContract,
       clearPlan,
       toggleHolon,
       setHolonSelected,
@@ -268,8 +338,12 @@ export const OappBuildPlanProvider: React.FC<{ children: React.ReactNode }> = ({
     [
       template,
       holonRows,
+      compositionPlan,
+      buildContract,
       lastIngestedAt,
       applyPayload,
+      applyCompositionPlan,
+      applyBuildContract,
       clearPlan,
       toggleHolon,
       setHolonSelected,

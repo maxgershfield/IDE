@@ -24,6 +24,8 @@ export const OappBuildPlanPanel: React.FC = () => {
   const {
     template,
     holonRows,
+    compositionPlan,
+    buildContract,
     lastIngestedAt,
     toggleHolon,
     selectAllHolons,
@@ -53,7 +55,9 @@ export const OappBuildPlanPanel: React.FC = () => {
   const hasActivePlan = Boolean(planningDocContent?.trim());
   const hasRows = holonRows.length > 0;
   const hasTemplate = Boolean(template?.label && template?.framework);
-  const structuredEmpty = !hasTemplate && !hasRows;
+  const hasComposition = Boolean(compositionPlan);
+  const hasBuildContract = Boolean(buildContract);
+  const structuredEmpty = !hasTemplate && !hasRows && !hasComposition && !hasBuildContract;
 
   const onSave = useCallback(() => {
     setPlanningDocFromUserText(draft);
@@ -338,6 +342,100 @@ export const OappBuildPlanPanel: React.FC = () => {
           Composer to <strong>Execute</strong>, and send to scaffold and wire the app (npm, files,{' '}
           <code>mcp_invoke</code> / STAR as needed).
         </p>
+      ) : null}
+
+      {compositionPlan ? (
+        <section className="oapp-build-plan__section" aria-labelledby="oapp-build-plan-composition">
+          <h3 id="oapp-build-plan-composition" className="oapp-build-plan__section-title">
+            Composition contract
+          </h3>
+          <div className="oapp-build-plan__composition-card">
+            <div className="oapp-build-plan__composition-summary">
+              <strong>{compositionPlan.intent}</strong>
+              <span>{compositionPlan.appType}</span>
+              <span>
+                {compositionPlan.nodes.length} nodes, {compositionPlan.edges.length} edges,{' '}
+                {compositionPlan.gaps.length} gaps
+              </span>
+            </div>
+            <div className="oapp-build-plan__composition-grid">
+              <div>
+                <h4>Capability lanes</h4>
+                <ul>
+                  {compositionPlan.capabilityLanes.slice(0, 8).map((lane) => (
+                    <li key={lane.id}>
+                      <strong>{lane.label}</strong>
+                      <span>
+                        {lane.matchedNodeIds.length > 0
+                          ? `${lane.matchedNodeIds.length} matched node${lane.matchedNodeIds.length === 1 ? '' : 's'}`
+                          : lane.gap ?? 'Gap'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4>Build steps</h4>
+                <ol>
+                  {compositionPlan.buildSteps.slice(0, 8).map((step) => (
+                    <li key={step.id}>{step.title}</li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {buildContract ? (
+        <section className="oapp-build-plan__section" aria-labelledby="oapp-build-plan-scaffold">
+          <h3 id="oapp-build-plan-scaffold" className="oapp-build-plan__section-title">
+            Holonic app scaffold
+          </h3>
+          <div className="oapp-build-plan__scaffold-card">
+            <div className="oapp-build-plan__scaffold-summary">
+              <strong>{buildContract.appName}</strong>
+              <span>
+                <code>{buildContract.projectPath}</code>
+              </span>
+              <span>{buildContract.stack} stack</span>
+              {buildContract.reusableHolonSpecPath ? (
+                <span>
+                  reusable specs <code>{buildContract.reusableHolonSpecPath}</code>
+                </span>
+              ) : null}
+              {buildContract.liveRuntimeAdapterPath ? (
+                <span>
+                  live adapter <code>{buildContract.liveRuntimeAdapterPath}</code>
+                </span>
+              ) : null}
+            </div>
+            <div className="oapp-build-plan__scaffold-grid">
+              <div>
+                <h4>Required files</h4>
+                <ul>
+                  {buildContract.requiredFiles.slice(0, 10).map((file) => (
+                    <li key={file.path}>
+                      <strong>{file.path}</strong>
+                      <span>{file.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4>Verification sequence</h4>
+                <ol>
+                  <li>
+                    <code>validate_holonic_app_scaffold</code>
+                  </li>
+                  <li>{buildContract.installCommand.argv.join(' ')}</li>
+                  <li>{buildContract.buildCommand.argv.join(' ')}</li>
+                  <li>{buildContract.devCommand.argv.join(' ')}</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </section>
       ) : null}
 
       {hasRows ? (

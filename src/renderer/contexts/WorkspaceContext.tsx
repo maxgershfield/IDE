@@ -77,8 +77,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [openWorkspaceByPath]);
 
   const refreshTree = useCallback(async () => {
-    if (!workspacePath || !window.electronAPI?.listTree) return;
-    const list = await window.electronAPI.listTree();
+    if (!workspacePath) return;
+    const list = window.electronAPI?.listRootLevel
+      ? await window.electronAPI.listRootLevel()
+      : await window.electronAPI?.listTree?.();
     setTree(list ?? []);
   }, [workspacePath]);
 

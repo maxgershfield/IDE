@@ -43,8 +43,8 @@ export interface OASISSettings {
   agentAutocomplete: boolean;
   startAgentReviewOnCommit: boolean;
   /**
-   * **searchFirst** (default) — small system pack + STARNET pointer; agent lists holons via `mcp_invoke`.
-   * **full** — larger pack + full STARNET table every turn; higher API token use.
+   * **full** (default) — full STARNET table in context when the IDE has loaded it; best for “which holons to use?”.
+   * **searchFirst** — smaller system pack; STARNET table may be pointer-only; higher risk of the model using slow MCP list tools.
    */
   agentContextPacking: 'searchFirst' | 'full';
   /**
@@ -152,11 +152,14 @@ export const DEFAULT_SETTINGS: OASISSettings = {
   usageSummaryDisplay: 'auto',
   agentAutocomplete: true,
   startAgentReviewOnCommit: false,
-  agentContextPacking: 'searchFirst',
+  /** `full` attaches the full STARNET table when the IDE has it (reliable for holon pick questions). */
+  agentContextPacking: 'full',
   agentInputBudget: 'normal',
 
   // Models
   enabledModels: [
+    'gpt-5.5',
+    'gpt-5.5-pro',
     'gpt-4o',
     'gpt-4o-mini',
     'claude-sonnet-4-20250514',

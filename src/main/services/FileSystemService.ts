@@ -6,11 +6,29 @@ const DEFAULT_IGNORE = new Set([
   'node_modules',
   '.git',
   'dist',
+  'release',
   'build',
+  'Build',
+  'Builds',
   '.next',
+  '.nuxt',
+  '.turbo',
+  '.cache',
   '.vite',
   'coverage',
+  'TestResults',
   '__pycache__',
+  '.venv',
+  'venv',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.tox',
+  'Library',
+  'Temp',
+  'UserSettings',
+  'Archived',
+  'holochain-client-csharp.backup',
+  'OASIS Omniverse',
   '.DS_Store',
   '*.log',
 ]);
@@ -105,6 +123,7 @@ export class FileSystemService {
 
   private shouldIgnore(name: string, relativePath: string): boolean {
     if (DEFAULT_IGNORE.has(name)) return true;
+    if (name.endsWith('.log') || name.endsWith('.zip') || name.endsWith('.dmg')) return true;
     const parts = relativePath.split(path.sep);
     if (parts.some((p) => DEFAULT_IGNORE.has(p))) return true;
     return false;

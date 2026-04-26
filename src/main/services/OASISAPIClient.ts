@@ -259,12 +259,19 @@ export class OASISAPIClient {
     return this.unwrapA2AResult(response.data ?? response);
   }
 
-  async healthCheck(): Promise<any> {
+  async healthCheck(): Promise<{
+    status: 'healthy' | 'unhealthy';
+    data?: unknown;
+    error?: string;
+    /** Actual ONODE base URL this client uses (env may override Settings). */
+    resolvedBaseUrl: string;
+  }> {
+    const resolvedBaseUrl = this.baseURL;
     try {
       const response = await this.client.get('/api/health');
-      return { status: 'healthy', data: response.data };
+      return { status: 'healthy', data: response.data, resolvedBaseUrl };
     } catch (error: any) {
-      return { status: 'unhealthy', error: error.message };
+      return { status: 'unhealthy', error: error.message, resolvedBaseUrl };
     }
   }
 

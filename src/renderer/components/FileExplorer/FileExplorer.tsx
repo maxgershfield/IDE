@@ -118,11 +118,31 @@ function FileTreeItem({
   level?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const hasChildren = node.isDirectory && node.children && node.children.length > 0;
+  const [children, setChildren] = useState<TreeNode[] | undefined>(node.children);
+  const [childrenLoaded, setChildrenLoaded] = useState(Boolean(node.children && node.children.length > 0));
+  const hasChildren = node.isDirectory && children && children.length > 0;
 
-  const handleClick = () => {
-    if (node.isDirectory) setExpanded((e) => !e);
-    else openFile(node.path);
+  useEffect(() => {
+    setChildren(node.children);
+    setChildrenLoaded(Boolean(node.children && node.children.length > 0));
+  }, [node.path, node.children]);
+
+  const handleClick = async () => {
+    if (!node.isDirectory) {
+      openFile(node.path);
+      return;
+    }
+    if (!expanded && !childrenLoaded && window.electronAPI?.listDirShallow) {
+      try {
+        const loaded = await window.electronAPI.listDirShallow(node.path);
+        setChildren((loaded ?? []) as TreeNode[]);
+      } catch {
+        setChildren([]);
+      } finally {
+        setChildrenLoaded(true);
+      }
+    }
+    setExpanded((e) => !e);
   };
 
   return (
@@ -154,7 +174,7 @@ function FileTreeItem({
       </div>
       {node.isDirectory && expanded && hasChildren && (
         <div className="file-tree-children">
-          {node.children!.map((child) => (
+          {children!.map((child) => (
             <FileTreeItem
               key={child.path}
               node={child}

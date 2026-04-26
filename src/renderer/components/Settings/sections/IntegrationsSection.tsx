@@ -17,20 +17,41 @@ type ConnectionState = 'unknown' | 'connected' | 'disconnected';
 export const IntegrationsSection: React.FC = () => {
   const { settings, updateSettings } = useSettings();
   const [oasisStatus, setOasisStatus] = useState<ConnectionState>('unknown');
+  const [oasisCheckHint, setOasisCheckHint] = useState('');
 
   useEffect(() => {
     const check = async () => {
       try {
         if (window.electronAPI?.healthCheck) {
-          const h = await window.electronAPI.healthCheck();
+          const h = (await window.electronAPI.healthCheck()) as {
+            status?: string;
+            error?: string;
+            resolvedBaseUrl?: string;
+            envOasisApiUrlSet?: boolean;
+            settingsOasisOverrideActive?: boolean;
+          };
           setOasisStatus(h?.status === 'healthy' ? 'connected' : 'disconnected');
+          const u = h?.resolvedBaseUrl ?? '';
+          const err = h?.error ? ` ${h.error}` : '';
+          const src =
+            h?.settingsOasisOverrideActive
+              ? ' (saved API Endpoint; wins over OASIS_API_URL)'
+              : h?.envOasisApiUrlSet
+                ? ' (OASIS_API_URL; no non-empty saved override)'
+                : ' (default or implicit)';
+          setOasisCheckHint(
+            u
+              ? `Health: GET ${u}/api/health${src}${h?.status !== 'healthy' && err ? ` —${err}` : ''}`
+              : ''
+          );
         }
       } catch {
         setOasisStatus('disconnected');
+        setOasisCheckHint('Health check failed');
       }
     };
-    check();
-  }, []);
+    void check();
+  }, [settings.oasisApiEndpoint]);
 
   const StatusIcon: React.FC<{ state: ConnectionState }> = ({ state }) => {
     if (state === 'connected')
@@ -115,28 +136,43 @@ export const IntegrationsSection: React.FC = () => {
           <div className="settings-row-info">
             <div className="settings-row-label">OASIS API</div>
             <div className="settings-row-desc">
-              Connection to the OASIS backend (ONODE). Status reflects the last health check.
+              Connection to the OASIS backend (ONODE). Status reflects the last health check. Hover the
+              status bar ONODE pill for the same details.
             </div>
           </div>
-          <div className="settings-row-control" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <StatusIcon state={oasisStatus} />
-            <span
-              style={{
-                fontSize: 12,
-                color:
-                  oasisStatus === 'connected'
-                    ? 'var(--success)'
-                    : oasisStatus === 'disconnected'
-                    ? 'var(--error)'
-                    : 'var(--text-secondary)',
-              }}
-            >
-              {oasisStatus === 'connected'
-                ? 'Healthy'
-                : oasisStatus === 'disconnected'
-                ? 'Unreachable'
-                : 'Checking...'}
-            </span>
+          <div
+            className="settings-row-control"
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, maxWidth: 360 }}
+          >
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <StatusIcon state={oasisStatus} />
+              <span
+                style={{
+                  fontSize: 12,
+                  color:
+                    oasisStatus === 'connected'
+                      ? 'var(--success)'
+                      : oasisStatus === 'disconnected'
+                        ? 'var(--error)'
+                        : 'var(--text-secondary)',
+                }}
+              >
+                {oasisStatus === 'connected'
+                  ? 'Healthy'
+                  : oasisStatus === 'disconnected'
+                    ? 'Unreachable'
+                    : 'Checking...'}
+              </span>
+            </div>
+            {oasisCheckHint ? (
+              <span
+                className="settings-row-desc"
+                style={{ fontSize: 10, lineHeight: 1.35, textAlign: 'right' }}
+                title={oasisCheckHint}
+              >
+                {oasisCheckHint}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -144,12 +180,11 @@ export const IntegrationsSection: React.FC = () => {
           <div className="settings-row-info">
             <div className="settings-row-label">API Endpoint Override</div>
             <div className="settings-row-desc">
-              ONODE base URL (paths use <code style={{ fontSize: 11 }}>/api/...</code>). If{' '}
-              <code style={{ fontSize: 11 }}>OASIS_API_URL</code> is set in{' '}
-              <code style={{ fontSize: 11 }}>.env</code>, it wins over this field. Leave blank to use the
-              public API ({' '}
-              <code style={{ fontSize: 11 }}>api.oasisweb4.one</code>) when env is unset; use Local for a
-              dev ONODE.
+              ONODE base URL (paths use <code style={{ fontSize: 11 }}>/api/...</code>). A non-empty
+              value here is saved to disk and takes precedence over{' '}
+              <code style={{ fontSize: 11 }}>OASIS_API_URL</code> in <code style={{ fontSize: 11 }}>.env</code>
+              . Clear the field to use <code style={{ fontSize: 11 }}>OASIS_API_URL</code> if set, or the
+              public API. Use Local for a dev ONODE.
             </div>
           </div>
           <div className="settings-row-control" style={{ width: 280 }}>

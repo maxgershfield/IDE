@@ -13,6 +13,14 @@ export interface IdeChatModelOption {
   provider: IdeChatProviderId;
 }
 
+export type IdeModelWorkRole = 'metaArchitect' | 'architect' | 'builder' | 'repair' | 'reviewer';
+
+export interface IdeModelRolePolicy {
+  primaryRole: IdeModelWorkRole;
+  roleLabel: string;
+  guidance: string;
+}
+
 export const IDE_CHAT_MODEL_STORAGE_KEY = 'oasis-ide-selected-chat-model';
 
 /** Agent only: plan (read-only + one question + chips) vs execute (full tools). */
@@ -22,10 +30,12 @@ export type AgentExecutionModeId = 'plan' | 'execute';
 export const IDE_GAME_DEV_STORAGE_KEY = 'oasis-ide-game-dev-config';
 
 /** Default when nothing stored */
-export const IDE_CHAT_DEFAULT_MODEL_ID = 'gpt-4o-mini';
+export const IDE_CHAT_DEFAULT_MODEL_ID = 'gpt-5.5';
 
 export const IDE_CHAT_MODELS: IdeChatModelOption[] = [
   // OpenAI
+  { id: 'gpt-5.5', label: 'GPT-5.5', provider: 'openai' },
+  { id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro', provider: 'openai' },
   { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
   { id: 'gpt-4o-mini', label: 'GPT-4o mini', provider: 'openai' },
   { id: 'gpt-4-turbo', label: 'GPT-4 Turbo', provider: 'openai' },
@@ -47,4 +57,38 @@ export const IDE_CHAT_MODELS: IdeChatModelOption[] = [
 
 export function getIdeChatModelById(id: string): IdeChatModelOption | undefined {
   return IDE_CHAT_MODELS.find((m) => m.id === id);
+}
+
+export function getIdeModelRolePolicy(id: string): IdeModelRolePolicy {
+  const normalized = id.toLowerCase();
+  if (normalized === 'gpt-5.5' || normalized === 'gpt-5.5-pro') {
+    return {
+      primaryRole: 'metaArchitect',
+      roleLabel: 'IDE meta-architect',
+      guidance:
+        'Use this model to improve the IDE itself: discover missing pathways, add durable tools, validators, parsers, context, recipes, repair loops, and UI affordances, then verify with tests/builds so weaker models can perform better later.'
+    };
+  }
+  if (/\bo1\b|o3|gpt-5|gpt-4o$|gpt-4-turbo|grok-3|claude.*sonnet|gemini-.*pro/.test(normalized)) {
+    return {
+      primaryRole: 'architect',
+      roleLabel: 'Architect / reviewer',
+      guidance:
+        'Use this model for product interpretation, holon composition, build contracts, and quality review before a smaller model executes file edits.'
+    };
+  }
+  if (/mini|flash|haiku|grok-2/.test(normalized)) {
+    return {
+      primaryRole: 'builder',
+      roleLabel: 'Builder / repair',
+      guidance:
+        'Use this model for constrained file generation, narrow repairs, command execution, and following IDE-owned contracts and validator feedback.'
+    };
+  }
+  return {
+    primaryRole: 'repair',
+    roleLabel: 'General repair',
+    guidance:
+      'Use this model for bounded implementation or repair tasks after the IDE has supplied concrete plans, contracts, and validation feedback.'
+  };
 }

@@ -9,6 +9,7 @@ import {
   IDE_CHAT_MODELS,
   IDE_CHAT_MODEL_STORAGE_KEY,
   getIdeChatModelById,
+  getIdeModelRolePolicy,
   type AgentExecutionModeId
 } from '../../constants/ideChatModels';
 import { getAgentContextPack, getAgentContextPackSearchFirst } from '../../../shared/agentContextPack';
@@ -40,6 +41,7 @@ import { useStarnetCatalog } from '../../contexts/StarnetCatalogContext';
 import {
   buildStarnetIdeContextNote,
   buildStarnetIdeSnapshotMissingNote,
+  buildStarnetShortlistForUserRequest,
   buildStarnetSearchFirstNote,
 } from '../../utils/starnetAgentContext';
 import { OnChainQuickPalette } from './OnChainQuickPalette';
@@ -50,13 +52,25 @@ import {
 import { ComposerInlineGameWorkflow } from './ComposerInlineGameWorkflow';
 import { ComposerInlineOasisOnboardGuide } from './ComposerInlineOasisOnboardGuide';
 import { ComposerInlineBuildPlanGuide } from './ComposerInlineBuildPlanGuide';
-import { OASIS_OPEN_ONBOARD_GUIDE } from '../../utils/activityViewBridge';
+import {
+  OASIS_OPEN_ONBOARD_GUIDE,
+  requestActivityView,
+  requestStarnetCatalogSelection
+} from '../../utils/activityViewBridge';
 import type { GameQuickActionId } from '../../constants/gameQuickActions';
 import { useEditorTab } from '../../contexts/EditorTabContext';
 import { useProjectMemory } from '../../contexts/ProjectMemoryContext';
 import { loadWorkspaceRulesText } from '../../utils/workspaceRules';
 import { loadIdeAgentInstructions } from '../../utils/ideAgentInstructions';
 import { extractLastOasisBuildPlan, stripOasisBuildPlanFences } from '../../utils/parseOasisBuildPlan';
+import {
+  extractLastHolonicAppBuildContract,
+  stripHolonicAppBuildContractFences,
+} from '../../utils/parseHolonicAppBuildContract';
+import {
+  extractLastOasisCompositionPlan,
+  stripOasisCompositionPlanFences
+} from '../../utils/parseOasisCompositionPlan';
 import {
   buildPlanningDocContextNote,
   PLANNING_DOC_CONTEXT_MAX_CHARS,
@@ -71,6 +85,8 @@ import { useDomainPacks } from '../../contexts/DomainPackContext';
 import { buildOnChainAgentContextNote } from '../../constants/onChainQuickPrompts';
 import { buildDomainPackContextNote } from '../../utils/domainPackAgentContext';
 import type { DomainPackQuickAction } from '../../../shared/domainPackTypes';
+import type { OappCompositionPlan } from '../../../shared/oappCompositionPlanTypes';
+import type { HolonicAppBuildContract } from '../../../shared/holonicAppBuildTypes';
 import {
   buildPathScopedContextNote,
   rootDirNamesFromTree,
@@ -251,6 +267,48 @@ function threadHasUserMessages(messages: Message[] | null | undefined): boolean 
   return Boolean(messages?.some((m) => m.role === 'user'));
 }
 
+function userMessageStats(messages: Message[] | null | undefined): { count: number; latestTimestamp: number } {
+  let count = 0;
+  let latestTimestamp = 0;
+  for (const m of messages ?? []) {
+    if (m.role !== 'user') continue;
+    count += 1;
+    latestTimestamp = Math.max(latestTimestamp, m.timestamp || 0);
+  }
+  return { count, latestTimestamp };
+}
+
+function canServerHistoryReplaceLocal(serverMessages: Message[], localMessages: Message[]): boolean {
+  const local = userMessageStats(localMessages);
+  if (local.count === 0) return true;
+  const server = userMessageStats(serverMessages);
+  if (server.count < local.count) return false;
+  if (server.count === local.count && server.latestTimestamp < local.latestTimestamp) return false;
+  return true;
+}
+
+function userMessageLooksLikeStarnetIntent(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 4) return false;
+  return (
+    /\b(starnet|star\s*(catalog|mode|tab|section)|star\s+webapi)\b/i.test(t) ||
+    /\b(holons?|oapps?|oapp\s*template|catalog\s+ids?|uuid)\b/i.test(t) ||
+    (/\b(build|create|make|compose|combine|find|identify|recommend|match|use)\b/i.test(t) &&
+      /\b(food\s*delivery|marketplace|app|oapp|application|product|platform)\b/i.test(t))
+  );
+}
+
+function compactMessageForAgentHistory(message: Message, isCurrentTurn: boolean): string {
+  if (isCurrentTurn) return message.content;
+  let text = stripHolonicAppBuildContractFences(
+    stripOasisCompositionPlanFences(stripOasisBuildPlanFences(message.content))
+  );
+  if (text.length > 8_000) {
+    text = `${text.slice(0, 7_800)}\n\n[IDE: prior message truncated for agent context budget]`;
+  }
+  return text;
+}
+
 /**
  * When the user opens a folder after chatting with no workspace, `threadKey` switches from
  * `workspaceKey(null)` ("nows") to a path-specific key. Without this, the composer loads an empty
@@ -320,6 +378,7 @@ function buildLocalIdeContextPrefix(
   projectMemory?: string | null,
   starnetNote?: string | null,
   domainPackNote?: string | null,
+  compositionPlanNote?: string | null,
   extras?: {
     workspaceRules?: string | null;
     autoLoadedProjectInstructions?: string | null;
@@ -356,6 +415,9 @@ function buildLocalIdeContextPrefix(
   }
   if (domainPackNote?.trim()) {
     block += `${domainPackNote.trim()}\n\n`;
+  }
+  if (compositionPlanNote?.trim()) {
+    block += `${compositionPlanNote.trim()}\n\n`;
   }
   return block;
 }
@@ -458,6 +520,154 @@ function capContextBlock(s: string, maxChars: number, _kind: string): string {
   return `${t.slice(0, maxChars)}\n\n…(truncated)`;
 }
 
+function userExplicitlyWantsFullStarnetCatalog(userText: string): boolean {
+  const t = userText.toLowerCase();
+  return (
+    /\b(full|complete|entire|all)\b.{0,40}\b(starnet|catalog|holons?|oapps?)\b/.test(t) ||
+    /\b(starnet|catalog|holons?|oapps?)\b.{0,40}\b(full|complete|entire|all)\b/.test(t) ||
+    /\blist\s+(every|all)\b/.test(t) ||
+    /\bshow\s+(every|all)\b/.test(t)
+  );
+}
+
+function isUntitledChatTitle(title: string): boolean {
+  const t = title.trim();
+  return !t || t === 'New chat' || /^Chat \d+$/i.test(t) || /^Untitled( chat)?$/i.test(t);
+}
+
+function titleCaseWord(word: string): string {
+  const w = word.trim();
+  if (!w) return '';
+  if (/^(OASIS|ONODE|STAR|STARNET|OAPP|API|MCP|NFT|IDE|UI|UX)$/i.test(w)) {
+    return w.toUpperCase();
+  }
+  return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+}
+
+function deriveChatTitleFromUserMessage(text: string): string | null {
+  const cleaned = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+
+  const low = cleaned.toLowerCase();
+  if (/\bfood\b/.test(low) && /\b(delivery|restaurant|menu|order|courier)\b/.test(low)) {
+    return /\bholons?\b/.test(low) || /\bstarnet\b/.test(low)
+      ? 'Food Delivery Holons'
+      : 'Food Delivery App';
+  }
+  if (/\bstarnet\b/.test(low) && /\bholons?\b/.test(low)) return 'STARNET Holon Search';
+  if (/\bgame\b|\bworld\b|\bquest\b|\bnpc\b/.test(low)) return 'Game Build Plan';
+
+  const stop = new Set([
+    'i', 'we', 'you', 'want', 'wanna', 'would', 'like', 'please', 'can', 'could',
+    'help', 'me', 'to', 'a', 'an', 'the', 'this', 'that', 'for', 'with', 'using',
+    'build', 'create', 'make', 'find', 'what', 'which', 'how', 'do', 'does'
+  ]);
+  const words = cleaned
+    .replace(/[^a-zA-Z0-9+#./ -]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9+#./-]+$/g, ''))
+    .filter((w) => w.length >= 2 && !stop.has(w.toLowerCase()))
+    .slice(0, 6);
+  if (words.length === 0) return cleaned.slice(0, 48);
+  return words.map(titleCaseWord).join(' ').slice(0, 48);
+}
+
+function buildStarnetShortlistOnlyFooter(starnetCatalogSnapshot: ReturnType<typeof useStarnetCatalog>['snapshot']): string {
+  const hCount = starnetCatalogSnapshot?.holonCatalogRows?.length ?? 0;
+  const oCount = starnetCatalogSnapshot?.oapps?.length ?? 0;
+  const baseUrl = starnetCatalogSnapshot?.baseUrl ?? '(see Settings → STARNET)';
+  return [
+    '## STARNET catalog policy for this turn (fast path)',
+    '',
+    `The IDE has ${hCount} merged holon/template row${hCount === 1 ? '' : 's'} and ${oCount} OAPP row${oCount === 1 ? '' : 's'} loaded from STARNET at \`${baseUrl}\`, but the full table is **not attached** because this looks like a product-specific matching question.`,
+    '',
+    'Use the **IDE-selected STARNET shortlist** above as the catalog for this answer. Do not call `star_list_holons` / `star_list_oapps` just to rediscover the full list. If the user asks for the full catalog, they can ask for “all STARNET holons” or open **Activity bar → STARNET**.'
+  ].join('\n');
+}
+
+function buildCompositionPlanContextNote(plan: OappCompositionPlan | null): string | null {
+  if (!plan) return null;
+  const nodes = Array.isArray(plan.nodes) ? plan.nodes : [];
+  const edges = Array.isArray(plan.edges) ? plan.edges : [];
+  const capabilityLanes = Array.isArray(plan.capabilityLanes) ? plan.capabilityLanes : [];
+  const buildSteps = Array.isArray(plan.buildSteps) ? plan.buildSteps : [];
+  const nodeLines = nodes.slice(0, 12).map((n) => {
+    const id = n.catalogId ? ` (${n.catalogId})` : '';
+    const capability = n.capability
+      ? `; capability: ${n.capability.kind}; schema: ${(n.capability.schemaHints ?? []).slice(0, 5).join(', ') || 'unspecified'}; ports: ${(n.capability.ports ?? []).slice(0, 3).map((p) => `${p.id}/${p.direction}`).join(', ') || 'unspecified'}`
+      : '';
+    return `- ${n.id}: ${n.name}${id} — role: ${n.role}${capability}`;
+  });
+  const edgeLines = edges.slice(0, 12).map((e) => `- ${e.from} -> ${e.to}: ${e.relation}`);
+  const laneLines = capabilityLanes.slice(0, 12).map((lane) => {
+    const matchedNodeIds = Array.isArray(lane.matchedNodeIds) ? lane.matchedNodeIds : [];
+    const status = matchedNodeIds.length > 0 ? matchedNodeIds.join(', ') : `GAP: ${lane.gap ?? 'uncovered'}`;
+    return `- ${lane.label}: ${status}`;
+  });
+  const stepLines = buildSteps.slice(0, 8).map((step) => `- ${step.id}: ${step.title}`);
+  return [
+    '## IDE-attached OAPP composition plan',
+    '',
+    'This plan is owned by the IDE Build/STARNET UI. It is attached invisibly, so do not ask the user to paste it and do not restate the raw JSON.',
+    `Intent: ${plan.intent}`,
+    `App type: ${plan.appType}`,
+    '',
+    '### Selected holon nodes',
+    nodeLines.length > 0 ? nodeLines.join('\n') : '- (none)',
+    '',
+    '### Proposed holon edges',
+    edgeLines.length > 0 ? edgeLines.join('\n') : '- (none yet)',
+    '',
+    '### Capability coverage',
+    laneLines.length > 0 ? laneLines.join('\n') : '- (none)',
+    '',
+    '### Build steps',
+    stepLines.length > 0 ? stepLines.join('\n') : '- (none)',
+    '',
+    'Instruction: first produce a concise implementation plan from this attached contract. Do not write files unless the user has explicitly approved Execute mode.'
+  ].join('\n');
+}
+
+function buildHolonicAppBuildContractContextNote(contract: HolonicAppBuildContract | null): string | null {
+  if (!contract) return null;
+  const fileLines = contract.requiredFiles
+    .slice(0, 20)
+    .map((file) => `- ${file.path}: ${file.reason}`);
+  const bindingLines = contract.capabilityBindings.slice(0, 14).map((binding) => {
+    const catalog = binding.catalogId ? ` (${binding.catalogId})` : '';
+    return `- ${binding.name}${catalog}: ${binding.role}; adapter ${binding.adapterPath}`;
+  });
+  return [
+    '## IDE-attached holonic app build contract',
+    '',
+    'This is the executable scaffold contract for the OAPP build. Follow it before running install/build/dev commands.',
+    'The assistant may update this contract by emitting a valid ```oasis-holonic-build-contract JSON fence.',
+    `Project path: ${contract.projectPath}`,
+    `Stack: ${contract.stack}`,
+    `Recipe: ${contract.recipePath ?? '(none)'}`,
+    `Reusable holon specs: ${contract.reusableHolonSpecPath ?? '(none)'}`,
+    `Live runtime adapter: ${contract.liveRuntimeAdapterPath ?? '(none)'}`,
+    '',
+    '### Required scaffold files',
+    fileLines.length > 0 ? fileLines.join('\n') : '- (none)',
+    '',
+    '### Holon capability bindings',
+    bindingLines.length > 0 ? bindingLines.join('\n') : '- (none)',
+    '',
+    '### Commands',
+    `- Install: ${contract.installCommand.argv.join(' ')} (cwd: ${contract.installCommand.cwd})`,
+    `- Build: ${contract.buildCommand.argv.join(' ')} (cwd: ${contract.buildCommand.cwd})`,
+    `- Dev: ${contract.devCommand.argv.join(' ')} (cwd: ${contract.devCommand.cwd})`,
+    '',
+    'Instruction: after writing scaffold files, call validate_holonic_app_scaffold with this projectPath, stack, reusableHolonSpecPath, requiredFiles, selected holon catalog ids, and liveRuntimeAdapterPath when present. Then call validate_oapp_quality. Keep fixture mode deterministic and isolate live STAR/OASIS writes behind the live runtime adapter. Only run npm commands after validation passes. If validation fails, follow the structured repair instructions and validate again.'
+  ].join('\n');
+}
+
 function buildIdeComposerContextPack(opts: {
   workspaceRules: string | null;
   /** Root + nested AGENTS.md and `.cursor/rules` (bounded); see `docs/IDE_INTELLIGENCE_HOLONIC_AND_CURSOR_PARITY_BRIEFING.md` */
@@ -470,6 +680,12 @@ function buildIdeComposerContextPack(opts: {
   domainPackNote?: string | null;
   /** Full planning index markdown (Build plan tab); injected every agent turn */
   planningDocNote?: string | null;
+  /** IDE-owned OAPP composition plan; injected invisibly instead of pasted into Composer */
+  compositionPlanNote?: string | null;
+  /** IDE-owned executable holonic app scaffold contract */
+  holonicBuildContractNote?: string | null;
+  /** Current model's intended role in the IDE intelligence workflow */
+  modelRolePolicyNote?: string | null;
   /** Pre-read workspace tree (from WorkspaceContext) — injected once to reduce list_directory round-trips */
   workspaceTreeNote?: string | null;
   /** Top holons from the semantic index, matched to the current user query */
@@ -488,6 +704,17 @@ function buildIdeComposerContextPack(opts: {
 
   const low = opts.inputBudget === 'low';
 
+  // When the IDE has any STARNET block, forbid invented "STAR is down" narratives (models often infer from search-first or MCP).
+  const STARNET_INVENTORY_MANDATORY =
+    opts.starnetNote?.trim()
+      ? [
+          '---',
+          '> ⛔ **STARNET truth rule (applies in addition to the STARNET section below):**',
+          '> The **OASIS IDE** loads the STARNET list in-process (and may persist it to userData). This path does **not** require `mcp_invoke` or a separate "STAR WebAPI" connection in your reply. **You must not** state that the STAR WebAPI is unreachable, or that you could not retrieve holons, **except** by quoting a verbatim tool error from *this* thread. If a `## STARNET catalog` table has rows, that **is** the list — use it. If the section is empty, say the catalog is not in this context **yet** (suggest **Activity bar → STARNET** and Refresh, or resend) — not a network outage.',
+          '---',
+        ].join('\n')
+      : null;
+
   // ⛔ This MUST be the very first thing the model reads — do not move it down.
   const EXECUTE_NOW_PREFIX =
     '> ⛔ MANDATORY BEHAVIOUR — applies to every turn, no exceptions:\n' +
@@ -499,6 +726,12 @@ function buildIdeComposerContextPack(opts: {
     '> If you are unsure about a detail, pick the most sensible default and proceed — ask afterwards if needed.';
 
   const parts: string[] = [EXECUTE_NOW_PREFIX];
+  if (opts.modelRolePolicyNote?.trim()) {
+    parts.push(opts.modelRolePolicyNote.trim());
+  }
+  if (STARNET_INVENTORY_MANDATORY) {
+    parts.push(STARNET_INVENTORY_MANDATORY);
+  }
   if (opts.workspaceRules?.trim()) {
     parts.push(
       `## Workspace rules (.oasiside or .OASIS_IDE)\n${capContextBlock(
@@ -539,12 +772,24 @@ function buildIdeComposerContextPack(opts: {
       low ? capContextBlock(opts.planningDocNote, 6_000, 'planning') : opts.planningDocNote.trim()
     );
   }
+  if (opts.compositionPlanNote?.trim()) {
+    parts.push(
+      low ? capContextBlock(opts.compositionPlanNote, 3_000, 'composition plan') : opts.compositionPlanNote.trim()
+    );
+  }
+  if (opts.holonicBuildContractNote?.trim()) {
+    parts.push(
+      low
+        ? capContextBlock(opts.holonicBuildContractNote, 3_000, 'holonic build contract')
+        : opts.holonicBuildContractNote.trim()
+    );
+  }
   if (opts.starnetNote?.trim()) {
     if (hasLocalHolonContext) {
       parts.push(LOCAL_VS_STARNET_ROUTING_NOTE);
     }
     parts.push(
-      low ? capContextBlock(opts.starnetNote, 12_000, 'starnet') : opts.starnetNote.trim()
+      low ? capContextBlock(opts.starnetNote, 18_000, 'starnet') : opts.starnetNote.trim()
     );
   }
   if (opts.domainPackNote?.trim()) {
@@ -677,6 +922,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const starnetContextNote = useMemo(() => {
     if (settings.agentContextPacking === 'searchFirst') {
       if (!loggedIn) return null;
+      const hCount = starnetCatalogSnapshot?.holonCatalogRows?.length ?? 0;
+      const oCount = starnetCatalogSnapshot?.oapps?.length ?? 0;
+      if (hCount + oCount > 0) {
+        const fromSnapshot = buildStarnetIdeContextNote(starnetCatalogSnapshot);
+        if (fromSnapshot) return fromSnapshot;
+      }
       const baseUrl = starnetCatalogSnapshot?.baseUrl ?? '(see Settings → STARNET)';
       return buildStarnetSearchFirstNote(
         baseUrl,
@@ -689,6 +940,33 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     if (loggedIn) return buildStarnetIdeSnapshotMissingNote();
     return null;
   }, [starnetCatalogSnapshot, loggedIn, settings.agentContextPacking]);
+
+  const highlightStarnetRowsFromAssistantText = useCallback(
+    (text: string, query?: string) => {
+      if (!text) return;
+      const ids = Array.from(
+        new Set(
+          text
+            .match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)
+            ?.map((id) => id.toLowerCase()) ?? []
+        )
+      );
+      if (ids.length === 0) return;
+      const likelyStarnetTurn =
+        /\bSTARNET\b|\bCatalog id\b|\bHolon map\b|\bholons?\b|\boapps?\b/i.test(text) ||
+        /\bSTARNET\b|\bholons?\b|\boapps?\b|\bbuild\b|\bapp\b|\bapplication\b/i.test(query ?? '');
+      if (!likelyStarnetTurn) return;
+      const catalogIds = new Set([
+        ...(starnetCatalogSnapshot?.holonCatalogRows ?? []).map((h) => h.id.toLowerCase()),
+        ...(starnetCatalogSnapshot?.oapps ?? []).map((o) => o.id.toLowerCase()),
+      ]);
+      const matched = ids.filter((id) => catalogIds.has(id));
+      if (matched.length === 0) return;
+      requestActivityView('starnet');
+      window.setTimeout(() => requestStarnetCatalogSelection(matched, 'agent', query), 80);
+    },
+    [starnetCatalogSnapshot]
+  );
   const { text: projectMemoryText, appendAutoTurnLine, appendChatSummaryBlock } = useProjectMemory();
   const referencedPaths = getReferencedPathsForSession(sessionId);
   const threadKey = useMemo(
@@ -703,6 +981,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
 
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const messagesRef = useRef<Message[]>(messages);
+  /** Incremented for user/assistant turns created locally; prevents stale server loads from overwriting them. */
+  const localTranscriptVersionRef = useRef(0);
 
   // Sync session holons into the HolonicCanvas panel whenever messages change.
   useEffect(() => {
@@ -759,6 +1039,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   const [loading, setLoading] = useState(false);
   /** Live progress: text lines + structured file-edit rows (matches agent loop + pending writes). */
   const [agentActivityFeed, setAgentActivityFeed] = useState<AgentActivityFeedItem[]>([]);
+  const [starnetIntentActive, setStarnetIntentActive] = useState(false);
   const appendFeedText = useCallback((line: string) => {
     setAgentActivityFeed((prev) => [...prev, { kind: 'text', text: line }]);
   }, []);
@@ -823,7 +1104,15 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     openBuilderTab,
     openBuildPlanPane
   } = useEditorTab();
-  const { applyPayload, planningDocPath, planningDocContent } = useOappBuildPlan();
+  const {
+    applyPayload,
+    applyCompositionPlan,
+    applyBuildContract,
+    compositionPlan,
+    buildContract,
+    planningDocPath,
+    planningDocContent
+  } = useOappBuildPlan();
   const { status: indexStatus, searchHolons } = useWorkspaceIndex();
 
   const planningContextNote = useMemo(() => {
@@ -834,6 +1123,14 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       settings.agentInputBudget === 'low' ? PLANNING_DOC_CONTEXT_MAX_CHARS_LOW : PLANNING_DOC_CONTEXT_MAX_CHARS
     );
   }, [planningDocPath, planningDocContent, settings.agentInputBudget]);
+  const compositionPlanContextNote = useMemo(
+    () => buildCompositionPlanContextNote(compositionPlan),
+    [compositionPlan]
+  );
+  const holonicBuildContractContextNote = useMemo(
+    () => buildHolonicAppBuildContractContextNote(buildContract),
+    [buildContract]
+  );
 
   /**
    * Tier 2: background file-content scan.
@@ -1194,10 +1491,16 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     if (!api?.chatHolonLoad) return;
 
     let cancelled = false;
+    const localVersionAtLoadStart = localTranscriptVersionRef.current;
     setHolonSyncState('idle');
     (async () => {
       const res = await api.chatHolonLoad(threadKey);
       if (cancelled) return;
+      if (localTranscriptVersionRef.current !== localVersionAtLoadStart) {
+        // A local prompt/response landed after this load started. Do not let an older
+        // server snapshot erase the latest visible chat turn.
+        return;
+      }
       if (res.error) {
         setHolonSyncState('error');
         return;
@@ -1206,6 +1509,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         try {
           const parsed = parseStoredMessages(JSON.parse(res.messagesJson));
           if (parsed && parsed.length > 0) {
+            if (!canServerHistoryReplaceLocal(parsed, messagesRef.current)) {
+              setHolonSyncState('synced');
+              return;
+            }
             setMessages(parsed);
             setAssistantReveal(null);
             setEarlierFoldStartIndex(null);
@@ -1292,13 +1599,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     }
   }, [tools, executeTool, aiAssistant]);
 
-  // Auto-scroll: after a new send with fold, show the current turn from the top; otherwise follow the end.
+  // Auto-scroll: keep following the transcript. Earlier versions folded old turns on every send,
+  // which made the actual chat feel like it disappeared behind a trace summary.
   useEffect(() => {
     if (!visible) return;
     if (scrollComposerToFoldTopRef.current) {
       scrollComposerToFoldTopRef.current = false;
-      messagesScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
-      return;
     }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, agentActivityFeed.length, assistantReveal?.visible, visible]);
@@ -1315,6 +1621,26 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
   }, [agentActivityFeed, loading]);
 
   const modelMeta = getIdeChatModelById(selectedModelId);
+  const modelRolePolicy = getIdeModelRolePolicy(selectedModelId);
+  const modelRolePolicyNote = useMemo(
+    () => [
+      '## IDE model role policy',
+      `Current model: ${modelMeta?.label ?? selectedModelId}`,
+      `Recommended role: ${modelRolePolicy.roleLabel}`,
+      modelRolePolicy.guidance,
+      'For OAPP builds, let IDE-owned composition plans, build contracts, validators, and repair instructions constrain the work. Do not rely on raw model judgment alone.',
+      modelRolePolicy.primaryRole === 'metaArchitect'
+        ? 'Meta-agent authority: when the user asks how to improve the IDE, you may inspect and edit the OASIS-IDE and ONODE codebase, add missing pathways as durable system features, and verify with focused tests/builds. Prefer reusable IDE capabilities over one-off prompt workarounds.'
+        : ''
+    ].filter(Boolean).join('\n'),
+    [
+      modelMeta?.label,
+      modelRolePolicy.guidance,
+      modelRolePolicy.primaryRole,
+      modelRolePolicy.roleLabel,
+      selectedModelId
+    ],
+  );
   const electronApi = getElectronAPI();
   const agentToolLoopReady =
     !!workspacePath &&
@@ -1465,18 +1791,39 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       imageDataUrls: sendImageDataUrls.length > 0 ? [...sendImageDataUrls] : undefined
     };
 
-    const foldAt = threadBefore.length;
-    scrollComposerToFoldTopRef.current = true;
-    setEarlierFoldStartIndex(foldAt);
-    setMessages(prev => [...prev, userMessage]);
+    // Preserve chat context inline. Do not auto-fold prior messages into "Earlier" on each send.
+    scrollComposerToFoldTopRef.current = false;
+    setEarlierFoldStartIndex(null);
+    localTranscriptVersionRef.current += 1;
+    const threadWithUserMessage = [...threadBefore, userMessage];
+    messagesRef.current = threadWithUserMessage;
+    savePersistedMessages(threadKey, threadWithUserMessage);
+    setMessages(prev => {
+      const next = [...prev, userMessage];
+      messagesRef.current = next;
+      savePersistedMessages(threadKey, next);
+      return next;
+    });
     const sess = sessions.find((s) => s.id === sessionId);
-    if (sess && /^Chat \d+$/.test(sess.title)) {
-      const hint = currentInput.trim().slice(0, 48);
-      if (hint) setSessionTitle(sessionId, hint);
+    if (sess && isUntitledChatTitle(sess.title)) {
+      const title = deriveChatTitleFromUserMessage(currentInput);
+      if (title) setSessionTitle(sessionId, title);
     }
     setAgentActivityFeed([]);
     setLastAgentActivity(null);
     setAssistantReveal(null);
+    const starnetIntent = userMessageLooksLikeStarnetIntent(currentInput);
+    setStarnetIntentActive(starnetIntent);
+    if (starnetIntent) {
+      requestActivityView('starnet');
+      setAgentActivityFeed([
+        {
+          kind: 'text',
+          text: 'Opened STARNET while the agent maps this prompt to catalog holons/OAPPs.',
+          toolKind: 'mcp'
+        }
+      ]);
+    }
     setLoading(true);
 
     const modelForSend = getIdeChatModelById(selectedModelId);
@@ -1495,9 +1842,10 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     const isLowInputBudget = settings.agentInputBudget === 'low';
     const maxChatHistory = isLowInputBudget ? 8 : 20;
 
-    const historyForApi = [...threadBefore, userMessage].slice(-maxChatHistory).map((m) => ({
+    const recentHistory = [...threadBefore, userMessage].slice(-maxChatHistory);
+    const historyForApi = recentHistory.map((m, index) => ({
       role: m.role,
-      content: m.content
+      content: compactMessageForAgentHistory(m, index === recentHistory.length - 1)
     }));
 
     const pushAssistantMessage = (
@@ -1523,7 +1871,8 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             })
           );
         }
-        return [
+        localTranscriptVersionRef.current += 1;
+        const next = [
           ...prev,
           {
             role: 'assistant',
@@ -1534,8 +1883,16 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             planChoices: planChoices?.length ? planChoices : undefined
           }
         ];
+        messagesRef.current = next;
+        savePersistedMessages(threadKey, next);
+        return next;
       });
       if (!error && content.trim().length > 0) {
+        const compositionPlan = extractLastOasisCompositionPlan(content);
+        if (compositionPlan) {
+          applyCompositionPlan(compositionPlan);
+          openBuildPlanPane();
+        }
         const payload = extractLastOasisBuildPlan(content);
         if (payload) {
           const tr = payload.templateRecommendation;
@@ -1550,6 +1907,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             applyPayload(payload);
             openBuildPlanPane();
           }
+        }
+        const contract = extractLastHolonicAppBuildContract(content);
+        if (contract) {
+          applyBuildContract(contract);
+          openBuildPlanPane();
         }
       }
     };
@@ -1606,6 +1968,20 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
         ideRunIdRef.current = null;
         return;
       }
+
+      const starnetShortlistNote = buildStarnetShortlistForUserRequest(
+        currentInput,
+        starnetCatalogSnapshot
+      );
+      const useStarnetFastPath =
+        Boolean(starnetShortlistNote?.trim()) && !userExplicitlyWantsFullStarnetCatalog(currentInput);
+      const starnetNoteForTurn = useStarnetFastPath
+        ? [starnetShortlistNote, buildStarnetShortlistOnlyFooter(starnetCatalogSnapshot)]
+            .filter((part): part is string => Boolean(part?.trim()))
+            .join('\n\n')
+        : [starnetShortlistNote, starnetContextNote]
+            .filter((part): part is string => Boolean(part?.trim()))
+            .join('\n\n');
 
       /* Pre-read a named subfolder (README, package.json, one-level list) so answers are not guesswork */
       let pathFocusNote: string | null = null;
@@ -1708,9 +2084,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           projectMemoryText,
           basePack,
           onChainNote: onChainContextNote,
-          starnetNote: starnetContextNote,
+          starnetNote: starnetNoteForTurn,
           domainPackNote: domainPackContextNote,
           planningDocNote: planningContextNote,
+          compositionPlanNote: compositionPlanContextNote,
+          holonicBuildContractNote: holonicBuildContractContextNote,
           pathFocusNote,
           workspaceTreeNote,
           relevantHolonsNote,
@@ -1779,6 +2157,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             true,
             choices
           );
+          highlightStarnetRowsFromAssistantText(displayText, currentInput);
         }
         return;
       }
@@ -1829,9 +2208,12 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             basePack:
               settings.agentContextPacking === 'searchFirst' ? getAgentContextPackSearchFirst() : getAgentContextPack(),
             onChainNote: onChainContextNote,
-            starnetNote: starnetContextNote,
+            starnetNote: starnetNoteForTurn,
             domainPackNote: domainPackContextNote,
             planningDocNote: planningContextNote,
+            compositionPlanNote: compositionPlanContextNote,
+            holonicBuildContractNote: holonicBuildContractContextNote,
+            modelRolePolicyNote,
             pathFocusNote,
             workspaceTreeNote,
             relevantHolonsNote: agentHolonsNote,
@@ -1842,7 +2224,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           })
         );
         if (!result.error && (result.content || (result.toolCalls && result.toolCalls.length > 0))) {
-          pushAssistantMessage(result.content || '', result.toolCalls, false);
+          const content = result.content || '';
+          pushAssistantMessage(content, result.toolCalls, false);
+          highlightStarnetRowsFromAssistantText(content, currentInput);
           return;
         }
         // Agent failed (error or empty) — fall through to fallback
@@ -1854,8 +2238,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           workspacePath,
           refPathsForTurn,
           projectMemoryText,
-          starnetContextNote,
+          starnetNoteForTurn,
           domainPackContextNote,
+          compositionPlanContextNote,
           {
             workspaceRules,
             autoLoadedProjectInstructions: agentAutoloadInstructions,
@@ -1867,11 +2252,13 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           (pathFocusNote ? `${pathFocusNote}\n\n` : '') + localPrefix + currentInput;
         const messagesForApi = [...historyForApi, { role: 'user' as const, content: localUser }];
         const result = await api.chatComplete(messagesForApi, selectedModelId);
+        const localContent = result.error ? `❌ ${result.error}` : (result.content || 'No response.');
         pushAssistantMessage(
-          result.error ? `❌ ${result.error}` : (result.content || 'No response.'),
+          localContent,
           undefined,
           !!result.error
         );
+        if (!result.error) highlightStarnetRowsFromAssistantText(localContent, currentInput);
         return;
       }
 
@@ -1881,8 +2268,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           workspacePath,
           refPathsForTurn,
           projectMemoryText,
-          starnetContextNote,
+          starnetNoteForTurn,
           domainPackContextNote,
+          compositionPlanContextNote,
           {
             workspaceRules,
             autoLoadedProjectInstructions: agentAutoloadInstructions,
@@ -1894,6 +2282,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
           (pathFocusNote ? `${pathFocusNote}\n\n` : '') + assistPrefix + currentInput
         );
         pushAssistantMessage(response.response, response.toolCalls, response.error);
+        if (!response.error) highlightStarnetRowsFromAssistantText(response.response, currentInput);
       } else {
         pushAssistantMessage('Assistant not ready. Try again in a moment.', undefined, true);
       }
@@ -1902,6 +2291,7 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
     } finally {
       ideRunIdRef.current = null;
       setLoading(false);
+      setStarnetIntentActive(false);
     }
   };
 
@@ -1985,7 +2375,11 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
       ? msg.content.slice(0, assistantReveal.visible)
       : msg.content;
     const strippedForDisplay =
-      msg.role === 'assistant' && !msg.error ? stripOasisBuildPlanFences(displayText) : displayText;
+      msg.role === 'assistant' && !msg.error
+        ? stripHolonicAppBuildContractFences(
+          stripOasisCompositionPlanFences(stripOasisBuildPlanFences(displayText))
+        )
+        : displayText;
     const bodyMarkdown =
       strippedForDisplay.trim().length > 0
         ? strippedForDisplay
@@ -2107,6 +2501,14 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
                 <div className="composer-activity-panel-header" title="The assistant is using your workspace without stopping the chat — status only, not the final answer.">
                   In progress
                 </div>
+                {starnetIntentActive ? (
+                  <div className="composer-starnet-progress-action">
+                    <span>STARNET context detected for this prompt.</span>
+                    <button type="button" onClick={() => requestActivityView('starnet')}>
+                      Open STARNET
+                    </button>
+                  </div>
+                ) : null}
                 {agentActivityFeed.length > 0 ? (
                   <ul ref={agentActivityFeedRef} className="composer-activity-feed">
                     {agentActivityFeed.map((item, i) => (
@@ -2166,22 +2568,21 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
             onInsertComposer={(text) => setInput(text)}
           />
         ) : null}
+        {lastAgentActivity && lastAgentActivity.length > 0 && (
+          <details className="composer-activity-summary composer-activity-summary--inline">
+            <summary className="composer-activity-summary-title">
+              Agent trace: {lastAgentActivity.length}{' '}
+              {lastAgentActivity.length === 1 ? 'step' : 'steps'} (optional)
+            </summary>
+            <ul className="composer-activity-list composer-activity-feed">
+              {lastAgentActivity.map((item, i) => (
+                <ComposerActivityFeedRow key={i} item={item} />
+              ))}
+            </ul>
+          </details>
+        )}
         <div ref={messagesEndRef} />
         </div>
-
-      {lastAgentActivity && lastAgentActivity.length > 0 && (
-        <details className="composer-activity-summary">
-          <summary className="composer-activity-summary-title">
-            Last run: {lastAgentActivity.length}{' '}
-            {lastAgentActivity.length === 1 ? 'step' : 'steps'} (full trace)
-          </summary>
-          <ul className="composer-activity-list composer-activity-feed">
-            {lastAgentActivity.map((item, i) => (
-              <ComposerActivityFeedRow key={i} item={item} />
-            ))}
-          </ul>
-        </details>
-      )}
 
       <details className="composer-context">
         <summary className="composer-context-summary">
@@ -2425,6 +2826,9 @@ export const ComposerSessionPanel: React.FC<ComposerSessionPanelProps> = ({
                 ? 'Plan'
                 : 'Execute'
               : 'Agent'}
+          </span>
+          <span className="composer-mode-pill composer-mode-pill--model-role" title={modelRolePolicy.guidance}>
+            {modelRolePolicy.roleLabel}
           </span>
           <span className="composer-footer-spacer" />
           <button

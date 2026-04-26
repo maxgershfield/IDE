@@ -6,6 +6,7 @@ import type {
 } from '../../shared/agentTurnTypes';
 import type { AgentActivityFeedItem, ToolKind } from '../../shared/agentActivityFeed';
 import { extractGatherDigest } from '../utils/planReplyParser';
+import { buildAppArchetypeIdeUserAppendix } from '../../shared/appArchetypeHints';
 
 function basenamePath(p: string): string {
   const s = p.replace(/[/\\]+$/, '');
@@ -296,7 +297,7 @@ export function shouldUsePlanModeFirst(userText: string): boolean {
 function groundTruthUserAppendix(): string {
   return (
     `[IDE: Ground-truth rules]\n` +
-    `Treat as **fact** what **tools**, \`[Tool results from this assistant turn]\`, or the appended **\`## STARNET catalog (IDE — auto-attached …)\`** table (id + name + type rows) in this request show. ` +
+    `Treat as **fact** what **tools**, \`[Tool results from this assistant turn]\`, or the appended **\`## STARNET catalog\`** section (in-memory + disk cache from the STARNET view; id + name + type rows) in this request show. ` +
     `Label other ideas **Proposed** or **Assumption**. ` +
     `Do not assert files, imports, or symbols exist without \`read_file\`, \`list_directory\`, or \`workspace_grep\`. ` +
     `Do not claim integration, auth, or a green build without matching tool output.`
@@ -306,7 +307,15 @@ function groundTruthUserAppendix(): string {
 /** Rich product + STARNET / holon questions deserve a template-first, non-hedged answer. */
 function userMessageWantsConcreteStarnetProductPlan(userText: string): boolean {
   const t = userText.toLowerCase();
-  if (t.length < 48) return false;
+  if (t.length < 8) return false;
+  // "what holons can you find" / "which holons" — always get the concrete appendix
+  if (
+    /\b(what|which)\b.{0,48}\b(holons?|oapp)\b/.test(t) &&
+    /\b(build|app|starnet|use|find|help|recommend|catalog|delivery|food|make)\b/.test(t)
+  ) {
+    return true;
+  }
+  if (t.length < 32) return false;
   const domain =
     /\b(holon|holons|oapp|starnet|component|template|catalog)\b/.test(t) ||
     /\b(community|social|geo|geolocation|mission|nft|timelock|location|coordinate|park|outdoor|thursday)\b/.test(
@@ -322,10 +331,15 @@ function userMessageWantsConcreteStarnetProductPlan(userText: string): boolean {
 function concreteStarnetProductPlanAppendix(): string {
   return (
     `[IDE: Concrete OAPP / STARNET answer — required for this message]\n` +
-    `1. **Holon picks:** Use **only** rows from the appended **\`## STARNET catalog (IDE — auto-attached …)\`** table (exact **name + id + type**). For each chosen row, write one decisive sentence: **what user-visible behavior it owns** in *this* app (banned vague phrases for those rows: "could", "might", "useful for", "consider", "may help").\n` +
+    `0. **Implied subsystems (if the same user message includes \`[IDE: App archetype — implied capability areas]\`)** use that block as a **checklist** — your **B. Holon map** should cover (with catalog uuids) each area that the STARNET table supports; say **gap** where no row fits.\n` +
+    `0b. **Full-table pass (for “find / which / what holons help …”):** The **\`## STARNET catalog\`** block is authoritative. You must read **all holon and OAPP rows in this request** (or all rows shown before any “truncated” line). ` +
+    `**Include** every row that is plausibly useful for the user’s goal (food delivery, logistics, riders, couriers, menus, venues, orders, maps, social, karma, NFT, users, admin, etc.) — **not** a 2–3 row subset when more rows in the same table are relevant. ` +
+    `If the note says more rows exist only in the STARNET view, state that the context table may be partial and name what the user should look for in **Activity bar → STARNET** for the rest.\n` +
+    `1. **Holon picks:** The **B. Holon map** \`Catalog id\` values must be **exact uuids** from the **id** column. **Banned:** the words “Not listed” / “N/A” or only a **PascalCase** type (VenueHolon) when a catalog row with a real id applies. ` +
+    `For abstract patterns **not** in the table, use a separate **Proposed (not in attached catalog)** subsection, not the main map.\n` +
     `2. **Template / shell:** State the **default starter** you will customize: **Expo** mobile app → follow \`OASIS-IDE/docs/recipes/community-social-app.md\` when geo + social + missions; **web-only** → \`OASIS-IDE/docs/recipes/minimal-vite-browser-oapp.md\`. Name **3 concrete screens** (title + primary user action each).\n` +
-    `3. **Structure the reply** with headings: **A. MVP one-liner** · **B. Holon map** (markdown table: Job-to-be-done / feature | Holon name | Catalog id | Role in app) · **C. Custom / gap work** (timelocks, push on off-days, park polygons, moderation — each bullet explicit) · **D. Build order** (numbered 5–8 steps; last step says what **Execute** mode will do next).\n` +
-    `4. **Do not** invent holon names that are **not** in the catalog table unless clearly tagged **Proposed (not in catalog — custom code)** with why.\n`
+    `3. **Structure the reply** with headings: **A. MVP one-liner** · **B. Holon map** (markdown table: Job-to-be-done / feature | **Name (as in catalog row)** | **Catalog id (uuid from id column)** | Role in app) · **C. Custom / gap work** · **D. Build order** (numbered 5–8 steps; last step says what **Execute** mode will do next).\n` +
+    `4. **Do not** invent stand-in “catalog” names that are **not** in the current table for that id column.\n`
   );
 }
 
@@ -334,14 +348,14 @@ function planningModeUserAppendix(gameDevMode: boolean, mentionsStarnet: boolean
     ? 'If Game Dev mode is on, mention the **Quick actions** strip (New World, New Quest, NPCs, Lore, etc.) where it saves time.'
     : '';
   const starnetUx = mentionsStarnet
-    ? `\n**STARNET is inside this IDE:** Point the user to **Activity bar → STARNET** to see lists; **do not** send them to an external STARNET “portal” or website to browse holons/OAPPs. For live ids after browsing, use read-only \`mcp_invoke\` (\`star_list_holons\`, \`star_list_oapps\`, \`star_get_holon\`) in **Agent mode** — never claim STAR connection or list failures without pasting actual tool output.\n` +
-      `**Catalog list tools return compact tables** in this IDE (bounded rows). After the first list, use \`star_get_holon\` / \`star_get_oapp\` for full JSON on specific ids — do not repeat full \`star_list_*\` calls unless the user changed scope.\n`
+    ? `\n**STARNET is inside this IDE:** The **\`## STARNET catalog\`** block in context (if present) is the **same** merged list as **Activity bar → STARNET** — use it first; do **not** call \`star_list_*\` just to rediscover it. \`mcp_invoke\` list tools are optional and can time out; use \`star_get_holon\` / \`star_get_oapp\` for one id’s JSON. Do not send the user to an external STARNET “portal” site.\n` +
+      `Do **not** say you “cannot” find STARNET inventory when a catalog table is attached or the user can see the STARNET list in the app.\n`
     : '';
   return (
     `[IDE: Plan-first for this user message]\n` +
     `This looks like a **high-level** create-OAPP / new-game request with little product context.\n` +
     `**Do not** call \`write_file\`, \`write_files\`, \`run_workspace_command\`, or \`run_star_cli\` in **this** turn.\n` +
-    `**STARNET inventory:** If the context pack already includes **\`## STARNET catalog (IDE — auto-attached …)\`** with holon/OAPP **rows**, use that as the catalog — **do not** call \`star_list_holons\` / \`star_list_oapps\` just to rediscover the same list (wastes context and may disagree with JWT). Use \`oasis_health_check\` if useful, then \`star_get_holon\` / \`star_get_oapp\` on **ids from that table** when you need full fields. Only use list tools if the catalog section is missing/empty or the user asks for a live refresh. Do **not** call create/publish/mint/save MCP tools until the user confirms (Execute mode).\n` +
+    `**STARNET inventory:** If the context pack includes a **\`## STARNET catalog\`** section with holon/OAPP **rows** (from the IDE in-memory + disk cache), that is the catalog — **do not** call \`star_list_holons\` / \`star_list_oapps\` for the same discovery (slow; may use hosted MCP). Use \`star_get_holon\` / \`star_get_oapp\` on **ids from that table** when you need full fields. Use list tools only for an explicit **live** refresh. Do **not** call create/publish/mint/save MCP tools until the user confirms (Execute mode).\n` +
     `**Do** use **read-only** tools first (\`list_directory\`, \`read_file\`, \`workspace_grep\`) to ground the answer in this repo (recipes, docs), then reply with a **numbered plan**, explicit **defaults**, and **at most one** blocking question only if you truly cannot proceed. ` +
     `Do not describe **verified progress** or file contents you did not read; distinguish **Verified (tools)** from **Plan**.\n` +
     `End with **clickable reply chips**: append **only** this block at the **very end** (no text after it). The **first** label should be **Proceed with this plan** when you have a sensible default; add 2–4 concrete alternatives (scope, engine, template), not vague "what next?" prompts.\n` +
@@ -389,6 +403,11 @@ function augmentIdeAgentUserMessage(
   }
 
   parts.push(groundTruthUserAppendix());
+
+  const appArchetypeNote = buildAppArchetypeIdeUserAppendix(t);
+  if (appArchetypeNote) {
+    parts.push(appArchetypeNote);
+  }
 
   if (wsEndsWithCre && /\bCRE\b/i.test(t)) {
     parts.push(
@@ -445,6 +464,10 @@ export function formatToolProgressLine(name: string, argumentsJson: string): str
     }
     if (name === 'run_workspace_command' && Array.isArray(args.argv)) {
       return `Running ${(args.argv as unknown[]).map(String).join(' ')}`;
+    }
+    if (name === 'validate_holonic_app_scaffold') {
+      const p = typeof args.projectPath === 'string' ? args.projectPath : 'app scaffold';
+      return `Validating ${p}`;
     }
     if (name === 'run_star_cli' && Array.isArray(args.argv)) {
       const starArgs = (args.argv as unknown[]).map(String).slice(1);
@@ -557,6 +580,10 @@ export function narrateBeforeTool(name: string, argumentsJson: string): string {
       case 'run_workspace_command': {
         const argv = Array.isArray(args.argv) ? args.argv.map(String) : [];
         return argv.length > 0 ? `$ ${truncate(argv.slice(0, 6).join(' '), 120)}` : 'Running workspace command…';
+      }
+      case 'validate_holonic_app_scaffold': {
+        const p = typeof args.projectPath === 'string' ? args.projectPath : '';
+        return p ? `Validating holonic app scaffold in ${p}…` : 'Validating holonic app scaffold…';
       }
       case 'run_star_cli': {
         const argv = Array.isArray(args.argv) ? args.argv.map(String) : [];
@@ -682,6 +709,10 @@ export function narrateAfterTool(
   if (name === 'write_file' || name === 'write_files') {
     return '✓ File write finished';
   }
+  if (name === 'validate_holonic_app_scaffold') {
+    const firstLine = detail.split('\n').find((l) => l.trim()) ?? '';
+    return firstLine ? `✓ ${truncate(firstLine.trim(), 120)}` : '✓ Scaffold validated';
+  }
   if (name === 'run_workspace_command' || name === 'run_star_cli') {
     const codeMatch = detail.match(/exit_code:\s*(\d+)/);
     const code = codeMatch ? `exit ${codeMatch[1]}` : '';
@@ -705,6 +736,7 @@ function toolKindForName(name: string): ToolKind {
   if (name === 'write_file' || name === 'write_files' || name === 'search_replace') return 'write';
   if (name === 'workspace_grep' || name === 'codebase_search' || name === 'semantic_search') return 'search';
   if (name === 'run_workspace_command' || name === 'run_star_cli') return 'command';
+  if (name === 'validate_holonic_app_scaffold') return 'command';
   if (name === 'mcp_invoke') return 'mcp';
   if (name === 'web_search' || name === 'open_browser_url') return 'web';
   return 'other';

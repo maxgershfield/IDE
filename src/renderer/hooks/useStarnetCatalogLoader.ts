@@ -38,7 +38,7 @@ export function useStarnetCatalogLoader() {
   useEffect(() => {
     const api = (window as any).electronAPI;
     api?.starGetResolvedApiUrl?.().then((u: string) => setResolvedStarFromMain(u)).catch(() => {});
-  }, []);
+  }, [settings.starnetEndpointOverride]);
 
   const baseUrl = getStarApiUrl(settings.starnetEndpointOverride, resolvedStarFromMain);
 
@@ -61,22 +61,30 @@ export function useStarnetCatalogLoader() {
   const load = useCallback(async (tok: string | null) => {
     if (!tok || !loggedIn) return;
 
-    const ok = await pingStarApi(baseUrl);
-    apiStatusRef.current = ok ? 'ok' : 'offline';
-    if (!ok) return;
-
-    // Fast path: disk cache
+    // 1) Durable disk cache first (userData) — same source the STARNET view uses for quick paint.
+    //    The agent must see this even if /api/Health is slow or momentarily fails (previously we
+    //    returned early before hydrate, so the context stayed empty while the tab could show rows).
+    apiStatusRef.current = 'loading';
     const disk = await hydrateStarnetCatalogFromDisk(baseUrl, tok, avatarId);
     if (disk.holons && disk.holons.length > 0) {
       holonsRef.current = disk.holons;
-      pushSnapshot();
     }
     if (disk.oapps && disk.oapps.length > 0) {
       oappsRef.current = disk.oapps;
+    }
+    if (holonsRef.current.length > 0 || oappsRef.current.length > 0) {
       pushSnapshot();
     }
 
-    // Full network fetch: each path updates the snapshot as it finishes so OAPPs are not
+    // 2) Reachability (updates apiReady in snapshot)
+    const ok = await pingStarApi(baseUrl);
+    apiStatusRef.current = ok ? 'ok' : 'offline';
+    pushSnapshot();
+    if (!ok) {
+      return;
+    }
+
+    // 3) Full network refresh: each path updates the snapshot as it finishes so OAPPs are not
     // held behind a slow holon list (and `onHolonListPartial` paints avatar holons early).
     await Promise.allSettled([
       (async () => {
@@ -97,13 +105,15 @@ export function useStarnetCatalogLoader() {
     ]);
   }, [loggedIn, baseUrl, avatarId, pushSnapshot]);
 
-  // Run on login / avatar / baseUrl change
+  // Run on login / avatar / baseUrl change — clear refs so we never show holons from a previous STAR base/avatar in agent context.
   useEffect(() => {
     if (!loggedIn) {
       holonsRef.current = [];
       oappsRef.current = [];
       return;
     }
+    holonsRef.current = [];
+    oappsRef.current = [];
     getStarToken().then((tok) => load(tok)).catch(() => {});
   }, [loggedIn, avatarId, baseUrl, load]);
 

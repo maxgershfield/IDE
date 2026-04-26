@@ -69,9 +69,6 @@ const HolonicSuitesDashboard = lazy(() =>
 const EntitlementSlotsPanel = lazy(() =>
   import('./components/Entitlements/EntitlementSlotsPanel').then((m) => ({ default: m.EntitlementSlotsPanel }))
 );
-const OasisBuildHub = lazy(() =>
-  import('./components/OasisBuildHub/OasisBuildHub').then((m) => ({ default: m.OasisBuildHub }))
-);
 const SettingsModal = lazy(() =>
   import('./components/Settings/SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
@@ -280,6 +277,11 @@ declare global {
       holonicIndexCancel: () => Promise<{ ok: boolean }>;
       holonicIndexDelete: (workspaceRoot: string) => Promise<{ ok: boolean }>;
       holonicIndexSearch: (workspaceRoot: string, query: string, limit?: number) => Promise<any[]>;
+      holonicIndexAllowlistGet: (workspaceRoot: string) => Promise<{ filePath: string; names: string[] }>;
+      holonicIndexAllowlistSet: (
+        workspaceRoot: string,
+        names: string[]
+      ) => Promise<{ ok: true } | { ok: false; error: string }>;
       onHolonicIndexProgress: (callback: (status: any) => void) => () => void;
       pollPortalActivity: () => Promise<
         | {
@@ -389,9 +391,7 @@ function AppInner() {
                           }
                           omitRightPanel={activeView === 'passes'}
                           centerSlot={
-                            activeView === 'build' ? (
-                              suspense('Loading OASIS Build…', <OasisBuildHub />)
-                            ) : activeView === 'starnet' ? (
+                            activeView === 'starnet' ? (
                               suspense('Loading STARNET…', <StarnetDashboard />)
                             ) : activeView === 'guide' ? (
                               suspense('Loading Guide Map…', <GuideMapEditorPanel />)

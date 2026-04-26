@@ -21,6 +21,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useIdeChat } from '../../contexts/IdeChatContext';
 import { useStarnetCatalog } from '../../contexts/StarnetCatalogContext';
+import { useEditorTab } from '../../contexts/EditorTabContext';
+import {
+  OASIS_STARNET_SELECT_CATALOG_ROWS,
+  consumePendingStarnetCatalogSelection,
+  type StarnetCatalogSelectionRequest,
+} from '../../utils/activityViewBridge';
 import {
   fetchMyOapps,
   fetchAllHolons,
@@ -101,7 +107,8 @@ const HolonTypeBadge: React.FC<{ holonType: number | string | undefined }> = ({ 
 const HolonRow: React.FC<{
   holon: StarHolonRecord;
   onUseInComposer?: (holon: StarHolonRecord) => void;
-}> = ({ holon, onUseInComposer }) => {
+  highlighted?: boolean;
+}> = ({ holon, onUseInComposer, highlighted }) => {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(holon.id).catch(() => {});
@@ -113,7 +120,10 @@ const HolonRow: React.FC<{
   const fromTemplate =
     holon.metaData?.catalogSource === CATALOG_SOURCE_OAPP_TEMPLATE;
   return (
-    <div className="sn-oapp-row sn-holon-row">
+    <div
+      className={`sn-oapp-row sn-holon-row${highlighted ? ' sn-oapp-row--highlighted' : ''}`}
+      data-starnet-id={holon.id.toLowerCase()}
+    >
       <div className="sn-oapp-row-main">
         <span className="sn-oapp-name">{holon.name || holon.id}</span>
         <HolonTypeBadge holonType={holon.holonType} />
@@ -163,7 +173,8 @@ const OappRow: React.FC<{
   onInstall?: (id: string) => void;
   installing?: boolean;
   onUseInComposer?: (oapp: OAPPRecord) => void;
-}> = ({ oapp, mine, onInstall, installing, onUseInComposer }) => {
+  highlighted?: boolean;
+}> = ({ oapp, mine, onInstall, installing, onUseInComposer, highlighted }) => {
   const [copied, setCopied] = useState(false);
   const installs = totalInstalls(oapp);
   const downloads = totalDownloads(oapp);
@@ -175,7 +186,10 @@ const OappRow: React.FC<{
   };
 
   return (
-    <div className="sn-oapp-row">
+    <div
+      className={`sn-oapp-row${highlighted ? ' sn-oapp-row--highlighted' : ''}`}
+      data-starnet-id={oapp.id.toLowerCase()}
+    >
       <div className="sn-oapp-row-main">
         <span className="sn-oapp-name">{oapp.name || oapp.id}</span>
         <TypeBadge type={oapp.oappType} />
@@ -273,10 +287,11 @@ export const StarnetDashboard: React.FC = () => {
     const api = (window as unknown as { electronAPI?: { starGetResolvedApiUrl?: () => Promise<string> } })
       .electronAPI;
     api?.starGetResolvedApiUrl?.().then((u) => setResolvedStarFromMain(u)).catch(() => {});
-  }, []);
+  }, [settings.starnetEndpointOverride]);
 
   const baseUrl = getStarApiUrl(settings.starnetEndpointOverride, resolvedStarFromMain);
   const { injectComposerDraft } = useIdeChat();
+  const { submitBuilderMessage } = useEditorTab();
   const { setStarnetCatalogSnapshot } = useStarnetCatalog();
 
   const injectHolonToComposer = useCallback(
@@ -329,6 +344,8 @@ export const StarnetDashboard: React.FC = () => {
   const [publishFeedback, setPublishFeedback] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
+  const [selectedCatalogIds, setSelectedCatalogIds] = useState<string[]>([]);
+  const [agentSelectionQuery, setAgentSelectionQuery] = useState('');
 
   // Token lives in main process — fetch via IPC, not localStorage
   const [token, setToken] = useState<string | null>(null);
@@ -406,12 +423,31 @@ export const StarnetDashboard: React.FC = () => {
     [baseUrl, avatarId]
   );
 
-  const boot = useCallback(async (tok: string | null) => {
-    const ok = await checkStatus(tok);
-    if (!ok || !tok) return;
-    holonsFetchedRef.current = false;
-    await loadStarDataFull(tok);
-  }, [checkStatus, loadStarDataFull]);
+  const boot = useCallback(
+    async (tok: string | null) => {
+      if (!tok) return;
+      const ok = await checkStatus(tok);
+      if (!ok) {
+        // Keep showing last persisted holon/OAPP lists when the STAR host is not reachable, so
+        // the STARNET tab and the agent context still mirror what the user last loaded.
+        const disk = await hydrateStarnetCatalogFromDisk(baseUrl, tok, avatarId);
+        if (disk.oapps && disk.oapps.length > 0) {
+          setOapps(disk.oapps);
+        }
+        if (disk.holons && disk.holons.length > 0) {
+          setHolons(disk.holons);
+          setLoadingHolons(false);
+          setHolonsCatalogReady(true);
+          holonsFetchedRef.current = true;
+        }
+        setLoading(false);
+        return;
+      }
+      holonsFetchedRef.current = false;
+      await loadStarDataFull(tok);
+    },
+    [checkStatus, loadStarDataFull, baseUrl, avatarId]
+  );
 
   useEffect(() => {
     holonsFetchedRef.current = false;
@@ -524,6 +560,81 @@ export const StarnetDashboard: React.FC = () => {
   const totalDl = oapps.reduce((s, o) => s + totalDownloads(o), 0);
   const publishedCount = publishedOapps.length;
 
+  const selectedCatalogIdSet = useMemo(
+    () => new Set(selectedCatalogIds.map((id) => id.toLowerCase())),
+    [selectedCatalogIds]
+  );
+
+  const selectedVisibleCount = useMemo(() => {
+    const knownIds = new Set([
+      ...holonCatalogRows.map((h) => h.id.toLowerCase()),
+      ...oapps.map((o) => o.id.toLowerCase()),
+    ]);
+    return selectedCatalogIds.filter((id) => knownIds.has(id.toLowerCase())).length;
+  }, [selectedCatalogIds, holonCatalogRows, oapps]);
+
+  const applyCatalogSelection = useCallback(
+    (detail?: Partial<StarnetCatalogSelectionRequest>) => {
+      const ids = Array.isArray(detail?.ids)
+        ? Array.from(
+            new Set(
+              detail.ids
+                .map((id) => String(id).trim().toLowerCase())
+                .filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+            )
+          )
+        : [];
+      if (ids.length === 0) return;
+      setSelectedCatalogIds(ids);
+      setAgentSelectionQuery(typeof detail?.query === 'string' ? detail.query.trim() : '');
+      setSearchQuery('');
+
+      // Agent selections should open the composition workspace even if the STARNET tab
+      // is still mounting or catalog rows are hydrating from disk/API.
+      if (detail?.source === 'agent') {
+        setMainCatalog('match');
+        return;
+      }
+
+      const hasHolons = ids.some((id) => holonCatalogRows.some((h) => h.id.toLowerCase() === id));
+      const hasOapps = ids.some((id) => oapps.some((o) => o.id.toLowerCase() === id));
+      if (hasHolons || !hasOapps) {
+        setMainCatalog('holons');
+      } else {
+        setMainCatalog('oapps');
+        setTab('mine');
+      }
+    },
+    [holonCatalogRows, oapps]
+  );
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      applyCatalogSelection((event as CustomEvent<StarnetCatalogSelectionRequest>).detail);
+    };
+    window.addEventListener(OASIS_STARNET_SELECT_CATALOG_ROWS, handler);
+    return () => window.removeEventListener(OASIS_STARNET_SELECT_CATALOG_ROWS, handler);
+  }, [applyCatalogSelection]);
+
+  useEffect(() => {
+    const pending = consumePendingStarnetCatalogSelection();
+    if (pending) applyCatalogSelection(pending);
+  }, [applyCatalogSelection]);
+
+  useEffect(() => {
+    if (selectedCatalogIds.length === 0) return;
+    const id = window.setTimeout(() => {
+      const first = selectedCatalogIds.find((candidate) =>
+        document.querySelector(`[data-starnet-id="${candidate.toLowerCase()}"]`)
+      );
+      if (!first) return;
+      document
+        .querySelector(`[data-starnet-id="${first.toLowerCase()}"]`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [selectedCatalogIds, mainCatalog, tab, filteredHolons.length, filteredOapps.length]);
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -560,6 +671,18 @@ export const StarnetDashboard: React.FC = () => {
           className={`sn-feedback ${publishFeedback.includes('STARNET') ? 'sn-feedback--ok' : 'sn-feedback--err'}`}
         >
           {publishFeedback}
+        </div>
+      )}
+
+      {selectedCatalogIds.length > 0 && (
+        <div className="sn-selection-banner">
+          <span>
+            Agent suggested {selectedCatalogIds.length} catalog row{selectedCatalogIds.length === 1 ? '' : 's'}
+            {selectedVisibleCount > 0 ? ` · ${selectedVisibleCount} visible here` : ''}
+          </span>
+          <button type="button" className="sn-action-btn sn-action-btn--ghost" onClick={() => setSelectedCatalogIds([])}>
+            Clear
+          </button>
         </div>
       )}
 
@@ -653,7 +776,13 @@ export const StarnetDashboard: React.FC = () => {
               holonCatalogRows={holonCatalogRows}
               baseUrl={baseUrl}
               holonsLoading={loadingHolons}
-              onDraftToComposer={injectComposerDraft}
+              onSubmitBuildRequest={submitBuilderMessage}
+              selectedCatalogIds={selectedCatalogIds}
+              selectedQuery={agentSelectionQuery}
+              onClearSelection={() => {
+                setSelectedCatalogIds([]);
+                setAgentSelectionQuery('');
+              }}
             />
           )
         ) : apiStatus === 'offline' ? (
@@ -713,6 +842,7 @@ export const StarnetDashboard: React.FC = () => {
                       onInstall={tab === 'discover' ? handleInstall : undefined}
                       installing={installing === o.id}
                       onUseInComposer={injectOappToComposer}
+                      highlighted={selectedCatalogIdSet.has(o.id.toLowerCase())}
                     />
                   ))}
                 </div>
@@ -743,7 +873,12 @@ export const StarnetDashboard: React.FC = () => {
                   !holonError && (
                     <div className="sn-list">
                       {filteredHolons.map((h) => (
-                        <HolonRow key={h.id} holon={h} onUseInComposer={injectHolonToComposer} />
+                        <HolonRow
+                          key={h.id}
+                          holon={h}
+                          onUseInComposer={injectHolonToComposer}
+                          highlighted={selectedCatalogIdSet.has(h.id.toLowerCase())}
+                        />
                       ))}
                     </div>
                   )

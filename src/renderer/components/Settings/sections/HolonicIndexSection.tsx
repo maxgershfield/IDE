@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useWorkspaceIndex } from '../../../contexts/WorkspaceIndexContext';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 
@@ -15,6 +15,52 @@ function timeAgo(ms: number): string {
 export const HolonicIndexSection: React.FC = () => {
   const { workspacePath } = useWorkspace();
   const { status, startIndexing, cancelIndexing, deleteIndex } = useWorkspaceIndex();
+  const [allowlistText, setAllowlistText] = useState('');
+  const [allowlistFilePath, setAllowlistFilePath] = useState<string | null>(null);
+  const [allowlistSaveState, setAllowlistSaveState] = useState<'idle' | 'saving' | 'saved' | 'err'>('idle');
+  const [allowlistError, setAllowlistError] = useState<string | null>(null);
+
+  const loadAllowlist = useCallback(() => {
+    if (!workspacePath || !window.electronAPI?.holonicIndexAllowlistGet) {
+      setAllowlistText('');
+      setAllowlistFilePath(null);
+      return;
+    }
+    window.electronAPI
+      .holonicIndexAllowlistGet(workspacePath)
+      .then(({ filePath, names }) => {
+        setAllowlistFilePath(filePath);
+        setAllowlistText(names.length ? names.join('\n') : '');
+        setAllowlistError(null);
+      })
+      .catch(() => {
+        setAllowlistText('');
+        setAllowlistFilePath(null);
+      });
+  }, [workspacePath]);
+
+  useEffect(() => {
+    loadAllowlist();
+  }, [loadAllowlist]);
+
+  const saveAllowlist = async () => {
+    if (!workspacePath || !window.electronAPI?.holonicIndexAllowlistSet) return;
+    setAllowlistSaveState('saving');
+    setAllowlistError(null);
+    const names = allowlistText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const res = await window.electronAPI.holonicIndexAllowlistSet(workspacePath, names);
+    if (res.ok) {
+      setAllowlistSaveState('saved');
+      window.setTimeout(() => setAllowlistSaveState('idle'), 2000);
+      loadAllowlist();
+    } else {
+      setAllowlistSaveState('err');
+      setAllowlistError(res.error);
+    }
+  };
 
   const isActive =
     status.phase === 'scanning' ||
@@ -180,6 +226,51 @@ export const HolonicIndexSection: React.FC = () => {
               <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
                 {pct}%{status.holonsTotal > 0 ? ` · ${status.holonsTotal} holons total` : ''}
               </div>
+            )}
+          </div>
+
+          {/* Active holon allowlist (optional; huge monorepos) */}
+          <div className="settings-info-box" style={{ marginTop: 14 }}>
+            <strong>Active holon allowlist (optional)</strong>
+            <p style={{ margin: '6px 0 8px', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              For large roots like a full <code>git</code> clone, indexing every top-level folder is expensive. When
+              you add names here (one per line), the next <strong>Index holons</strong> or <strong>↺ Sync</strong> only
+              scans those top-level directories. Leave empty to index <strong>all</strong> holons (subject to built-in
+              ignores: <code>node_modules</code>, <code>.git</code>, and similar). The list is stored at{' '}
+              <code style={{ wordBreak: 'break-all' }}>.oasis-ide-holons.json</code> in the workspace root
+              {allowlistFilePath ? ` (${allowlistFilePath})` : ''}.
+            </p>
+            <textarea
+              value={allowlistText}
+              onChange={(e) => setAllowlistText(e.target.value)}
+              placeholder={'OASIS-IDE\nONODE\npangea-repo\nProviders'}
+              rows={5}
+              spellCheck={false}
+              style={{
+                width: '100%',
+                minHeight: 88,
+                fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+                fontSize: 11,
+                lineHeight: 1.4,
+                padding: '8px 10px',
+                borderRadius: 6,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(0,0,0,0.25)',
+                color: 'var(--text-primary)',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="settings-btn settings-btn--primary" onClick={saveAllowlist} disabled={allowlistSaveState === 'saving'}>
+                {allowlistSaveState === 'saving' ? 'Saving…' : 'Save allowlist'}
+              </button>
+              {allowlistSaveState === 'saved' && (
+                <span style={{ fontSize: 11, color: '#4ade80' }}>Saved. Run <strong>↺ Sync</strong> to re-index with this scope.</span>
+              )}
+            </div>
+            {allowlistError && (
+              <div style={{ fontSize: 11, color: 'var(--error, #f48771)', marginTop: 6 }}>{allowlistError}</div>
             )}
           </div>
 

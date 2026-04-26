@@ -65,6 +65,16 @@ function loadIdeRootEnv(): void {
 }
 loadIdeRootEnv();
 
+function ignoreConsolePipeErrors(stream: NodeJS.WriteStream): void {
+  stream.on('error', (error: NodeJS.ErrnoException) => {
+    if (error?.code === 'EPIPE') return;
+    throw error;
+  });
+}
+
+ignoreConsolePipeErrors(process.stdout);
+ignoreConsolePipeErrors(process.stderr);
+
 /** Default OASIS IDE Assistant agent ID. Override with env OASIS_IDE_ASSISTANT_AGENT_ID when backend registers the agent. */
 const DEFAULT_IDE_ASSISTANT_AGENT_ID = process.env.OASIS_IDE_ASSISTANT_AGENT_ID || 'oasis-ide-assistant';
 
@@ -429,10 +439,24 @@ ipcMain.handle('mcp:execute-tool', async (_, toolName: string, args: any) => {
 });
 
 ipcMain.handle('oasis:health-check', async () => {
+  const settingsOasisOverrideActive = Boolean(readOasisApiEndpointFromSettingsDisk().trim());
+  const envOasisApiUrlSet = Boolean(process.env.OASIS_API_URL?.trim());
   try {
-    return await oasisClient.healthCheck();
+    const r = await oasisClient.healthCheck();
+    return {
+      ...r,
+      envOasisApiUrlSet,
+      /** True when a non-empty API base is saved in Integrations; it takes precedence over `OASIS_API_URL`. */
+      settingsOasisOverrideActive
+    };
   } catch (error: any) {
-    return { status: 'unhealthy', error: error.message };
+    return {
+      status: 'unhealthy' as const,
+      error: error.message,
+      resolvedBaseUrl: oasisClient.getBaseURL(),
+      envOasisApiUrlSet,
+      settingsOasisOverrideActive
+    };
   }
 });
 
@@ -479,7 +503,7 @@ ipcMain.handle('fs:get-workspace-path', async () => {
 ipcMain.handle('fs:set-workspace', async (_, dir: string) => {
   try {
     fileSystemService.setWorkspacePath(dir);
-    return await fileSystemService.listTree(dir);
+    return await fileSystemService.listRootLevel(2);
   } catch {
     return [];
   }
@@ -1094,6 +1118,17 @@ ipcMain.handle('holon-index:search', async (_, workspaceRoot: string, query: str
   return holonicIndexService.search(workspaceRoot, query, limit ?? 8);
 });
 
+ipcMain.handle('holon-allowlist:get', async (_, workspaceRoot: string) => {
+  return holonicIndexService.getAllowlistForUI(workspaceRoot);
+});
+
+ipcMain.handle('holon-allowlist:set', async (_, workspaceRoot: string, names: string[]) => {
+  if (!Array.isArray(names)) {
+    return { ok: false as const, error: 'names must be an array' };
+  }
+  return holonicIndexService.setAllowlistForUI(workspaceRoot, names);
+});
+
 // A2A Inbox (uses auth token from oasisClient)
 ipcMain.handle('a2a:getPending', async () => {
   try {
@@ -1384,14 +1419,18 @@ function mergeSettingsPayloadWithPackagedDefaults(
 
 /**
  * Same ONODE base for `OASISAPIClient` and OASIS MCP.
- * Precedence: `OASIS_API_URL` env, then Settings (Integrations) override, then public
- * `https://api.oasisweb4.one` (local ONODE: set `http://127.0.0.1:5003` in Settings or env).
+ * Precedence: non-empty **Settings → API Endpoint** (on disk) wins, then `OASIS_API_URL`, then
+ * public `https://api.oasisweb4.one` (local ONODE: `http://127.0.0.1:5003` in Settings or env).
  */
 function resolveOasisApiBaseUrl(): string {
+  const fromDisk = readOasisApiEndpointFromSettingsDisk();
+  if (fromDisk) {
+    return OASISAPIClient.normalizeBaseUrl(fromDisk);
+  }
   const env = process.env.OASIS_API_URL?.trim();
-  if (env) return OASISAPIClient.normalizeBaseUrl(env);
-  const fromSettings = getEffectiveOasisApiEndpointFromSettingsDisk();
-  if (fromSettings) return OASISAPIClient.normalizeBaseUrl(fromSettings);
+  if (env) {
+    return OASISAPIClient.normalizeBaseUrl(env);
+  }
   return BUNDLE_OASIS_API_BASE;
 }
 

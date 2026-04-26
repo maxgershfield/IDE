@@ -14,6 +14,9 @@
  *   - Architecturally meaningful units the agent can reason about
  *   - Natural parent/child relationships preserved
  *   - Works immediately (keyword search) even without an OpenAI API key
+ *
+ * Optional: `.oasis-ide-holons.json` in the workspace root with `activeHolonAllowlist: string[]`
+ * (non-empty) limits indexing to those top-level directory names, for large monorepos.
  */
 
 import fs from 'fs/promises';
@@ -37,7 +40,50 @@ const SKIP_DIRS = new Set([
   '__pycache__', '.venv', 'venv', 'release', '.turbo', '.cache', 'Pods',
   'DerivedData', '.idea', '.vscode', 'bin', 'obj', 'packages', 'vendor',
   'tmp', 'temp', 'logs', 'Archived', 'Images', 'Logos',
+  'OASIS Omniverse', 'holochain-client-csharp.backup',
 ]);
+
+/** Workspace file: when `activeHolonAllowlist` is a non-empty array, only those root-level dirs are indexed. */
+export const HOLON_ALLOWLIST_FILENAME = '.oasis-ide-holons.json';
+
+export interface HolonAllowlistFile {
+  activeHolonAllowlist?: string[];
+}
+
+const MAX_ALLOWLIST_NAMES = 200;
+
+/**
+ * If the workspace has `.oasis-ide-holons.json` with a non-empty `activeHolonAllowlist`,
+ * returns that list; otherwise `null` (index all top-level holons, subject to SKIP_DIRS).
+ */
+export async function readActiveHolonAllowlist(absRoot: string): Promise<string[] | null> {
+  const p = path.join(absRoot, HOLON_ALLOWLIST_FILENAME);
+  let raw: string;
+  try {
+    raw = await fs.readFile(p, 'utf-8');
+  } catch {
+    return null;
+  }
+  try {
+    const j = JSON.parse(raw) as HolonAllowlistFile;
+    if (!Array.isArray(j.activeHolonAllowlist)) return null;
+    const list = [
+      ...new Set(
+        j.activeHolonAllowlist
+          .filter((s): s is string => typeof s === 'string')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (list.length === 0) return null;
+    if (list.length > MAX_ALLOWLIST_NAMES) {
+      return list.slice(0, MAX_ALLOWLIST_NAMES);
+    }
+    return list;
+  } catch {
+    return null;
+  }
+}
 
 const ENTRY_FILES = [
   'index.ts', 'index.tsx', 'index.js', 'index.jsx',
@@ -275,6 +321,27 @@ export class HolonicIndexService {
       return;
     }
 
+    const allowlist = await readActiveHolonAllowlist(absRoot);
+    if (allowlist && allowlist.length > 0) {
+      const scannable = new Set(dirNames);
+      for (const name of allowlist) {
+        if (!scannable.has(name)) {
+          console.warn(
+            `[HolonicIndex] Allowlist name not in workspace or ignored: ${name} (${HOLON_ALLOWLIST_FILENAME})`
+          );
+        }
+      }
+      const matched = allowlist.filter((n) => scannable.has(n));
+      if (matched.length === 0) {
+        this.emit({
+          phase: 'error',
+          error: `No holon directories match ${HOLON_ALLOWLIST_FILENAME}. Names must be top-level folders, match case, and not be in the built-in ignore set (see HolonicIndexService).`,
+        });
+        return;
+      }
+      dirNames = matched;
+    }
+
     this.emit({ phase: 'reading', holonsTotal: dirNames.length });
 
     /* ── 2. Read entry points for each holon ── */
@@ -422,6 +489,52 @@ export class HolonicIndexService {
       error: null,
     };
     this.onProgress?.(this.status);
+  }
+
+  getAllowlistFilePath(workspaceRoot: string): string {
+    return path.join(path.resolve(workspaceRoot), HOLON_ALLOWLIST_FILENAME);
+  }
+
+  /**
+   * Names to show in settings (empty = no file or no filter, i.e. index all holons on build).
+   */
+  async getAllowlistForUI(workspaceRoot: string): Promise<{ filePath: string; names: string[] }> {
+    const list = await readActiveHolonAllowlist(path.resolve(workspaceRoot));
+    return { filePath: this.getAllowlistFilePath(workspaceRoot), names: list ?? [] };
+  }
+
+  /**
+   * Persist allowlist, or remove the file when `names` is empty (full holon index on next build).
+   */
+  async setAllowlistForUI(
+    workspaceRoot: string,
+    names: string[]
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const filePath = this.getAllowlistFilePath(workspaceRoot);
+    const unique = [
+      ...new Set(
+        names
+          .map((n) => n.trim())
+          .filter(Boolean)
+          .slice(0, MAX_ALLOWLIST_NAMES)
+      ),
+    ];
+    for (const n of unique) {
+      if (n.includes('/') || n.includes(path.sep) || n === '..' || n === '.') {
+        return { ok: false, error: `Invalid holon name: "${n}" (single path segment, no separators).` };
+      }
+    }
+    try {
+      if (unique.length === 0) {
+        await fs.unlink(filePath).catch(() => {});
+        return { ok: true };
+      }
+      const body: HolonAllowlistFile = { activeHolonAllowlist: unique };
+      await fs.writeFile(filePath, JSON.stringify(body, null, 2) + '\n', 'utf-8');
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   /**

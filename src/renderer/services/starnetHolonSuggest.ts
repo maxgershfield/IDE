@@ -39,7 +39,11 @@ const STOPWORDS = new Set([
   'one',
   'make',
   'build',
-  'create'
+  'create',
+  'holon',
+  'holons',
+  'oapp',
+  'oapps'
 ]);
 
 export interface HolonSuggestion {

@@ -2,10 +2,10 @@
  * Lightweight STAR WebAPI client for the renderer process.
  *
  * Base URL precedence:
- *   1. settings.starnetEndpointOverride (user-set)
- *   2. VITE_STAR_API_URL build-time env
- *   3. runtimeDefault (from main process: launchSettings + /api/Health probe)
- *   4. Default STAR WebAPI local port (50564)
+ *   1. settings.starnetEndpointOverride (user-set, non-empty)
+ *   2. runtimeDefault from the Electron main process (same as `MCP` stdio `STAR_API_URL` — **must win over Vite**)
+ *   3. VITE_STAR_API_URL (dev override only; do not outrank main in packaged builds)
+ *   4. Default local STAR port (50564) when nothing else is set
  *
  * Base URL is the origin (and optional path prefix) **before** the app's `/api` routes, e.g.
  * `https://star.oasisweb4.one`, not `.../star/api`. A trailing `/api` is stripped (see `normalizeStarApiBaseUrl`).
@@ -20,9 +20,9 @@ export const DEFAULT_STAR_API_URL = 'http://127.0.0.1:50564';
 
 export function getStarApiUrl(override?: string, runtimeDefault?: string): string {
   if (override?.trim()) return normalizeStarApiBaseUrl(override.trim());
+  if (runtimeDefault?.trim()) return normalizeStarApiBaseUrl(runtimeDefault.trim());
   const vite = (import.meta as any).env?.VITE_STAR_API_URL?.trim();
   if (vite) return normalizeStarApiBaseUrl(vite);
-  if (runtimeDefault?.trim()) return normalizeStarApiBaseUrl(runtimeDefault.trim());
   return DEFAULT_STAR_API_URL;
 }
 

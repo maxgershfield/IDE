@@ -33,6 +33,7 @@ These recipe files define documented, non-interactive STAR CLI commands and MCP 
 |------|-------|-------------|
 | `oasis-onboard-starter.md` | Vite + TypeScript | **Onboarding (start here for ONODE):** copyable template with avatar `authenticate`, Solana wallet create/list, and SPL `mint-nft` via **dev proxy** to `OASIS_API_URL`. Lives at `docs/templates/oasis-onboard-starter/`. |
 | `community-social-app.md` | Expo + React Native, Node.js, OSM Overpass | Community / social OAPP with GeoNFTs, STAR missions, time-lock unlock windows, and OpenStreetMap green-space lookup. Mobile-first. |
+| `holonic-oapp-intelligence-proof.md` | Vite + reusable holon kit | Second-OAPP proof recipe for the IDE intelligence layer, using a local services marketplace to verify the food-delivery golden path generalizes. |
 
 ### MCP sequence recipes
 

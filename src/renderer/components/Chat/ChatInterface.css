@@ -678,6 +678,33 @@
   font-style: normal;
 }
 
+.composer-starnet-progress-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 122, 204, 0.10);
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.composer-starnet-progress-action button {
+  flex-shrink: 0;
+  border: 1px solid rgba(0, 122, 204, 0.55);
+  border-radius: 5px;
+  background: rgba(0, 122, 204, 0.18);
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.composer-starnet-progress-action button:hover {
+  background: rgba(0, 122, 204, 0.28);
+}
+
 .composer-activity-feed {
   margin: 0;
   padding: 8px 10px 10px 14px;
@@ -966,6 +993,11 @@
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.2);
   font-size: 11px;
+}
+
+.composer-activity-summary--inline {
+  margin: 4px 0 2px;
+  opacity: 0.82;
 }
 
 .composer-activity-summary-title {
@@ -1262,6 +1294,12 @@ details.composer-activity-summary[open] .composer-activity-summary-title::before
   background: rgba(78, 201, 176, 0.12);
   color: var(--success, #4ec9b0);
   border-color: rgba(78, 201, 176, 0.35);
+}
+
+.composer-mode-pill--model-role {
+  background: rgba(86, 156, 214, 0.12);
+  color: var(--accent, #569cd6);
+  border-color: rgba(86, 156, 214, 0.35);
 }
 
 .composer-execution-toggle {

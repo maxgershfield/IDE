@@ -52,16 +52,42 @@ html[data-platform='darwin'] .activity-bar {
   border-left-color: #007acc;
 }
 
-.activity-bar-item.expanded {
-  color: #cccccc;
-  background: rgba(0, 122, 204, 0.12);
+.activity-bar-advanced-chevron {
+  width: 48px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  padding: 0;
+  color: #6a6a6a;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, transform 0.15s;
+  -webkit-app-region: no-drag;
 }
 
-.activity-bar-build-menu {
+.activity-bar-advanced-chevron:hover {
+  color: #b0b0b0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.activity-bar-advanced-chevron.is-open {
+  color: #cccccc;
+  background: rgba(0, 122, 204, 0.1);
+  transform: rotate(180deg);
+}
+
+.activity-bar-advanced-chevron.has-active-child:not(.is-open) {
+  color: #8a8a8a;
+}
+
+.activity-bar-advanced-menu {
   width: 100%;
   padding: 2px 0 4px;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   background: rgba(0, 0, 0, 0.12);
 }
 

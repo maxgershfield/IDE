@@ -19,7 +19,8 @@ export function FirstRunWelcomeBanner() {
         <div className="first-run-welcome-text">
           <strong>Welcome to OASIS IDE.</strong> Start with the same calm loop every time:
           open a workspace, ask <strong>Composer</strong> to build an OASIS app, then bring in
-          STARNET, templates, and tools from the <strong>Build</strong> rocket when you need them.
+          STARNET, templates, and tools: open the <strong>chevron under IDE Passes</strong> in the
+          left bar for templates, holonic suites, and guide map when you need them.
         </div>
         <div className="first-run-welcome-actions">
           <button
@@ -33,9 +34,9 @@ export function FirstRunWelcomeBanner() {
           <button
             type="button"
             className="first-run-welcome-linkish"
-            onClick={() => requestActivityView('build')}
+            onClick={() => requestActivityView('templates')}
           >
-            Build
+            Templates
           </button>
           <button
             type="button"

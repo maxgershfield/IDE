@@ -1,15 +1,15 @@
 /**
  * Resolves STAR WebAPI base URL for the IDE and MCP child process.
  *
- * Precedence (must match renderer `getStarApiUrl` in `starApiService.ts`):
+ * Precedence (must match renderer `getStarApiUrl` in `starApiService.ts` after override):
  *   1. Settings disk: starnetEndpointOverride (Integrations > STARNET), when non-empty
  *   2. STAR_API_URL environment variable (shell / OASIS-IDE/.env)
  *   3. First reachable candidate: URL from STAR WebAPI launchSettings.json (repo-relative), then common dev ports
  *   4. Fallback http://127.0.0.1:50564
  *
- * Rationale: a stale `STAR_API_URL=http://127.0.0.1:50564` in `.env.example`-style files must not
- * override the user's STARNET endpoint in Settings — otherwise the STARNET tab loads holons from
- * the correct host while the MCP child still hits localhost and returns ECONNREFUSED.
+ * Rationale: non-empty **Settings** must win so the STARNET panel and the IDE `STAR_API_URL` match. The
+ * renderer’s `VITE_STAR_API_URL` (when present) must not outrank the main-process `runtimeDefault` — see
+ * `getStarApiUrl` in `starApiService.ts` (Vite is applied only after the main resolved URL is absent).
  */
 import fs from 'fs';
 import http from 'http';

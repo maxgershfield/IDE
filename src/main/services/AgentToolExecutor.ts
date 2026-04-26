@@ -6,6 +6,11 @@ import type {
   AgentToolExecutionResult
 } from '../../shared/agentTurnTypes.js';
 import { buildSimpleDiffPreview } from '../../shared/diffPreview.js';
+import type {
+  HolonicAppScaffoldCheck,
+  HolonicAppScaffoldValidationResult,
+  HolonicAppStack
+} from '../../shared/holonicAppBuildTypes.js';
 import {
   isAgentMcpToolAllowed,
   isAgentMcpToolPlanReadOnly,
@@ -122,6 +127,36 @@ const RUN_WORKSPACE_ALLOWED = new Set([
   'ssh-keygen'
 ]);
 
+function isPackageManagerCommand(argv: string[]): boolean {
+  const exe = path.basename(argv[0] ?? '').toLowerCase();
+  if (exe === 'npm' || exe === 'npm.cmd') return true;
+  if (exe === 'yarn' || exe === 'yarn.cmd') return true;
+  if (exe === 'pnpm' || exe === 'pnpm.cmd') return true;
+  return false;
+}
+
+function npmCommandRequiresLocalPackageJson(argv: string[]): boolean {
+  if (!isPackageManagerCommand(argv)) return false;
+  const sub = (argv[1] ?? '').toLowerCase();
+  if (!sub) return true;
+  return sub === 'install' || sub === 'i' || sub === 'ci' || sub === 'run' || sub === 'start' || sub === 'dev' || sub === 'build';
+}
+
+function looksLikeDevServerCommand(argv: string[]): boolean {
+  const exe = path.basename(argv[0] ?? '').toLowerCase();
+  const joined = argv.join(' ').toLowerCase();
+  return (
+    (isPackageManagerCommand(argv) && /\brun\s+(dev|start)\b/.test(joined)) ||
+    exe === 'vite' ||
+    (exe === 'npx' && /\b(vite|expo)\b/.test(joined))
+  );
+}
+
+function extractDevServerUrl(text: string): string | null {
+  const match = text.match(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0):\d+[^\s]*/i);
+  return match?.[0]?.replace(/[),.;]+$/, '') ?? null;
+}
+
 export interface AgentToolExecutorDeps {
   /** Forward to unified MCP (stdio) when present; required for \`mcp_invoke\`. */
   mcpExecuteTool?: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -207,6 +242,10 @@ export class AgentToolExecutor {
           return await this.openBrowserUrl(toolCallId, args);
         case 'run_workspace_command':
           return await this.runWorkspaceCommand(toolCallId, args);
+        case 'validate_holonic_app_scaffold':
+          return await this.validateHolonicAppScaffold(toolCallId, args);
+        case 'validate_oapp_quality':
+          return await this.validateOappQuality(toolCallId, args);
         case 'write_file':
           return await this.writeFile(toolCallId, args);
         case 'write_files':
@@ -661,13 +700,30 @@ export class AgentToolExecutor {
       return { toolCallId, content: `cwd is not a directory: ${cwdRel}`, isError: true };
     }
 
+    if (npmCommandRequiresLocalPackageJson(argv)) {
+      const packageJsonPath = path.join(cwdFull, 'package.json');
+      const packageJson = await fs.stat(packageJsonPath).catch(() => null);
+      if (!packageJson?.isFile()) {
+        return {
+          toolCallId,
+          content:
+            `Refusing ${argv.join(' ')}: ${cwdRel} has no package.json. ` +
+            'Create the app scaffold in that exact folder first (package.json, index.html, entry file), then rerun the command. ' +
+            'This prevents npm from walking up to a parent workspace package.json and starting the wrong app.',
+          isError: true
+        };
+      }
+    }
+
     const capTimeout =
       typeof args.timeoutMs === 'number' && Number.isFinite(args.timeoutMs) && args.timeoutMs > 0
         ? Math.min(Math.floor(args.timeoutMs), 600_000)
         : 600_000;
 
     try {
-      const log = await this.spawnAndCollect(argv[0], argv.slice(1), cwdFull, capTimeout);
+      const log = await this.spawnAndCollect(argv[0], argv.slice(1), cwdFull, capTimeout, {
+        resolveOnDevServerUrl: looksLikeDevServerCommand(argv)
+      });
       return { toolCallId, content: log };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -679,7 +735,8 @@ export class AgentToolExecutor {
     command: string,
     argvRest: string[],
     cwd: string,
-    timeoutMs: number
+    timeoutMs: number,
+    opts?: { resolveOnDevServerUrl?: boolean }
   ): Promise<string> {
     const maxBytes = 256 * 1024;
     return new Promise((resolve, reject) => {
@@ -691,35 +748,711 @@ export class AgentToolExecutor {
       });
 
       let combined = '';
-      const append = (chunk: Buffer) => {
-        const s = chunk.toString('utf-8');
-        if (combined.length >= maxBytes) return;
-        const room = maxBytes - combined.length;
-        combined += s.length <= room ? s : `${s.slice(0, room)}\n… (output truncated)`;
-      };
-
-      child.stdout?.on('data', append);
-      child.stderr?.on('data', append);
-
+      let settled = false;
       const timer = setTimeout(() => {
+        if (settled) return;
         try {
           child.kill('SIGTERM');
         } catch {
           /* ignore */
         }
       }, timeoutMs);
+      const append = (chunk: Buffer) => {
+        const s = chunk.toString('utf-8');
+        if (combined.length >= maxBytes) return;
+        const room = maxBytes - combined.length;
+        combined += s.length <= room ? s : `${s.slice(0, room)}\n… (output truncated)`;
+        if (opts?.resolveOnDevServerUrl && !settled) {
+          const url = extractDevServerUrl(combined);
+          if (url) {
+            settled = true;
+            clearTimeout(timer);
+            resolve(`${combined}\n---\ndev_server_ready: ${url}\nexit_code: null`);
+          }
+        }
+      };
+
+      child.stdout?.on('data', append);
+      child.stderr?.on('data', append);
 
       child.on('error', (err) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         reject(err);
       });
 
       child.on('close', (code, signal) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         const tail = `\n---\nexit_code: ${code ?? 'null'}${signal ? ` signal: ${signal}` : ''}`;
         resolve(combined + tail);
       });
     });
+  }
+
+  private async validateHolonicAppScaffold(
+    toolCallId: string,
+    args: Record<string, unknown>
+  ): Promise<AgentToolExecutionResult> {
+    const projectPath =
+      typeof args.projectPath === 'string' && args.projectPath.trim()
+        ? args.projectPath.trim()
+        : typeof args.path === 'string' && args.path.trim()
+          ? args.path.trim()
+          : '';
+    if (!projectPath) {
+      return {
+        toolCallId,
+        content: 'validate_holonic_app_scaffold requires projectPath',
+        isError: true
+      };
+    }
+
+    let projectFull: string;
+    try {
+      projectFull = this.resolveWorkspacePath(projectPath);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { toolCallId, content: msg, isError: true };
+    }
+
+    const stack = this.normalizeHolonicStack(args.stack);
+    const requiredFiles = this.normalizeRequiredFiles(args.requiredFiles, stack);
+    const holonIds = Array.isArray(args.holonCatalogIds)
+      ? args.holonCatalogIds.map((id) => String(id ?? '').trim()).filter(Boolean)
+      : [];
+    const reusableHolonSpecPath =
+      typeof args.reusableHolonSpecPath === 'string' && args.reusableHolonSpecPath.trim()
+        ? args.reusableHolonSpecPath.trim()
+        : 'src/holons/reusableHolonSpecs.js';
+    const liveRuntimeAdapterPath =
+      typeof args.liveRuntimeAdapterPath === 'string' && args.liveRuntimeAdapterPath.trim()
+        ? args.liveRuntimeAdapterPath.trim()
+        : typeof args.runtimeAdapterPath === 'string' && args.runtimeAdapterPath.trim()
+          ? args.runtimeAdapterPath.trim()
+          : 'src/api/holonRuntimeAdapter.js';
+    const checks = await this.collectHolonicScaffoldChecks(
+      projectFull,
+      requiredFiles,
+      stack,
+      holonIds,
+      reusableHolonSpecPath,
+      liveRuntimeAdapterPath
+    );
+    const repairInstructions = this.buildHolonicRepairInstructions(checks);
+    const result: HolonicAppScaffoldValidationResult = {
+      ok: checks.every((check) => check.status === 'ok' || check.status === 'warning'),
+      projectPath,
+      stack,
+      checks,
+      repairInstructions: repairInstructions.length > 0 ? repairInstructions : undefined
+    };
+    const summary = checks
+      .map((check) => `- ${check.status.toUpperCase()}: ${check.label} — ${check.detail}`)
+      .join('\n');
+    return {
+      toolCallId,
+      content: [
+        `Holonic app scaffold validation: ${result.ok ? 'PASS' : 'FAIL'}`,
+        `Project: ${projectPath}`,
+        `Stack: ${stack}`,
+        '',
+        summary,
+        ...(repairInstructions.length > 0
+          ? ['', 'Repair instructions:', ...repairInstructions.map((instruction) => `- ${instruction}`)]
+          : []),
+        '',
+        '```json',
+        JSON.stringify(result, null, 2),
+        '```'
+      ].join('\n'),
+      isError: !result.ok
+    };
+  }
+
+  private normalizeHolonicStack(raw: unknown): HolonicAppStack {
+    const s = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    if (s === 'expo' || s === 'static' || s === 'custom') return s;
+    return 'vite';
+  }
+
+  private normalizeRequiredFiles(raw: unknown, stack: HolonicAppStack): string[] {
+    if (Array.isArray(raw)) {
+      const files = raw
+        .map((item) => {
+          if (typeof item === 'string') return item.trim();
+          if (item && typeof item === 'object') {
+            const p = (item as Record<string, unknown>).path;
+            return typeof p === 'string' ? p.trim() : '';
+          }
+          return '';
+        })
+        .filter(Boolean);
+      if (files.length > 0) return files;
+    }
+    if (stack === 'expo') return ['package.json', 'app.json', 'app/index.tsx', 'README.md'];
+    if (stack === 'static') return ['index.html', 'README.md'];
+    return [
+      'package.json',
+      'vite.config.js',
+      'index.html',
+      'src/main.js',
+      'src/api/starnetApi.js',
+      'src/holons/manifest.js',
+      'README.md'
+    ];
+  }
+
+  private async collectHolonicScaffoldChecks(
+    projectFull: string,
+    requiredFiles: string[],
+    stack: HolonicAppStack,
+    holonCatalogIds: string[],
+    reusableHolonSpecPath: string,
+    liveRuntimeAdapterPath: string
+  ): Promise<HolonicAppScaffoldCheck[]> {
+    const checks: HolonicAppScaffoldCheck[] = [];
+    const projectStat = await fs.stat(projectFull).catch(() => null);
+    checks.push({
+      id: 'project-dir',
+      label: 'Project directory',
+      status: projectStat?.isDirectory() ? 'ok' : 'failed',
+      detail: projectStat?.isDirectory() ? projectFull : 'Project path is not a directory.'
+    });
+    if (!projectStat?.isDirectory()) return checks;
+
+    for (const file of requiredFiles) {
+      const full = path.join(projectFull, file);
+      const stat = await fs.stat(full).catch(() => null);
+      checks.push({
+        id: `file-${file}`,
+        label: `Required file ${file}`,
+        status: stat?.isFile() ? 'ok' : 'failed',
+        detail: stat?.isFile() ? 'Present.' : 'Missing.'
+      });
+    }
+
+    if (stack === 'vite' || stack === 'expo' || stack === 'custom') {
+      checks.push(await this.checkPackageJson(projectFull, stack));
+    }
+    if (stack === 'vite') {
+      checks.push(await this.checkViteEntry(projectFull));
+    }
+    if (holonCatalogIds.length > 0) {
+      checks.push(await this.checkHolonCatalogIds(projectFull, holonCatalogIds));
+    }
+    checks.push(await this.checkReusableHolonSpecs(projectFull, reusableHolonSpecPath));
+    checks.push(...await this.collectOappQualityChecks(projectFull, reusableHolonSpecPath, liveRuntimeAdapterPath));
+    return checks;
+  }
+
+  private async checkPackageJson(projectFull: string, stack: HolonicAppStack): Promise<HolonicAppScaffoldCheck> {
+    const packagePath = path.join(projectFull, 'package.json');
+    try {
+      const raw = await fs.readFile(packagePath, 'utf-8');
+      const pkg = JSON.parse(raw) as { scripts?: Record<string, unknown>; type?: unknown };
+      const scripts = pkg.scripts ?? {};
+      const missing = ['dev', 'build'].filter((script) => typeof scripts[script] !== 'string');
+      if (missing.length > 0) {
+        return {
+          id: 'package-scripts',
+          label: 'package.json scripts',
+          status: 'failed',
+          detail: `Missing script(s): ${missing.join(', ')}.`
+        };
+      }
+      if (stack === 'vite' && pkg.type !== 'module') {
+        return {
+          id: 'package-type',
+          label: 'package.json module type',
+          status: 'failed',
+          detail: 'Vite OAPPs must set "type": "module".'
+        };
+      }
+      return {
+        id: 'package-json',
+        label: 'package.json',
+        status: 'ok',
+        detail: 'Has required scripts and module settings.'
+      };
+    } catch (e) {
+      return {
+        id: 'package-json',
+        label: 'package.json',
+        status: 'failed',
+        detail: e instanceof Error ? e.message : 'Could not read package.json.'
+      };
+    }
+  }
+
+  private async checkViteEntry(projectFull: string): Promise<HolonicAppScaffoldCheck> {
+    try {
+      const html = await fs.readFile(path.join(projectFull, 'index.html'), 'utf-8');
+      const match = html.match(/<script[^>]+type=["']module["'][^>]+src=["']([^"']+)["']/i);
+      const src = match?.[1]?.replace(/^\//, '');
+      if (!src) {
+        return {
+          id: 'vite-entry',
+          label: 'Vite entry script',
+          status: 'failed',
+          detail: 'index.html does not include a module script entry.'
+        };
+      }
+      const entry = await fs.stat(path.join(projectFull, src)).catch(() => null);
+      return {
+        id: 'vite-entry',
+        label: 'Vite entry script',
+        status: entry?.isFile() ? 'ok' : 'failed',
+        detail: entry?.isFile() ? `index.html loads ${src}.` : `Entry file ${src} is missing.`
+      };
+    } catch (e) {
+      return {
+        id: 'vite-entry',
+        label: 'Vite entry script',
+        status: 'failed',
+        detail: e instanceof Error ? e.message : 'Could not inspect index.html.'
+      };
+    }
+  }
+
+  private async checkHolonCatalogIds(
+    projectFull: string,
+    holonCatalogIds: string[]
+  ): Promise<HolonicAppScaffoldCheck> {
+    const candidates = [
+      path.join(projectFull, 'src/holons/manifest.js'),
+      path.join(projectFull, 'src/holons/manifest.ts'),
+      path.join(projectFull, 'src/lib/holonMap.js'),
+      path.join(projectFull, 'src/lib/holonMap.ts')
+    ];
+    let combined = '';
+    for (const candidate of candidates) {
+      const text = await fs.readFile(candidate, 'utf-8').catch(() => '');
+      combined += `\n${text}`;
+    }
+    const missing = holonCatalogIds.filter((id) => !combined.includes(id));
+    return {
+      id: 'holon-catalog-ids',
+      label: 'Selected holon catalog ids',
+      status: missing.length === 0 ? 'ok' : 'failed',
+      detail: missing.length === 0
+        ? 'All selected catalog ids are represented in the app holon manifest/adapter files.'
+        : `Missing catalog id(s): ${missing.join(', ')}.`
+    };
+  }
+
+  private async checkReusableHolonSpecs(
+    projectFull: string,
+    specPath: string
+  ): Promise<HolonicAppScaffoldCheck> {
+    const normalizedPath = specPath.replace(/^\/+/, '');
+    const candidates = [
+      path.join(projectFull, normalizedPath),
+      path.join(projectFull, 'src/holons/manifest.js'),
+      path.join(projectFull, 'src/holons/manifest.ts')
+    ];
+    let sourcePath = '';
+    let text = '';
+    for (const candidate of candidates) {
+      text = await fs.readFile(candidate, 'utf-8').catch(() => '');
+      if (text) {
+        sourcePath = candidate;
+        break;
+      }
+    }
+    if (!text) {
+      return {
+        id: 'reusable-holon-specs',
+        label: 'Reusable holon specs',
+        status: 'failed',
+        detail: `Missing ${normalizedPath} or src/holons/manifest.*.`
+      };
+    }
+
+    const validation = this.validateReusableHolonSpecSource(text);
+    if (!validation.ok) {
+      return {
+        id: 'reusable-holon-specs',
+        label: 'Reusable holon specs',
+        status: 'failed',
+        detail:
+          `Spec file ${path.relative(projectFull, sourcePath)} failed structured validation: ${validation.failures.join('; ')}.`
+      };
+    }
+
+    return {
+      id: 'reusable-holon-specs',
+      label: 'Reusable holon specs',
+      status: 'ok',
+      detail:
+        `Validated ${validation.specCount} reusable holon spec(s) in ${path.relative(projectFull, sourcePath)} with ports, adapters, fixtures, verification, and UI surfaces.`
+    };
+  }
+
+  private validateReusableHolonSpecSource(text: string): { ok: boolean; specCount: number; failures: string[] } {
+    const failures: string[] = [];
+    if (!/\breusableHolonSpecs\b/.test(text) && !/\bspecs\s*:/.test(text)) {
+      failures.push('missing reusableHolonSpecs export or manifest specs field');
+    }
+    const arrayBody = this.extractTopLevelArrayBody(text, 'reusableHolonSpecs')
+      ?? this.extractTopLevelArrayBody(text, 'specs');
+    if (!arrayBody) {
+      failures.push('could not locate reusable holon spec array');
+      return { ok: false, specCount: 0, failures };
+    }
+    const blocks = this.extractTopLevelObjectBlocks(arrayBody);
+    if (blocks.length < 3) {
+      failures.push(`expected at least 3 reusable specs, found ${blocks.length}`);
+    }
+    blocks.forEach((block, index) => {
+      const label = this.readStringProperty(block, 'id') ?? `spec[${index}]`;
+      for (const prop of ['id', 'name', 'kind', 'description']) {
+        if (!this.hasProperty(block, prop)) failures.push(`${label} missing ${prop}`);
+      }
+      if (!this.hasProperty(block, 'version')) failures.push(`${label} missing version`);
+      if (!this.hasProperty(block, 'capability')) failures.push(`${label} missing capability`);
+      if (!this.hasProperty(block, 'state')) failures.push(`${label} missing state`);
+      for (const prop of ['ports', 'dependencies', 'adapters', 'fixtures', 'verification', 'uiSurfaces']) {
+        if (!this.hasProperty(block, prop)) {
+          failures.push(`${label} missing ${prop}`);
+          continue;
+        }
+        const itemCount = this.countTopLevelArrayItemsForProperty(block, prop);
+        if (itemCount == null) {
+          failures.push(`${label} ${prop} is not an array`);
+        } else if (prop !== 'dependencies' && itemCount === 0) {
+          failures.push(`${label} ${prop} must include at least one item`);
+        }
+      }
+    });
+    return { ok: failures.length === 0, specCount: blocks.length, failures };
+  }
+
+  private extractTopLevelArrayBody(text: string, propertyName: string): string | null {
+    const re = new RegExp(`\\b${propertyName}\\b\\s*(?:=|:)\\s*\\[`, 'm');
+    const match = re.exec(text);
+    if (!match) return null;
+    const openIndex = match.index + match[0].lastIndexOf('[');
+    const closeIndex = this.findMatchingDelimiter(text, openIndex, '[', ']');
+    return closeIndex > openIndex ? text.slice(openIndex + 1, closeIndex) : null;
+  }
+
+  private extractTopLevelObjectBlocks(arrayBody: string): string[] {
+    const blocks: string[] = [];
+    for (let i = 0; i < arrayBody.length; i++) {
+      if (arrayBody[i] !== '{') continue;
+      const close = this.findMatchingDelimiter(arrayBody, i, '{', '}');
+      if (close > i) {
+        blocks.push(arrayBody.slice(i, close + 1));
+        i = close;
+      }
+    }
+    return blocks;
+  }
+
+  private findMatchingDelimiter(text: string, openIndex: number, open: string, close: string): number {
+    let depth = 0;
+    let quote: '"' | "'" | '`' | null = null;
+    let escaped = false;
+    for (let i = openIndex; i < text.length; i++) {
+      const ch = text[i];
+      if (quote) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === '\\') {
+          escaped = true;
+        } else if (ch === quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === '`') {
+        quote = ch;
+        continue;
+      }
+      if (ch === open) depth += 1;
+      if (ch === close) {
+        depth -= 1;
+        if (depth === 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  private hasProperty(block: string, prop: string): boolean {
+    return new RegExp(`(?:^|[,{\\s])["']?${prop}["']?\\s*:`, 'm').test(block);
+  }
+
+  private readStringProperty(block: string, prop: string): string | null {
+    const match = new RegExp(`(?:^|[,{\\s])["']?${prop}["']?\\s*:\\s*["']([^"']+)["']`, 'm').exec(block);
+    return match?.[1] ?? null;
+  }
+
+  private countTopLevelArrayItemsForProperty(block: string, prop: string): number | null {
+    const re = new RegExp(`(?:^|[,{\\s])["']?${prop}["']?\\s*:\\s*\\[`, 'm');
+    const match = re.exec(block);
+    if (!match) return null;
+    const openIndex = match.index + match[0].lastIndexOf('[');
+    const closeIndex = this.findMatchingDelimiter(block, openIndex, '[', ']');
+    if (closeIndex <= openIndex) return null;
+    const body = block.slice(openIndex + 1, closeIndex).trim();
+    if (!body) return 0;
+    return this.countTopLevelArrayItems(body);
+  }
+
+  private countTopLevelArrayItems(body: string): number {
+    let count = 1;
+    let depth = 0;
+    let quote: '"' | "'" | '`' | null = null;
+    let escaped = false;
+    for (const ch of body) {
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === '`') {
+        quote = ch;
+        continue;
+      }
+      if (ch === '{' || ch === '[' || ch === '(') depth += 1;
+      if (ch === '}' || ch === ']' || ch === ')') depth -= 1;
+      if (ch === ',' && depth === 0) count += 1;
+    }
+    return count;
+  }
+
+  private async collectOappQualityChecks(
+    projectFull: string,
+    reusableHolonSpecPath: string,
+    liveRuntimeAdapterPath: string
+  ): Promise<HolonicAppScaffoldCheck[]> {
+    const source = await this.readOappSourceBundle(projectFull);
+    const readme = await fs.readFile(path.join(projectFull, 'README.md'), 'utf-8').catch(() => '');
+    const checks: HolonicAppScaffoldCheck[] = [];
+    checks.push(this.checkRoleSurfaces(source, readme));
+    checks.push(this.checkInteractiveActions(source));
+    checks.push(this.checkDeadButtons(source));
+    checks.push(this.checkAvatarAuthSurface(source));
+    checks.push(await this.checkFixtureLiveRuntime(projectFull, source, liveRuntimeAdapterPath));
+    checks.push(this.checkReadmeRuntimeNotes(readme));
+    checks.push(await this.checkRuntimeAdapterReferences(projectFull, reusableHolonSpecPath, liveRuntimeAdapterPath));
+    return checks;
+  }
+
+  private async readOappSourceBundle(projectFull: string): Promise<string> {
+    const candidates = [
+      'src/App.jsx',
+      'src/App.tsx',
+      'src/App.js',
+      'src/main.jsx',
+      'src/main.tsx',
+      'src/main.js',
+      'src/holons/reusableHolonSpecs.js',
+      'src/holons/reusableHolonSpecs.ts',
+      'src/api/holonRuntimeAdapter.js',
+      'src/api/holonRuntimeAdapter.ts'
+    ];
+    const chunks: string[] = [];
+    for (const relative of candidates) {
+      const text = await fs.readFile(path.join(projectFull, relative), 'utf-8').catch(() => '');
+      if (text) chunks.push(`\n/* ${relative} */\n${text}`);
+    }
+    return chunks.join('\n');
+  }
+
+  private checkRoleSurfaces(source: string, readme: string): HolonicAppScaffoldCheck {
+    const roles = ['customer', 'admin', 'merchant', 'restaurant', 'courier', 'operator', 'creator', 'member']
+      .filter((role) => new RegExp(`\\b${role}\\b`, 'i').test(source));
+    const singleRoleDeclared = /\bsingle[-\s]?role\b/i.test(readme);
+    return {
+      id: 'quality-role-surfaces',
+      label: 'OAPP role surfaces',
+      status: roles.length >= 2 || singleRoleDeclared ? 'ok' : 'failed',
+      detail:
+        roles.length >= 2
+          ? `Detected role surfaces: ${Array.from(new Set(roles)).join(', ')}.`
+          : singleRoleDeclared
+            ? 'README declares this as a single-role OAPP.'
+            : 'No multi-role app surfaces detected. Add user-facing role views or declare a single-role rationale in README.'
+    };
+  }
+
+  private checkInteractiveActions(source: string): HolonicAppScaffoldCheck {
+    const actionCount = (source.match(/\bonClick\s*=|\buseState\s*\(|\baddEventListener\s*\(|\bform\s+onSubmit\b/gi) ?? []).length;
+    return {
+      id: 'quality-interactive-actions',
+      label: 'Interactive app actions',
+      status: actionCount >= 3 ? 'ok' : 'failed',
+      detail:
+        actionCount >= 3
+          ? `Detected ${actionCount} stateful or clickable action hook(s).`
+          : 'Too few real app actions detected. Add working buttons/forms tied to state or adapters.'
+    };
+  }
+
+  private checkDeadButtons(source: string): HolonicAppScaffoldCheck {
+    const buttons = Array.from(source.matchAll(/<button\b([^>]*)>/gi)).map((m) => m[1] ?? '');
+    if (buttons.length === 0) {
+      return {
+        id: 'quality-dead-buttons',
+        label: 'Primary CTA wiring',
+        status: 'warning',
+        detail: 'No button elements detected.'
+      };
+    }
+    const dead = buttons.filter((attrs) => !/\bonClick\s*=|\btype\s*=\s*["']submit["']|\bdisabled\b/i.test(attrs));
+    const ratio = dead.length / buttons.length;
+    return {
+      id: 'quality-dead-buttons',
+      label: 'Primary CTA wiring',
+      status: dead.length === 0 || ratio <= 0.25 ? 'ok' : 'failed',
+      detail:
+        dead.length === 0
+          ? `All ${buttons.length} button(s) have an action, submit behavior, or disabled state.`
+          : `${dead.length}/${buttons.length} button(s) appear to lack action wiring.`
+    };
+  }
+
+  private checkAvatarAuthSurface(source: string): HolonicAppScaffoldCheck {
+    const hasAuth = /\bAvatarAuthHolon\b|\bOASIS Avatar\b|\boasis-avatar\b|\bavatarId\b|\bAuthHolonTemplate\b/i.test(source);
+    return {
+      id: 'quality-avatar-auth',
+      label: 'OASIS Avatar authentication surface',
+      status: hasAuth ? 'ok' : 'failed',
+      detail: hasAuth
+        ? 'Detected OASIS Avatar auth/session references.'
+        : 'Missing OASIS Avatar auth surface or declared adapter.'
+    };
+  }
+
+  private async checkFixtureLiveRuntime(
+    projectFull: string,
+    source: string,
+    liveRuntimeAdapterPath: string
+  ): Promise<HolonicAppScaffoldCheck> {
+    const hasFixture = /\bfixture\b/i.test(source);
+    const hasLive = /\blive\b/i.test(source);
+    const adapterPath = path.join(projectFull, liveRuntimeAdapterPath.replace(/^\/+/, ''));
+    const adapter = await fs.readFile(adapterPath, 'utf-8').catch(() => '');
+    const liveWrites = /\/api\/Holons|starRequest|starPost|createHolon|updateHolon|POST|PUT/i.test(adapter);
+    const ok = hasFixture && hasLive && liveWrites;
+    return {
+      id: 'quality-fixture-live-runtime',
+      label: 'Fixture/live runtime boundary',
+      status: ok ? 'ok' : 'failed',
+      detail: ok
+        ? `Detected fixture mode, live mode, and write-capable adapter ${liveRuntimeAdapterPath}.`
+        : 'Missing deterministic fixture mode, opt-in live mode, or write-capable runtime adapter.'
+    };
+  }
+
+  private checkReadmeRuntimeNotes(readme: string): HolonicAppScaffoldCheck {
+    const hasRun = /\bnpm\s+(install|run\s+dev|run\s+build)\b|getting started|run/i.test(readme);
+    const hasRuntime = /\bfixture\b/i.test(readme) && /\blive\b/i.test(readme);
+    return {
+      id: 'quality-readme-runtime',
+      label: 'README run and runtime notes',
+      status: hasRun && hasRuntime ? 'ok' : 'failed',
+      detail:
+        hasRun && hasRuntime
+          ? 'README explains how to run the app and how fixture/live runtime modes work.'
+          : 'README must explain run commands plus fixture/live runtime behavior.'
+    };
+  }
+
+  private async checkRuntimeAdapterReferences(
+    projectFull: string,
+    reusableHolonSpecPath: string,
+    liveRuntimeAdapterPath: string
+  ): Promise<HolonicAppScaffoldCheck> {
+    const candidates = [
+      path.join(projectFull, reusableHolonSpecPath.replace(/^\/+/, '')),
+      path.join(projectFull, 'src/holons/manifest.js'),
+      path.join(projectFull, 'src/holons/manifest.ts')
+    ];
+    let text = '';
+    for (const candidate of candidates) {
+      text = await fs.readFile(candidate, 'utf-8').catch(() => '');
+      if (text) break;
+    }
+    if (!text) {
+      return {
+        id: 'quality-runtime-adapter-refs',
+        label: 'Runtime adapter references',
+        status: 'failed',
+        detail: `Could not inspect ${reusableHolonSpecPath}.`
+      };
+    }
+    const adapterName = path.basename(liveRuntimeAdapterPath);
+    const hasAdapterRef = text.includes(liveRuntimeAdapterPath) || text.includes(adapterName) || /\bkind\s*:\s*['"](star|oasis)['"]/i.test(text);
+    return {
+      id: 'quality-runtime-adapter-refs',
+      label: 'Runtime adapter references',
+      status: hasAdapterRef ? 'ok' : 'warning',
+      detail: hasAdapterRef
+        ? 'Reusable holon specs reference STAR/OASIS or runtime adapter bindings.'
+        : 'Reusable holon specs do not clearly reference the live runtime adapter.'
+    };
+  }
+
+  private buildHolonicRepairInstructions(checks: HolonicAppScaffoldCheck[]): string[] {
+    return checks
+      .filter((check) => check.status === 'failed')
+      .slice(0, 8)
+      .map((check) => `${check.label}: ${check.detail}`);
+  }
+
+  private async validateOappQuality(
+    toolCallId: string,
+    args: Record<string, unknown>
+  ): Promise<AgentToolExecutionResult> {
+    const projectPath = typeof args.projectPath === 'string' && args.projectPath.trim()
+      ? args.projectPath.trim()
+      : typeof args.path === 'string' && args.path.trim()
+        ? args.path.trim()
+        : '';
+    if (!projectPath) {
+      return { toolCallId, content: 'validate_oapp_quality requires projectPath', isError: true };
+    }
+    let projectFull: string;
+    try {
+      projectFull = this.resolveWorkspacePath(projectPath);
+    } catch (e) {
+      return { toolCallId, content: e instanceof Error ? e.message : String(e), isError: true };
+    }
+    const reusableHolonSpecPath =
+      typeof args.reusableHolonSpecPath === 'string' && args.reusableHolonSpecPath.trim()
+        ? args.reusableHolonSpecPath.trim()
+        : 'src/holons/reusableHolonSpecs.js';
+    const liveRuntimeAdapterPath =
+      typeof args.liveRuntimeAdapterPath === 'string' && args.liveRuntimeAdapterPath.trim()
+        ? args.liveRuntimeAdapterPath.trim()
+        : 'src/api/holonRuntimeAdapter.js';
+    const checks = await this.collectOappQualityChecks(projectFull, reusableHolonSpecPath, liveRuntimeAdapterPath);
+    const ok = checks.every((check) => check.status === 'ok' || check.status === 'warning');
+    const repairInstructions = this.buildHolonicRepairInstructions(checks);
+    const summary = checks.map((check) => `- ${check.status.toUpperCase()}: ${check.label} — ${check.detail}`).join('\n');
+    return {
+      toolCallId,
+      content: [
+        `OAPP quality validation: ${ok ? 'PASS' : 'FAIL'}`,
+        `Project: ${projectPath}`,
+        '',
+        summary,
+        ...(repairInstructions.length > 0
+          ? ['', 'Repair instructions:', ...repairInstructions.map((instruction) => `- ${instruction}`)]
+          : []),
+        '',
+        '```json',
+        JSON.stringify({ ok, projectPath, checks, repairInstructions }, null, 2),
+        '```'
+      ].join('\n'),
+      isError: !ok
+    };
   }
 
   private async writeFile(
@@ -733,6 +1466,10 @@ export class AgentToolExecutor {
     }
     if (content.length > 2 * 1024 * 1024) {
       return { toolCallId, content: 'write_file: content too large (max 2 MiB)', isError: true };
+    }
+    const artifactBlock = this.blockIdeOwnedPlanningArtifactWrite(p, content);
+    if (artifactBlock) {
+      return { toolCallId, content: artifactBlock, isError: true };
     }
     let full: string;
     try {
@@ -806,6 +1543,8 @@ export class AgentToolExecutor {
       const content = typeof (entry as any).content === 'string' ? (entry as any).content : '';
       if (!p) { errors.push('skipped entry with missing path'); continue; }
       if (content.length > 2 * 1024 * 1024) { errors.push(`${p}: too large`); continue; }
+      const artifactBlock = this.blockIdeOwnedPlanningArtifactWrite(p, content);
+      if (artifactBlock) { errors.push(`${p}: ${artifactBlock}`); continue; }
       try {
         const full = this.resolveWorkspacePath(p);
         let oldText = '';
@@ -846,6 +1585,34 @@ export class AgentToolExecutor {
       };
     }
     return { toolCallId, content: summary, activityMeta };
+  }
+
+  private blockIdeOwnedPlanningArtifactWrite(userPath: string, content: string): string | null {
+    const basename = path.basename(userPath).toLowerCase();
+    const ideOwnedNames = new Set([
+      'oasis-build-plan.json',
+      'oasis-composition-plan.json',
+      'oasis-holonic-build-contract.json'
+    ]);
+    const looksLikeIdeArtifact =
+      ideOwnedNames.has(basename) ||
+      /\b(oasis-build-plan|oasis-composition-plan|oasis-holonic-build-contract)\b/i.test(content) ||
+      /\bholonRows\b/.test(content) ||
+      /\btemplateRecommendation\b/.test(content);
+    if (!looksLikeIdeArtifact) return null;
+    return [
+      'Do not write IDE-owned planning artifacts as JSON files.',
+      'Respond in the chat with the user-facing plan first, then emit fenced artifacts for the IDE to ingest:',
+      '```oasis-build-plan',
+      '{ "templateRecommendation": { ... }, "holonFeatures": [ ... ] }',
+      '```',
+      '```oasis-composition-plan',
+      '{ "version": 1, "intent": "...", "nodes": [], "edges": [] }',
+      '```',
+      '```oasis-holonic-build-contract',
+      '{ "version": 1, "projectPath": "...", "stack": "vite", ... }',
+      '```'
+    ].join('\n');
   }
 
   /**

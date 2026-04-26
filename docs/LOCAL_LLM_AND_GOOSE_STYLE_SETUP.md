@@ -80,7 +80,7 @@ Use this when ONODE chat is unavailable but the IDE still has **main-process** k
 
    `OPENAI_API_KEY` can be any **non-empty** placeholder for many local servers; the important part is `OPENAI_BASE_URL` pointing at your OpenAI-compatible root.
 
-2. Optionally set **`OPENAI_CHAT_MODEL`** to default model id.
+2. Optionally set **`OPENAI_CHAT_MODEL`** to a default model id, for example `gpt-5.5`.
 
 3. Start the IDE. Chat fallback may show as **Local LLM** in the Composer toolbar when routing uses this path.
 
